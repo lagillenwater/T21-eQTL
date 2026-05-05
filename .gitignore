@@ -1,0 +1,67 @@
+# R artifacts
+.Rproj.user/
+.Rhistory
+.RData
+.RDataTmp
+.Ruserdata
+.httr-oauth
+.Renviron
+*.Rproj
+*_cache/
+/cache/
+*.utf8.md
+*.knit.md
+
+# renv
+renv/library/
+renv/local/
+renv/staging/
+
+# Pipeline outputs (regenerable)
+results/figures/
+results/tables/
+results/*.txt
+
+# Ignore everything in data/ by default.
+# Note: cannot use bare `data/` here because git won't allow re-including
+# files inside an excluded directory. Use file-level globs instead.
+data/*
+data/processed/*
+data/raw/*
+
+# Keep small reference inputs (metadata, comorbidity)
+!data/P4C_metadata_021921_Costello.txt
+!data/P4C_Comorbidity_020921.tsv
+
+# Keep directory placeholders (also re-include the subdirs themselves)
+!data/processed/
+!data/processed/.gitkeep
+!data/raw/
+!data/raw/.gitkeep
+!results/figures/.gitkeep
+!results/tables/.gitkeep
+!docs/.gitkeep
+
+# Logs and serialized R data
+*.log
+*.rds
+*.RDS
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+*#
+.vscode/
+.idea/
+
+# Python (helper scripts, if any)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.ipynb_checkpoints
+notebooks/executed/

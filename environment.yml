@@ -1,0 +1,20 @@
+name: t21-eqtl
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # R version
+  - r-base>=4.0
+
+  # CRAN packages via conda
+  - r-tidyverse
+  - r-data.table
+  - r-ggplot2
+  - r-ggrepel
+  - r-ggalluvial  # Alluvial diagrams (Panel D)
+  - r-arrow       # Reading parquet files (eQTL data)
+
+  # Bioconductor packages via conda
+  - bioconductor-deseq2
+  - bioconductor-genomicranges  # Blacklist processing
