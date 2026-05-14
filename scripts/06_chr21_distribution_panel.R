@@ -10,7 +10,7 @@
 #              "no dosage compensation" finding holds at population level
 #              for our cohort.
 #            - It does NOT rule out per-gene compensation; the per-gene
-#              drill-down (script 12) is still needed.
+#              drill-down (script 04) is still needed.
 #
 # Inputs:
 #   - results/tables/deseq2_all_genes_ploidy_normalized.csv
@@ -21,7 +21,6 @@
 #   - results/figures/chr21_vs_genome_distribution.png
 #   - results/figures/chr21_vs_genome_distribution_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-05-04
 
 suppressPackageStartupMessages({

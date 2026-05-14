@@ -32,7 +32,6 @@
 #   - results/tables/chr21_lane_summary.csv
 #   - results/tables/chr21_lane_assignment_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-05-04
 
 suppressPackageStartupMessages({
@@ -57,7 +56,7 @@ MAGNITUDE_THRESHOLD <- 1.0     # |norm_log2FC| / cohort_sd >= this to be
                                # significant deviations are within typical
                                # cohort variation, so no eQTL explanation
                                # is sought. This filter is also applied
-                               # upstream in script 09 (gene selection)
+                               # upstream in script 02 (gene selection)
                                # so failing genes have no genotype data.
 LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
 RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise

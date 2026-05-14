@@ -13,7 +13,6 @@
 #   - results/figures/eqtl_breakdown_bar.pdf
 #   - results/tables/panel_D_eqtl_summary.csv
 #
-# Author: Claude Code
 # Date: 2025-12-10
 
 # Load required libraries

@@ -17,7 +17,6 @@
 #   - results/tables/expected_dosage_eqtl_matches.csv
 #   - results/figures/expected_dosage_eqtl_summary.pdf
 #
-# Author: Claude Code
 # Date: 2025-12-17
 
 # Load required libraries

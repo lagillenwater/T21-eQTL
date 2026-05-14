@@ -37,15 +37,16 @@ candidates.
 Rscript install_packages.R                        # one-time
 Rscript scripts/00_preprocess_data.R              # long -> wide counts
 Rscript scripts/01_deseq2_analysis.R              # trisomy-aware DESeq2
-Rscript scripts/09_filter_genotypes.R             # gene + variant universe
-Rscript scripts/11_t21_dosage_boxplots.R          # within-T21 fits
-Rscript scripts/12_chr21_lane_assignment.R        # MAIN per-gene table
-Rscript scripts/13_alluvial_lane_assignment.R     # alluvial + Sankey
-Rscript scripts/15_chr21_distribution_panel.R     # population view
+Rscript scripts/02_filter_genotypes.R             # gene + variant universe
+Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 fits
+Rscript scripts/04_chr21_lane_assignment.R        # MAIN per-gene table
+Rscript scripts/05_alluvial_lane_assignment.R     # alluvial + Sankey
+Rscript scripts/06_chr21_distribution_panel.R     # population view
 ```
 
-The full 09-17 chain runs in ~30 minutes. Scripts 02-08 are paper-style
-legacy outputs; keep but don't edit.
+The full 00-06 chain runs in ~30 minutes. Legacy and supplementary scripts
+(paper-style Panel D, additional eQTL diagnostics, supporting figure
+panels) live under `scripts/archive/`.
 
 ## Documentation
 
@@ -61,4 +62,4 @@ Transcription dosage compensation does not occur in Down syndrome.
 
 ## License
 
-BSD-2-Clause Plus Patent License.
+BSD 3-Clause License — see [LICENSE](LICENSE).

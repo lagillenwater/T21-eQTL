@@ -14,7 +14,6 @@
 #   - results/sankeymatic_input.txt
 #   - results/sankeymatic_input_extended.txt (includes >= 1.5 FC breakdown)
 #
-# Author: Claude Code
 # Date: 2025-12-17
 
 library(tidyverse)

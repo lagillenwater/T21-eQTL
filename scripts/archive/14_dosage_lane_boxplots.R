@@ -28,7 +28,6 @@
 #   - results/figures/chr21_dosage_de_high_not_supported.pdf  (if non-empty)
 #   - results/figures/chr21_dosage_lane_boxplots_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-05-04
 
 suppressPackageStartupMessages({

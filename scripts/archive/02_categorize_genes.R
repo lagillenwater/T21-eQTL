@@ -12,7 +12,6 @@
 #   - results/tables/chr21_genes_categorized.csv
 #   - results/tables/category_summary.csv
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 # Load required libraries

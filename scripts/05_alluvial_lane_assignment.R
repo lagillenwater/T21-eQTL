@@ -24,7 +24,6 @@
 #   - results/tables/chr21_lane_alluvial_flow.csv
 #   - results/figures/chr21_lane_alluvial_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-05-04
 
 suppressPackageStartupMessages({

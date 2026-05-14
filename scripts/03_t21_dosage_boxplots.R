@@ -22,7 +22,6 @@
 #   - results/figures/t21_dosage_boxplots_sig_high_fc.pdf
 #   - results/figures/t21_dosage_boxplots_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-04-30
 
 suppressPackageStartupMessages({

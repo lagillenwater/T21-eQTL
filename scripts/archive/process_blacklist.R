@@ -10,7 +10,6 @@
 # Outputs:
 #   - data/processed/blacklisted_genes.csv
 #
-# Author: Claude Code
 # Date: 2025-12-04
 
 library(tidyverse)

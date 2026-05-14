@@ -11,7 +11,6 @@
 #   - results/figures/volcano_plot.pdf
 #   - results/figures/volcano_plot_chr21_focus.pdf
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 # Load required libraries

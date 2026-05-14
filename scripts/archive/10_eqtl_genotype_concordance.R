@@ -17,7 +17,6 @@
 #   - results/tables/eqtl_genotype_concordance_per_gene.csv
 #   - results/tables/eqtl_genotype_concordance_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-04-30
 
 suppressPackageStartupMessages({

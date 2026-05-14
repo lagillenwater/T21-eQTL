@@ -15,7 +15,6 @@
 #   - results/figures/dispersion_plot.pdf
 #   - results/figures/ma_plot.pdf
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 # Load required libraries

@@ -12,7 +12,6 @@
 #   - results/tables/final_gene_classification.csv
 #   - results/figures/eqtl_summary.pdf
 #
-# Author: Claude Code
 # Date: 2025-11-11
 #
 # NOTE: This script requires GTEx eQTL data to be downloaded separately

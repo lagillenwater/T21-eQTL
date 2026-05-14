@@ -32,7 +32,6 @@
 #   - results/figures/chr21_quadrant_plot.png
 #   - results/figures/chr21_quadrant_plot_session_info.txt
 #
-# Author: Claude Code
 # Date: 2026-05-04
 
 suppressPackageStartupMessages({

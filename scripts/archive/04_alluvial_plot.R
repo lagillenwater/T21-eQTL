@@ -11,7 +11,6 @@
 #   - results/figures/panel_D_alluvial.pdf
 #   - results/figures/panel_D_barplot.pdf (alternative visualization)
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 # Load required libraries

@@ -12,7 +12,6 @@
 #   - data/processed/sample_metadata.csv
 #   - data/processed/gene_annotations.csv
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 # Load required libraries
