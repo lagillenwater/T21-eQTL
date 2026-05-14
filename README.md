@@ -48,11 +48,15 @@ The full 00-06 chain runs in ~30 minutes. Legacy and supplementary scripts
 (paper-style Panel D, additional eQTL diagnostics, supporting figure
 panels) live under `scripts/archive/`.
 
+# AI Assistance
+This project utilized the AI assistant Claude, developed by Anthropic, during the development process. Its assistance included generating initial code snippets and improving documentation. All AI-generated content was reviewed, tested, and validated by human developers.
+
+
 ## Documentation
 
 See [CLAUDE.md](CLAUDE.md) for the canonical project documentation:
-methodology, pipeline walkthrough, data inputs, full script catalog, output
-file inventory, code style, and common gotchas.
+methodology, pipeline walkthrough, data inputs, full script catalog, and output
+file inventory. 
 
 ## Citation
 
