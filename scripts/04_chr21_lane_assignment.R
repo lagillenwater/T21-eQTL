@@ -1,33 +1,24 @@
-# 04_chr21_lane_assignment.R
+# 12_chr21_lane_assignment.R
 #
-# Purpose: Assign every chr21 gene to a (significance lane, eQTL lane) pair.
-#          Extends the paper's framing (Hunter et al. 2023, BMC Biology
-#          21:228) with two methodological additions: a within-cohort SD
-#          magnitude filter that gates the eQTL evaluation (see comment on
-#          MAGNITUDE_THRESHOLD below), and a within-T21 reproducibility
-#          requirement on supportive cis variants - leveraging the
-#          n = 300+ cohort that the paper's family-of-4 study could not.
+# Purpose: Assign every chr21 gene to a (significance lane, eQTL lane) pair
+#          for the comprehensive Sankey/alluvial figure. Mirrors the paper's
+#          framing (Hunter et al. 2023, BMC Biology 21:228): no raw fold-
+#          change buffer, padj < 0.01 after ploidy normalization, and a
+#          locus-level eQTL scan asking whether ANY cis variant in GTEx
+#          whole blood matches the observed deviation direction. We also
+#          require within-T21 reproducibility for a variant to "count" as
+#          supporting - leveraging the n = 300+ cohort that the paper's
+#          family-of-4 study could not.
 #
-#          sig_lane (cohort-noise filter applied FIRST):
-#            Expected_dosage       - within 1 cohort-noise SD of expected
-#                                    ploidy (no eQTL story sought)
-#            High_repeats          - flagged as multi-mapping prone
-#            Low_expression        - baseMean below 20th percentile
-#            DE_low                - norm_padj < 0.01 & norm_log2FC < 0
-#            DE_high               - norm_padj < 0.01 & norm_log2FC > 0
-#            Not_DE_outside_noise  - outside cohort noise, not significant
-#                                    after ploidy correction
-#
-#          eqtl_lane (only DE_low / DE_high are evaluated):
-#            explained             - >=1 cis variant satisfies BOTH
-#                                    sign(gtex_slope) == sign(norm_log2FC)
-#                                    AND sign(t21_slope) == sign(gtex_slope)
-#                                    AND t21_p < 0.05
-#            unexplained           - cis variants exist but none satisfy
-#            no_GTEx_data          - no GTEx allpairs cis variant for this
-#                                    gene clears the upstream pval filter
-#                                    (set in script 02, default 1e-4)
-#            not_evaluated         - gene is in a non-DE lane
+#          Sig lane: DE_low (norm_padj < 0.01 AND norm_log2FC < 0)
+#                    DE_high (norm_padj < 0.01 AND norm_log2FC > 0)
+#                    Not_DE_or_NA (otherwise)
+#          eQTL lane: explained        (>= 1 cis variant with both:
+#                                       sign(gtex_slope) == sign(norm_log2FC)
+#                                       AND sign(t21_slope) == sign(gtex_slope))
+#                     unexplained      (cis variants exist but none satisfy)
+#                     no_GTEx_data     (gene not in GTEx whole-blood
+#                                       signif_pairs at all)
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_combined.csv
@@ -39,21 +30,9 @@
 # Outputs:
 #   - results/tables/chr21_lane_assignments.csv
 #   - results/tables/chr21_lane_summary.csv
-#   - results/tables/chr21_lane_sankeymatic_input.txt
 #   - results/tables/chr21_lane_assignment_session_info.txt
 #
-# How to use the SankeyMATIC export:
-#   1. Open https://sankeymatic.com/build/
-#   2. Paste the contents of chr21_lane_sankeymatic_input.txt into the
-#      "Inputs" textarea. Lines starting with "//" are comments and are
-#      ignored by the builder.
-#   3. The Sankey diagram renders automatically. Adjust spacing / curve
-#      shape / font under the "Layout" tab on the right.
-#   4. To color the nodes, copy the lines under "// Suggested colors" at
-#      the bottom of the .txt (without the leading `// `) into
-#      "Themes & Colors -> Custom colors" on the SankeyMATIC page. Each
-#      line is `:NodeName #HEXCOLOR`.
-#   5. Export as SVG / PNG / JPG via the buttons under the diagram.
+# Date: 2026-05-04
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -326,104 +305,6 @@ print(m[Gene_name %in% c("APP", "COL18A1", "OLIG2", "BACE2", "MX1", "CSTB"),
           norm_padj = signif(norm_padj, 2),
           sig_lane, eqtl_lane,
           n_cis_total, n_dir_match, n_supp_with_repro)])
-
-# =============================================================================
-# STEP 6: SankeyMATIC text export
-# =============================================================================
-#
-# Build SankeyMATIC "Source [count] Target" lines from the lane table just
-# written. Cohort-noise filter is the first split; survivors are categorized
-# at level 3, and DE arms terminate at level 4 with the eQTL terminal.
-# Self-loop pass-throughs are skipped (e.g., the Expected_dosage genes
-# terminate at level 2 - we don't render them as level2->level3 self-loops).
-
-cat("\nStep 6: Writing SankeyMATIC input...\n")
-
-sm_lvl2 <- ifelse(m$passes_magnitude_filter,
-                  "Outside cohort noise",
-                  "Within cohort noise (Expected dosage)")
-sm_lvl3 <- fcase(
-  !m$passes_magnitude_filter,        "Within cohort noise (Expected dosage)",
-  m$sig_lane == "DE_low",            "DE (low) [< 1.5 raw FC]",
-  m$sig_lane == "DE_high",           "DE (high) [>= 1.5 raw FC]",
-  m$sig_lane == "High_repeats",      "High repeats",
-  m$sig_lane == "Low_expression",    "Low expression",
-  m$sig_lane == "Not_DE_outside_noise", "Not DE (outside cohort noise)",
-  default = "Other")
-sm_lvl4 <- fcase(
-  sm_lvl3 == "DE (low) [< 1.5 raw FC]" & m$eqtl_lane == "explained",
-    "DE (low): eQTL-supported",
-  sm_lvl3 == "DE (low) [< 1.5 raw FC]" & m$eqtl_lane == "unexplained",
-    "DE (low): eQTL-tested, not supported",
-  sm_lvl3 == "DE (low) [< 1.5 raw FC]" & m$eqtl_lane == "no_GTEx_data",
-    "DE (low): no GTEx eQTL data",
-  sm_lvl3 == "DE (high) [>= 1.5 raw FC]" & m$eqtl_lane == "explained",
-    "DE (high): eQTL-supported",
-  sm_lvl3 == "DE (high) [>= 1.5 raw FC]" & m$eqtl_lane == "unexplained",
-    "DE (high): eQTL-tested, not supported",
-  sm_lvl3 == "DE (high) [>= 1.5 raw FC]" & m$eqtl_lane == "no_GTEx_data",
-    "DE (high): no GTEx eQTL data",
-  default = sm_lvl3)
-
-flow <- data.table(level2 = sm_lvl2, level3 = sm_lvl3, level4 = sm_lvl4)
-
-sm_lines <- character(0)
-
-# Level 1 -> Level 2
-l12 <- flow[, .(n = .N), by = level2]
-for (i in seq_len(nrow(l12))) {
-  sm_lines <- c(sm_lines,
-                sprintf("Chr21 protein-coding [%d] %s", l12$n[i], l12$level2[i]))
-}
-
-# Level 2 -> Level 3 (skip self-loops)
-l23 <- flow[level2 != level3, .(n = .N), by = .(level2, level3)]
-for (i in seq_len(nrow(l23))) {
-  sm_lines <- c(sm_lines,
-                sprintf("%s [%d] %s",
-                        l23$level2[i], l23$n[i], l23$level3[i]))
-}
-
-# Level 3 -> Level 4 (skip self-loops)
-l34 <- flow[level3 != level4, .(n = .N), by = .(level3, level4)]
-for (i in seq_len(nrow(l34))) {
-  sm_lines <- c(sm_lines,
-                sprintf("%s [%d] %s",
-                        l34$level3[i], l34$n[i], l34$level4[i]))
-}
-
-color_lines <- c(
-  "",
-  "// Suggested colors (paste into SankeyMATIC color editor without the //)",
-  "// :Chr21 protein-coding #808080",
-  "// :Outside cohort noise #808080",
-  "// :Within cohort noise (Expected dosage) #5AB4AC",
-  "// :DE (high) [>= 1.5 raw FC] #1F77B4",
-  "// :DE (low) [< 1.5 raw FC] #4DAF4A",
-  "// :High repeats #E8967A",
-  "// :Low expression #DDA0DD",
-  "// :Not DE (outside cohort noise) #D2B48C",
-  "// :DE (high): eQTL-supported #1F77B4",
-  "// :DE (high): eQTL-tested, not supported #9467BD",
-  "// :DE (high): no GTEx eQTL data #AEC7E8",
-  "// :DE (low): eQTL-supported #4DAF4A",
-  "// :DE (low): eQTL-tested, not supported #FF7F0E",
-  "// :DE (low): no GTEx eQTL data #999999"
-)
-
-header <- c(
-  "// Chr21 lane assignment Sankey input",
-  "// Generated by 04_chr21_lane_assignment.R",
-  paste0("// padj < 0.01 after ploidy normalization; eQTL-supported = >=1 ",
-         "cis variant matches deviation direction AND reproduces in T21 ",
-         "at p < 0.05; magnitude filter at 1.0 cohort-noise SD."),
-  paste0("// Total genes: ", nrow(m)),
-  ""
-)
-
-sm_path <- "results/tables/chr21_lane_sankeymatic_input.txt"
-writeLines(c(header, sm_lines, color_lines), sm_path)
-cat(sprintf("  Wrote %s (%d flow lines)\n", sm_path, length(sm_lines)))
 
 writeLines(capture.output(sessionInfo()),
            "results/tables/chr21_lane_assignment_session_info.txt")

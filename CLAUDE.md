@@ -148,7 +148,7 @@ kept for future covariate adjustment.
 
 **Files**: `data/chr21_ds_PASS.csv` and `data/chr21_ctrl_PASS.csv`. VCF-style
 CSVs filtered to PASS variants, chr21 only. T21 file uses ploidy-3 calls;
-Control file uses ploidy-2. Streamed by script 02 to extract only the
+Control file uses ploidy-2. Streamed by script 09 to extract only the
 positions of the eQTL universe.
 
 ### 5. GTEx whole-blood eQTLs
@@ -181,8 +181,31 @@ The production pipeline is the 00-05 chain in `scripts/`.
 | 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_chr21_combined.csv`, `deseq2_all_genes_ploidy_normalized.csv`, QC PDFs |
 | 02_filter_genotypes | Apply magnitude filter to gene set (1.0 cohort-SD threshold), restrict to protein-coding, pull GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
 | 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv` |
-| **04_chr21_lane_assignment** | **Per-gene lane assignment + SankeyMATIC export.** Cohort-noise filter is the first split; survivors get DE_low/DE_high/High_repeats/Low_expression/Not_DE classification; DE genes get eQTL-supported / eQTL-tested-not-supported / no_GTEx_data terminal. Also writes the paste-ready SankeyMATIC text file (see header of script for the render workflow). | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_lane_sankeymatic_input.txt` |
-| 05_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
+| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Cohort-noise filter is the first split; survivors get DE_low/DE_high/High_repeats/Low_expression/Not_DE classification; DE genes get eQTL-supported / eQTL-tested-not-supported / no_GTEx_data terminal | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv` |
+| 05_alluvial_lane_assignment | Alluvial flow (Cohort filter -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
+| 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
+
+### Archived / supplementary (scripts/archive/, do not edit)
+
+Original paper-style Panel D pipeline:
+- `02_categorize_genes` - paper-style gene categorization
+- `03_volcano_plot` - diagnostic volcano
+- `04_alluvial_plot` - original Panel D Sankey
+- `05_eqtl_analysis` - original eQTL cross-reference (template-based)
+- `06_alluvial_with_eqtl` - enhanced Panel D with eQTL terminals
+- `07_sankeymatic_export` - SankeyMATIC export from old categorization
+- `08_expected_dosage_eqtl` - eQTL analysis for >=1.5 FC genes
+
+Supplementary outputs from the cohort-scale chain:
+- `10_eqtl_genotype_concordance` - per-variant T21 vs Control dosage
+   means; directional concordance (`results/tables/eqtl_genotype_concordance_*.csv`)
+- `14_dosage_lane_boxplots` - per-quadrant focused boxplot PDFs
+- `16_chr21_de_forest_plot` - per-DE-gene log2FC + 95% CI
+- `17_chr21_quadrant_plot` - within-T21 slope vs deviation scatter
+
+Exploratory / one-offs:
+- `diagnostic_check`, `investigate_pc2`, `pca_chr21_only`,
+  `process_blacklist`, `run_all.sh` (the old shell driver)
 
 ---
 
@@ -206,7 +229,7 @@ Fixes (script 01):
 - `betaPrior = FALSE` (no shrinkage), so the MAP fold change reflects the
   raw maximum-likelihood estimate.
 - Apply a minimum baseMean filter (paper's "second quintile"; pipeline uses
-  the 20th-percentile baseMean cutoff for consistency with script 02).
+  the 20th-percentile baseMean cutoff for consistency with script 09).
 
 After ploidy normalization, the appropriate null on chr21 is back to `FC = 1`,
 so DESeq2's standard p-value testing applies cleanly.
@@ -295,9 +318,11 @@ Defined at the top of scripts 02 and 04; change once, propagates through:
 - **`chr21_lane_assignments.csv`** - canonical per-gene lane table (read
   this for the headline numbers).
 - `chr21_lane_summary.csv` - lane counts (all chr21 + after paper filters).
+- `chr21_lane_alluvial_flow.csv` - long-format flow data for the alluvial.
 - **`chr21_lane_sankeymatic_input.txt`** - SankeyMATIC paste-ready export.
 - `t21_dosage_per_variant.csv` - per-variant within-T21 regression fits.
-- `t21_representative_variants.csv` - per-gene strongest supportive variant.
+- `t21_representative_variants.csv` - per-gene strongest supportive variant
+  (legacy, used by `scripts/archive/14_dosage_lane_boxplots.R`).
 
 `data/processed/`:
 - `count_matrix.csv` - gene x sample expression matrix.
@@ -310,12 +335,15 @@ Defined at the top of scripts 02 and 04; change once, propagates through:
 ### Figures
 
 `results/figures/`:
+- **`chr21_lane_alluvial.{pdf,png}`** - main lane-flow visualization
+  (script 05).
 - `chr21_vs_genome_distribution.{pdf,png}` - chr21 vs non-chr21
   ploidy-corrected log2FC distributions + per-lane magnitude scatter
-  (script 05).
-- The Sankey diagram itself is rendered externally via SankeyMATIC -
-  paste `results/tables/chr21_lane_sankeymatic_input.txt` into
-  https://sankeymatic.com/build/ and export from there.
+  (script 06).
+- Supplementary figures from `scripts/archive/` (run them on demand):
+  per-quadrant boxplots (`chr21_dosage_de_*.pdf`), DE forest plot
+  (`chr21_de_forest_plot.{pdf,png}`), within-T21 quadrant plot
+  (`chr21_quadrant_plot.{pdf,png}`), plus the paper-style legacy outputs.
 
 ---
 
@@ -323,21 +351,20 @@ Defined at the top of scripts 02 and 04; change once, propagates through:
 
 The pipeline is idempotent: running it from scratch reproduces the same
 outputs. Stages are independent at the file level - if you change script
-04, just re-run 04 -> 05 (not 00 -> 03).
+04, just re-run 04 -> 05 -> 06 (not 00 -> 03).
 
 Common re-run patterns:
 
 - **Tweak the magnitude threshold**: edit `MAGNITUDE_THRESHOLD` at top of
-  scripts 02 and 04, then re-run 02 -> 03 -> 04 -> 05. (Cheaper if only
-  the lane assignment is changing: re-run 04 -> 05 only.)
+  scripts 02 and 04, then re-run 02 -> 03 -> 04 -> 05 -> 06. (Cheaper if
+  only the lane assignment is changing: re-run 04 -> 05 -> 06 only.)
 - **Switch to/from protein-coding**: set `RESTRICT_TO_PROTEIN_CODING` in
-  scripts 02, 04, 05. Re-run from 02.
+  scripts 02, 04, 06. Re-run from 02.
 - **Change padj threshold**: `ALPHA` in script 04. Re-run 04 onward.
 
 The cost concentrations: script 02 (~3 min, awk-streaming PASS files);
 script 03 (~5-15 min depending on variant count, per-variant regressions).
-Script 04 finishes in a few seconds (lane table + SankeyMATIC export);
-script 05 in seconds.
+The visualization scripts (05, 06) finish in seconds each.
 
 ---
 
@@ -351,13 +378,21 @@ script 05 in seconds.
 - **Self-loops in SankeyMATIC**: `chr21_lane_sankeymatic_input.txt` skips
   level-to-level passes where the source and target name are identical
   (e.g., the 119 Expected dosage genes terminate at level 2 and would
-  otherwise self-loop at levels 3 and 4).
+  otherwise self-loop at levels 3 and 4). The flow file
+  `chr21_lane_alluvial_flow.csv` keeps them.
 - **Two T21 expression-only subjects**: 304 T21 in the expression cohort,
   302 in the genotype cohort. The 2 missing-genotype subjects are
   expression-only and are silently dropped from the within-T21 regression
   step. Phrase paper text accordingly ("302 of 304").
 - **lfcSE column**: chr21 combined output (`deseq2_chr21_combined.csv`)
   does not carry `lfcSE`; the all-genes ploidy-normalized output does.
+  The archived forest-plot script joins lfcSE in from the all-genes table.
+
+### Failed-experiment scripts
+
+`scripts/archive/diagnostic_check.R`, `investigate_pc2.R`,
+`pca_chr21_only.R`, and `process_blacklist.R` are exploratory / one-off
+scripts. Kept but not expected to run cleanly against the current state.
 
 ---
 

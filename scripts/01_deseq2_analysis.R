@@ -204,23 +204,14 @@ dds_norm <- DESeqDataSetFromMatrix(
   design = ~ karyotype
 )
 
-# Hunter et al. (2023) trisomy-aware idiom: combine per-sample size factors
-# (estimated from non-chr21 control genes) with the per-gene ploidy matrix
-# via DESeq2's normMatrix argument, then run dispersion + Wald manually so
-# DESeq() does not re-call estimateSizeFactors and clobber the normMatrix-
-# aware factors. See DS_Normalization/correcting_real_data.R:218.
-dds_norm <- estimateSizeFactors(
-  dds_norm,
-  normMatrix    = norm_matrix,
-  controlGenes  = non_chr21_genes
-)
-cat("  Size factors x ploidy matrix combined (chr21 excluded from size factors)\n")
+# Apply ploidy normalization matrix
+# From Hunter et al.: normMatrix = ploidy / 2
+# Chr21 in T21 = 1.5, all others = 1.0
+normalizationFactors(dds_norm) <- norm_matrix
+cat("  Ploidy normalization applied (T21 chr21 = 1.5, others = 1.0)\n")
 
-cat("  Running DESeq2 dispersion + Wald (with ploidy normalization)...\n")
-dds_norm <- estimateDispersionsGeneEst(dds_norm)
-dds_norm <- estimateDispersionsFit(dds_norm)
-dds_norm <- estimateDispersionsMAP(dds_norm)
-dds_norm <- nbinomWaldTest(dds_norm, betaPrior = FALSE)
+cat("  Running DESeq2 (with ploidy normalization)...\n")
+dds_norm <- DESeq(dds_norm, betaPrior = FALSE)
 
 # Extract results
 results_norm <- results(dds_norm, name = "karyotype_T21_vs_Control")
@@ -443,4 +434,4 @@ writeLines(capture.output(sessionInfo()),
 cat("\nSaved session info to results/tables/deseq2_session_info.txt\n")
 
 cat("\n=== DESeq2 Analysis Complete ===\n")
-cat("Next step: Run scripts/02_filter_genotypes.R\n\n")
+cat("Next step: Run 02_categorize_genes.R\n\n")

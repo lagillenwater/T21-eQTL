@@ -49,13 +49,9 @@ cran_packages <- c(
   "ggplot2",        # Plotting (included in tidyverse but listed explicitly)
   "ggrepel",        # Label positioning for plots
   "ggalluvial",     # Alluvial/Sankey diagrams
-  "patchwork",      # Panel composition (script 05)
   "RColorBrewer",   # Color palettes
   "pheatmap",       # Heatmaps
   "viridis",        # Perceptually uniform color scales
-
-  # I/O
-  "arrow",          # Reading GTEx parquet files (script 02)
 
   # Utilities
   "here"            # Path management (optional but recommended)
@@ -217,10 +213,6 @@ if (length(failed_packages) == 0) {
   cat("Please install them manually before running analysis.\n")
 }
 
-cat("\nNext steps - run the 00-05 pipeline:\n")
-cat("  Rscript scripts/00_preprocess_data.R\n")
-cat("  Rscript scripts/01_deseq2_analysis.R\n")
-cat("  Rscript scripts/02_filter_genotypes.R\n")
-cat("  Rscript scripts/03_t21_dosage_boxplots.R\n")
-cat("  Rscript scripts/04_chr21_lane_assignment.R\n")
-cat("  Rscript scripts/05_chr21_distribution_panel.R\n\n")
+cat("\nNext steps:\n")
+cat("  1. Run: Rscript scripts/00_preprocess_data.R\n")
+cat("  2. Or run complete pipeline: bash scripts/run_all.sh\n\n")

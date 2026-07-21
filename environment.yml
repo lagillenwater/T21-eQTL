@@ -13,7 +13,6 @@ dependencies:
   - r-ggplot2
   - r-ggrepel
   - r-ggalluvial  # Alluvial diagrams (Panel D)
-  - r-patchwork   # Composing distribution + magnitude panel (script 05)
   - r-arrow       # Reading parquet files (eQTL data)
 
   # Bioconductor packages via conda
