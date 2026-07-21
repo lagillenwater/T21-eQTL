@@ -63,6 +63,25 @@ get_field <- function(row, key) {
   if (is.null(v) || length(v) == 0 || is.na(v)) "" else trimws(as.character(v)[1])
 }
 
+# Extension of a filename, preserving compound ".xxx.gz" doubles (e.g. ".vcf.gz")
+# and otherwise the final ".ext". Returns "" when there is no dot.
+file_ext <- function(fn) {
+  fn <- basename(fn)
+  if (grepl("\\.[A-Za-z0-9]+\\.gz$", fn)) {
+    return(sub(".*?(\\.[A-Za-z0-9]+\\.gz)$", "\\1", fn))
+  }
+  m <- regmatches(fn, regexpr("\\.[A-Za-z0-9]+$", fn))
+  if (length(m)) m else ""
+}
+
+# Output filename for a row: <external_participant_id> + the source extension,
+# so files are named by participant while staying tool-readable (.vcf.gz).
+# Falls back to the source file name when no participant id is present.
+out_filename <- function(row, src_name) {
+  pid <- get_field(row, "external_participant_id")
+  if (pid != "") paste0(pid, file_ext(src_name)) else src_name
+}
+
 # Split a drs:// URI into (https_base, object_id).
 parse_drs <- function(uri) {
   if (is.null(uri) || !startsWith(uri, "drs://")) {
@@ -221,14 +240,15 @@ handle_row <- function(row, host, outdir, cavatica_token, gen3_token) {
       auth <- auth_header(parse_drs(drs_uri)$base, cavatica_token, gen3_token)
       r    <- resolve(drs_uri, auth)
 
-      fname <- if (name != "") {
+      src_name <- if (name != "") {
         name
       } else if (!is.null(r$name) && nzchar(r$name)) {
         r$name
       } else {
         basename(url_parse(r$url)$path)
       }
-      dest <- file.path(outdir, fname)
+      fname <- out_filename(row, src_name)
+      dest  <- file.path(outdir, fname)
 
       if (file.exists(dest) && (is.null(r$size) || file.info(dest)$size == r$size)) {
         list(fname = fname, status = "exists", detail = "")

@@ -7,7 +7,7 @@
 # it is never written into this script or the job environment.
 #
 # Prerequisites (once, in the R that `module load` below provides):
-#   Rscript -e 'install.packages(c("httr2","optparse","data.table"))'
+#   Rscript -e 'install.packages(c("httr2","optparse","data.table"), repos="https://cloud.r-project.org")'
 #   printf '%s' '<your Cavatica auth token>' > ~/.cavatica_token && chmod 600 ~/.cavatica_token
 #
 # Submit (edit the config block below first):
