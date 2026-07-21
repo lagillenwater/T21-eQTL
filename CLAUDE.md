@@ -19,7 +19,7 @@ remaining as candidates for true regulatory dosage compensation?
 - 41 outside cohort noise:
   - 6 DE_high, all eQTL-supported (TSPEAR, MX1, RIPK4, COL6A2, CYYR1, YBEY).
   - 15 DE_low: 9 eQTL-supported, 3 eQTL-tested-not-supported (BACE2, ADARB1,
-    NRIP1), 3 with no GTEx eQTL coverage (CLIC6, JAM2, FTCD-class).
+    NRIP1), 3 with no GTEx eQTL coverage (LTN1, RUNX1, ZBTB21).
   - 20 in High repeats / Low expression / Not DE outside cohort noise.
 
 ---
@@ -35,23 +35,16 @@ Rscript scripts/00_preprocess_data.R              # long -> wide count matrix
 Rscript scripts/01_deseq2_analysis.R              # trisomy-aware DESeq2
 Rscript scripts/02_filter_genotypes.R             # gene + variant + genotype universe
 Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 per-variant fits
-Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table
-Rscript scripts/05_alluvial_lane_assignment.R     # alluvial + SankeyMATIC export
-Rscript scripts/06_chr21_distribution_panel.R     # chr21 vs genome distributions
+Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table + SankeyMATIC export
+Rscript scripts/05_chr21_distribution_panel.R     # chr21 vs genome distributions
 ```
 
-`scripts/archive/` holds the full set of legacy and supplementary scripts:
-the original paper-style Panel D chain (categorize_genes, volcano_plot,
-alluvial_plot, eqtl_analysis, alluvial_with_eqtl, sankeymatic_export,
-expected_dosage_eqtl), per-variant T21-vs-Control concordance
-(eqtl_genotype_concordance), supporting figure panels (dosage_lane_boxplots,
-chr21_de_forest_plot, chr21_quadrant_plot), the original
-`run_all.sh`, and exploratory one-offs (diagnostic_check, investigate_pc2,
-pca_chr21_only, process_blacklist). Runnable but not part of the headline
-00-06 chain.
+
 
 Total runtime end-to-end on a laptop: ~30 minutes, dominated by 02 (genotype
-streaming) and 03 (per-variant within-T21 regressions).
+streaming) and 03 (per-variant within-T21 regressions). Script 04 also
+emits the SankeyMATIC text input - paste into https://sankeymatic.com/build/
+to render the diagram (instructions in the script's header).
 
 ---
 
@@ -108,7 +101,6 @@ T21-eQTL/
   install_packages.R
   environment.yml            # conda alternative
   scripts/                   # production pipeline (see Pipeline section)
-    archive/                 # legacy + supplementary scripts
   data/                      # inputs - mostly .gitignored
     HTP_WholeBlood_RNAseq_Counts_Synapse.txt   # 3.9 GB raw counts
     P4C_metadata_021921_Costello.txt           # sample metadata
@@ -166,25 +158,22 @@ variant tested per gene, regardless of significance). Filename:
 `data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet`.
 
 **Legacy source**: `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet`
-(per-gene FDR-passing pairs only). Older runs of script 09 used this; the
+(per-gene FDR-passing pairs only). Older runs of script 02 used this; the
 current pipeline reads allpairs and applies `pval_nominal <= 1e-4` to keep
 the variant universe manageable.
 
-To re-download the chr21 allpairs:
-1. https://www.gtexportal.org/home/downloads/adult-gtex/qtl
-2. V10 Single-Tissue cis-QTL Data, "All variant-gene associations".
-3. Whole_Blood file (multi-GB). Subset to chr21 with parquet/duckdb if you
-   want to mirror the current ~50 MB chr21-only extract.
+To re-download the chr21 allpairs, run `bash download_gtex.sh` from the
+repo root. It fetches the genome-wide Whole_Blood allpairs file from GTEx
+v10 and uses python + pyarrow to write the chr21-only parquet under the
+filename above.
 
 ---
 
 ## Pipeline
 
-The production pipeline is the 00-06 chain in `scripts/`. The supplementary
-and legacy work lives under `scripts/archive/` and is not part of the
-headline result; entries below are listed for traceability.
+The production pipeline is the 00-05 chain in `scripts/`.
 
-### Production pipeline (scripts/00-06)
+### Production pipeline (scripts/00-05)
 
 | Script | Purpose | Output |
 |---|---|---|
