@@ -258,7 +258,8 @@ perm_res <- rbindlist(lapply(de_genes, function(g) {
   data.table(Gene_name = g, n_variants = length(cols),
              min_p_obs = fits$p[best], best_variant = cols[best],
              p_gene_perm = gene_level_p(fits$p[best],
-                                        perm_min_p(G, e, n_perm = N_PERM, seed = 2026)))
+                                        perm_min_p(G, e, n_perm = N_PERM,
+                                                   seed = 2026L + match(g, de_genes))))
 }))
 perm_res[, q_gene_bh := p.adjust(p_gene_perm, "BH")]
 perm_res[, explained_perm := !is.na(q_gene_bh) & q_gene_bh < FDR_GENE]

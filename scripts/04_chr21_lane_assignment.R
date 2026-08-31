@@ -370,11 +370,15 @@ cat("\n=== Lane assignment complete ===\n")
 # 2026-08-31  REPLACED the eqtl_lane rule "at least one cis variant is
 #             direction-matched and reproduces at t21_p < 0.05" with gene-level
 #             permutation significance at BH FDR < 0.05.
-#             Reason: the old rule scaled with the number of cis variants tested
-#             (21 to 1083 per gene, no multiplicity control); median n_cis was
-#             107 for explained genes vs 36 for the one unexplained gene, and
-#             RBM11 was called explained on 1 supporting variant of 83 where
-#             chance predicts ~4. The lead variant was rejected as an
-#             alternative because in LD it is frequently a tag, not the causal
-#             variant.
+#             Reason: the old rule scaled with the number of cis variants
+#             tested and had no multiplicity control. The current three-gene
+#             DE set spans 21 to 136 cis variants per gene (TSPEAR 21, OLIG2
+#             90, COL6A1 136). An earlier, larger pre-correction DE gene set
+#             (no longer current) spanned 21 to 1083 cis variants per gene,
+#             with median n_cis 107 for explained genes vs 36 for the one
+#             unexplained gene, and RBM11 called explained on 1 supporting
+#             variant of 83 where chance predicts ~4 - the clearest evidence
+#             the old rule was measuring variant count, not genetic evidence.
+#             The lead variant was rejected as an alternative because in LD it
+#             is frequently a tag, not the causal variant.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
