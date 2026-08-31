@@ -22,7 +22,6 @@
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_genes_both_analyses.csv
-#   - results/tables/deseq2_all_genes_ploidy_normalized.csv  (cohort-noise SD)
 #   - results/tables/t21_dosage_per_variant.csv
 #   - data/processed/eqtl_target_variants.csv
 #   - data/processed/blacklisted_genes.csv  (high-repeat flag)
@@ -30,6 +29,7 @@
 # Outputs:
 #   - results/tables/chr21_lane_assignments.csv
 #   - results/tables/chr21_lane_summary.csv
+#   - results/tables/chr21_k_sensitivity.csv
 #   - results/tables/chr21_lane_assignment_session_info.txt
 #
 # Date: 2026-05-04
@@ -57,7 +57,13 @@ OUTLIER_FDR         <- 0.10    # FDR-controlled robust outlier test against a
                                # eQTL explanation is sought. This filter is
                                # also applied upstream in script 02 (gene
                                # selection) so failing genes have no genotype
-                               # data.
+                               # data. Eligibility (low_expr / high_repeat)
+                               # also determines lane routing directly: those
+                               # genes are excluded from the null because they
+                               # are too noisy to assess, not because they
+                               # follow expected dosage, so the sig_lane
+                               # fcase below must test high_repeat/low_expr
+                               # BEFORE passes_magnitude_filter.
 LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
 RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise
                                      # reference to protein-coding genes
@@ -224,19 +230,23 @@ stopifnot(file.exists("results/tables/chr21_k_sensitivity.csv"))
 cat("  Wrote results/tables/chr21_k_sensitivity.csv\n")
 print(sens)
 
-# Significance lane - cohort-noise filter is the FIRST split. Genes whose
-# ploidy-corrected deviation is within typical cohort variation are
+# Significance lane - eligibility (high_repeat / low_expr) is tested FIRST,
+# ahead of the outlier filter: those genes were excluded from the null
+# because they are too noisy to assess, not because they follow expected
+# dosage, so labeling them Expected_dosage would be a false claim. Only
+# eligible genes fall through to the outlier filter; genes whose
+# ploidy-corrected deviation is within typical chr21 variation are
 # categorized as Expected_dosage regardless of raw FC sign or padj
 # (statistical significance at large n is not the same as biological
 # departure from ploidy expectation). Surviving genes get the standard
 # categorization.
 m[, sig_lane := fcase(
-  passes_magnitude_filter == FALSE,                       "Expected_dosage",
-  high_repeat == TRUE,                                    "High_repeats",
-  low_expr == TRUE,                                       "Low_expression",
+  high_repeat == TRUE,                                     "High_repeats",
+  low_expr == TRUE,                                        "Low_expression",
+  passes_magnitude_filter == FALSE,                        "Expected_dosage",
   !is.na(norm_padj) & norm_padj < ALPHA & norm_log2FC < 0, "DE_low",
   !is.na(norm_padj) & norm_padj < ALPHA & norm_log2FC > 0, "DE_high",
-  default                                               = "Not_DE_outside_noise")]
+  default                                                = "Not_DE_outside_noise")]
 
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")

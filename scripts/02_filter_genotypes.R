@@ -8,18 +8,18 @@
 #              extract), not signif_pairs - so we get full cis-window
 #              coverage per gene. We apply a nominal pval threshold to
 #              keep the variant universe manageable.
-#          (b) gene selection now applies a within-cohort SD magnitude
-#              filter BEFORE eQTL testing. Only chr21 DE genes whose
-#              ploidy-corrected deviation exceeds MAGNITUDE_THRESHOLD
-#              cohort SDs are pulled. Genes with deviations within
-#              typical cohort variation are not eQTL-tested - their
-#              statistical significance is downstream of sample size,
-#              not biological compensation, and asking the eQTL question
-#              for them produces misleading "explained" calls.
+#          (b) gene selection now applies an FDR-controlled robust outlier
+#              test BEFORE eQTL testing. The null is a chr21-internal
+#              median/MAD estimated from expressed, non-repeat chr21 genes;
+#              a gene must clear a BH-FDR threshold (OUTLIER_FDR) on its
+#              robust z-score AND padj < ALPHA_DE to be pulled. Genes whose
+#              deviation is not an outlier against that null are not
+#              eQTL-tested - their statistical significance is downstream of
+#              sample size, not biological compensation, and asking the
+#              eQTL question for them produces misleading "explained" calls.
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_genes_both_analyses.csv
-#   - results/tables/deseq2_all_genes_ploidy_normalized.csv
 #   - data/processed/blacklisted_genes.csv
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
 #   - data/processed/sample_metadata.csv
@@ -58,9 +58,9 @@ OUTLIER_FDR <- 0.10
 LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
 GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
                              # (~ matches the effective signif_pairs cutoff)
-RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict both target chr21 set AND
-                                     # the non-chr21 cohort-noise reference
-                                     # to protein-coding genes
+RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict the target chr21 set (and the
+                                     # chr21-internal null) to protein-coding
+                                     # genes
 
 KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
                         "IFNAR1", "IFNAR2", "TPTE", "BAGE", "DAB1")
@@ -72,8 +72,6 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 cat("Step 1: Identifying target genes...\n")
 
 chr21    <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
-all_lfc  <- fread(
-  "results/tables/deseq2_all_genes_ploidy_normalized.csv")
 
 blacklist_path <- "data/processed/blacklisted_genes.csv"
 blacklist_genes <- if (file.exists(blacklist_path)) {
@@ -84,7 +82,6 @@ high_repeat_genes <- unique(c(blacklist_genes, KNOWN_REPEAT_GENES))
 if (RESTRICT_TO_PROTEIN_CODING) {
   n_chr21_before <- nrow(chr21)
   chr21   <- chr21[Gene_type == "protein_coding"]
-  all_lfc <- all_lfc[Gene_type == "protein_coding"]
   cat(sprintf("  Restricted to protein-coding: chr21 %d -> %d\n",
               n_chr21_before, nrow(chr21)))
 }
