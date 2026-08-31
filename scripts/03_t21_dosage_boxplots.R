@@ -218,10 +218,14 @@ cat(sprintf("  genotype permuted: %.1f%% explained (mean of %d shuffles, range %
             100 * mean(perm_rate), N_PERM_SETS,
             100 * min(perm_rate), 100 * max(perm_rate)))
 
+# n_explained for the genotype_permutation row is a MEAN across shuffles
+# (mean(perm_rate) * n genes), not an integer gene count like the other two
+# rows -- rounding it to an integer here previously produced a row like
+# "0 of 3 = 15.02%", self-contradictory against its own pct_explained.
 neg_ctrl <- data.table(
   control        = c("observed", "direction_flip", "genotype_permutation"),
   n_genes_tested = c(length(obs), length(flip), length(de_genes)),
-  n_explained    = c(sum(obs), sum(flip), round(mean(perm_rate) * length(de_genes))),
+  n_explained    = c(sum(obs), sum(flip), mean(perm_rate) * length(de_genes)),
   pct_explained  = c(100 * mean(obs), 100 * mean(flip), 100 * mean(perm_rate)))
 fwrite(neg_ctrl, "results/tables/eqtl_negative_controls.csv")
 stopifnot(file.exists("results/tables/eqtl_negative_controls.csv"))

@@ -81,3 +81,18 @@ test_that("expr_of_gene aligns counts to subject ids and log-transforms", {
   # RecordID values must NOT accidentally resolve to expression rows.
   expect_true(all(is.na(expr_of_gene("GENEA", c("INVAAA", "INVBBB"), counts, meta))))
 })
+
+test_that("expr_of_gene prefers an explicit subject_id column over the LabID-derived fallback", {
+  counts <- data.table::data.table(Gene_name = "GENEA", HTP0001A = 3, HTP0002B = 7)
+  # subject_id is deliberately NOT what the LabID regex would derive, so the
+  # two branches disagree and only a genuine "prefer subject_id" implementation
+  # can pass both assertions below.
+  meta <- data.table::data.table(RecordID   = c("INVAAA", "INVBBB"),
+                                  LabID      = c("HTP0001A", "HTP0002B"),
+                                  subject_id = c("SUBJ_X", "SUBJ_Y"))
+  expect_equal(expr_of_gene("GENEA", c("SUBJ_X", "SUBJ_Y"), counts, meta),
+               log2(c(3, 7) + 1))
+  # The LabID-derived ids are no longer the lookup key when subject_id is
+  # present, so they must resolve to NA.
+  expect_true(all(is.na(expr_of_gene("GENEA", c("HTP0001", "HTP0002"), counts, meta))))
+})
