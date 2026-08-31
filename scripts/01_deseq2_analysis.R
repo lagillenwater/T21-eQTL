@@ -90,6 +90,19 @@ metadata <- metadata %>%
 stopifnot(all(metadata$LabID == colnames(count_matrix)))
 cat("  Sample order verified\n")
 
+# Analysis cohort from Task 1: T21 need RNA-seq AND WGS (302 of 304); Controls
+# need RNA-seq only (95 of 95), because genotypes are used solely for the
+# within-T21 dosage regressions that controls never enter. Running DE on the
+# same people as the eQTL step removes the old "302 of 304" mismatch.
+cohort <- read_csv("data/processed/analysis_cohort.csv", show_col_types = FALSE)
+keep_samples <- colnames(count_matrix) %in% cohort$LabID
+cat(sprintf("  Analysis cohort: %d of %d samples (T21 %d, Control %d)\n",
+            sum(keep_samples), ncol(count_matrix),
+            sum(cohort$Karyotype == "T21"), sum(cohort$Karyotype == "Control")))
+stopifnot(sum(keep_samples) == 397)
+count_matrix <- count_matrix[, keep_samples, drop = FALSE]
+metadata     <- metadata[metadata$LabID %in% cohort$LabID, ]
+
 # Create colData for DESeq2
 col_data <- DataFrame(
   sample_id = metadata$LabID,
@@ -207,7 +220,30 @@ dds_norm <- DESeqDataSetFromMatrix(
 # Apply ploidy normalization matrix
 # From Hunter et al.: normMatrix = ploidy / 2
 # Chr21 in T21 = 1.5, all others = 1.0
-normalizationFactors(dds_norm) <- norm_matrix
+non_chr21_genes_norm <- !rownames(dds_norm) %in% chr21_genes
+
+# Hunter et al. steps 3 and 5 together. estimateSizeFactors(normMatrix = ...)
+# computes library-size factors GIVEN the ploidy matrix and folds both into the
+# normalization factors, and controlGenes restricts that estimation to non-chr21
+# genes.
+#
+# The previous code assigned normalizationFactors(dds_norm) <- norm_matrix
+# directly. normalizationFactors are the COMPLETE per-gene-per-sample divisors
+# and replace size factors outright, and DESeq() skips estimateSizeFactors()
+# when they are already set - so that arm ran with NO library-size normalization
+# at all (norm_matrix holds only 1.0 and 1.5). Library sizes here span 21.1M to
+# 52.3M reads, 2.47x max/min, CV 12.2%.
+dds_norm <- estimateSizeFactors(dds_norm,
+                                normMatrix   = norm_matrix,
+                                controlGenes = non_chr21_genes_norm)
+
+# Guard: normalization factors must now vary across samples. If they only ever
+# take the values in norm_matrix, size factors were not estimated and the arm is
+# back to having no depth correction.
+nf <- normalizationFactors(dds_norm)
+stopifnot(!all(nf %in% c(1.0, 1.5)))
+cat(sprintf("  Normalization factors: range %.3f-%.3f, %d distinct column medians\n",
+            min(nf), max(nf), length(unique(round(apply(nf, 2, median), 6)))))
 cat("  Ploidy normalization applied (T21 chr21 = 1.5, others = 1.0)\n")
 
 cat("  Running DESeq2 (with ploidy normalization)...\n")
@@ -215,6 +251,32 @@ dds_norm <- DESeq(dds_norm, betaPrior = FALSE)
 
 # Extract results
 results_norm <- results(dds_norm, name = "karyotype_T21_vs_Control")
+
+# Hunter et al. step 4 residue. DESeq2 nulls the p-value (not just padj) for
+# genes with an extreme count outlier. MX1 is affected: baseMean 9017,
+# norm_log2FC 0.819, stat 5.63 - one of the largest deviations on the
+# chromosome - yet pvalue NA, so the pipeline's !is.na(norm_padj) filter drops
+# it. Emit both arms so the effect is visible.
+results_norm_nocooks <- results(dds_norm, name = "karyotype_T21_vs_Control",
+                                cooksCutoff = FALSE)
+
+cooks_mat <- assays(dds_norm)[["cooks"]]
+m_par     <- ncol(attr(dds_norm, "modelMatrix"))
+cooks_cut <- qf(0.99, m_par, ncol(dds_norm) - m_par)
+cooks_diag <- data.frame(
+  EnsemblID             = rownames(results_norm),
+  padj_default          = results_norm$padj,
+  padj_nocooks          = results_norm_nocooks$padj,
+  norm_log2FC           = results_norm$log2FoldChange,
+  baseMean              = results_norm$baseMean,
+  max_cooks             = apply(cooks_mat, 1, max, na.rm = TRUE),
+  n_samples_over_cutoff = rowSums(cooks_mat > cooks_cut, na.rm = TRUE),
+  stringsAsFactors      = FALSE)
+cat(sprintf("  Cook's filtering nulled %d genes; cooksCutoff=FALSE recovers them\n",
+            sum(is.na(cooks_diag$padj_default) & !is.na(cooks_diag$padj_nocooks))))
+write_csv(cooks_diag, "results/tables/deseq2_cooks_diagnostics.csv")
+stopifnot(file.exists("results/tables/deseq2_cooks_diagnostics.csv"))
+cat("  Saved: results/tables/deseq2_cooks_diagnostics.csv\n")
 
 # Convert to table
 results_norm_table <- as.data.frame(results_norm) %>%
@@ -279,19 +341,33 @@ cat("\nStep 7: Saving results...\n")
 
 # Main results files with clear names
 write_csv(results_combined, "results/tables/deseq2_all_genes_both_analyses.csv")
+stopifnot(file.exists("results/tables/deseq2_all_genes_both_analyses.csv"))
 cat("  Saved: results/tables/deseq2_all_genes_both_analyses.csv\n")
 cat("         (All genes with raw_log2FC and norm_log2FC columns)\n")
 
 write_csv(chr21_combined, "results/tables/deseq2_chr21_genes_both_analyses.csv")
+stopifnot(file.exists("results/tables/deseq2_chr21_genes_both_analyses.csv"))
 cat("  Saved: results/tables/deseq2_chr21_genes_both_analyses.csv\n")
 cat("         (Chr21 genes with raw_log2FC and norm_log2FC columns)\n")
 
+# Parallel chr21 table from the cooksCutoff=FALSE arm, for the MX1 sensitivity
+# analysis. Downstream scripts read the default arm.
+chr21_nocooks <- chr21_combined
+idx <- match(chr21_nocooks$EnsemblID, rownames(results_norm_nocooks))
+chr21_nocooks$norm_pvalue <- results_norm_nocooks$pvalue[idx]
+chr21_nocooks$norm_padj   <- results_norm_nocooks$padj[idx]
+write_csv(chr21_nocooks, "results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv")
+stopifnot(file.exists("results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv"))
+cat("  Saved: results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv\n")
+
 # Individual analysis results (for reference)
 write_csv(results_raw_table, "results/tables/deseq2_all_genes_no_ploidy_norm.csv")
+stopifnot(file.exists("results/tables/deseq2_all_genes_no_ploidy_norm.csv"))
 cat("  Saved: results/tables/deseq2_all_genes_no_ploidy_norm.csv\n")
 cat("         (All genes, no ploidy normalization - use for FC >= 1.5 filter)\n")
 
 write_csv(results_norm_table, "results/tables/deseq2_all_genes_ploidy_normalized.csv")
+stopifnot(file.exists("results/tables/deseq2_all_genes_ploidy_normalized.csv"))
 cat("  Saved: results/tables/deseq2_all_genes_ploidy_normalized.csv\n")
 cat("         (All genes, ploidy normalized - use for DE testing)\n")
 
@@ -435,3 +511,47 @@ cat("\nSaved session info to results/tables/deseq2_session_info.txt\n")
 
 cat("\n=== DESeq2 Analysis Complete ===\n")
 cat("Next step: Run 02_categorize_genes.R\n\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  Hunter et al. (2023) compliance pass, plus cohort restriction.
+#
+#  [cohort]   RESTRICTED DE from all 399 samples to the 397-row analysis cohort
+#             (302 T21 with WGS + 95 Controls, from
+#             data/processed/analysis_cohort.csv). Reason: DE previously ran on
+#             304 T21 while the eQTL step ran on 302, forcing "302 of 304"
+#             phrasing; the two now cover the same people. Controls are NOT
+#             required to have WGS - genotypes are used only for the within-T21
+#             dosage regressions.
+#
+#  [step 3+5] REPLACED `normalizationFactors(dds_norm) <- norm_matrix` with
+#             `estimateSizeFactors(dds_norm, normMatrix = norm_matrix,
+#              controlGenes = non_chr21_genes_norm)`.
+#             Reason: normalizationFactors are the complete per-gene-per-sample
+#             divisors and replace size factors outright; DESeq() skips
+#             estimateSizeFactors() when they are set. Since norm_matrix held
+#             only 1.0 and 1.5, the ploidy arm ran with NO library-size
+#             normalization, on samples spanning 21.1M-52.3M reads (2.47x
+#             max/min, CV 12.2%). The raw arm was already correct (line ~175).
+#             This changes every norm_log2FC and norm_padj in the pipeline.
+#
+#  [step 1]   AUDITED, no filter added. Already satisfied: the absolute count
+#             form (total >= 30) excludes nothing (min 437, median 195,547), and
+#             the q20 baseMean rule (25.10, flags 32 of 160) is a strict subset
+#             of Hunter's baseMean < 30 (flags 34). Kept as a LABEL feeding the
+#             Low_expression lane - genes below threshold stay in the table for
+#             later eQTL-support analysis.
+#
+#  [step 4]   ADDED a cooksCutoff=FALSE sensitivity arm and Cook's diagnostics.
+#             Reason: MX1 and 216 other genes have p-values nulled by outlier
+#             filtering; the pipeline dropped them silently.
+#
+#  [step 2]   AUDITED, no change. Implemented as a LABEL at gene level:
+#             scripts/archive/process_blacklist.R overlaps chr21 genes against
+#             ENCODE hg38-blacklist.v2 regions (10 genes), combined with 9
+#             KNOWN_REPEAT_GENES into the high_repeat flag and the High_repeats
+#             lane. Read-level masking is not available because counts arrive
+#             precomputed from Synapse. State as a manuscript limitation.
+#
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
