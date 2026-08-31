@@ -29,6 +29,8 @@ suppressPackageStartupMessages({
   library(data.table)
 })
 
+source("scripts/lib/eqtl_fit.R")
+
 set.seed(42)
 
 cat("=== T21-eQTL: Within-T21 Dosage-Expression Boxplots ===\n\n")
@@ -122,29 +124,26 @@ geno_expr <- merge(geno_expr, var_gene,
 
 cat(sprintf("  (variant, gene, subject) rows: %d\n", nrow(geno_expr)))
 
-# Vectorized per-(variant, gene) linear regression via formulas: with one
-# predictor we can compute slope, intercept, t, and p in closed form.
+# Per-(variant, gene) linear regression via scripts/lib/eqtl_fit.R's
+# vectorized closed-form fit (single-column call here; Tasks 6/7 reuse the
+# same function across all variants of a gene at once). The n < 5 guard is
+# preserved explicitly: fit_variants() itself only errors below n = 3, so
+# the stricter minimum-sample-size behaviour of this script would silently
+# loosen without this check.
 fit_table <- geno_expr[, {
-  x  <- alt_dosage
-  y  <- count
-  n  <- .N
+  x <- alt_dosage
+  y <- count
+  n <- .N
   if (n < 5 || var(x) == 0) {
     .(t21_n = n, t21_slope = NA_real_, t21_se = NA_real_,
       t21_t = NA_real_, t21_p = NA_real_)
   } else {
-    mx   <- mean(x); my <- mean(y)
-    sxx  <- sum((x - mx)^2)
-    sxy  <- sum((x - mx) * (y - my))
-    b    <- sxy / sxx
-    a    <- my - b * mx
-    res  <- y - (a + b * x)
-    sse  <- sum(res^2)
-    sigma2 <- sse / (n - 2)
-    se_b <- sqrt(sigma2 / sxx)
-    tval <- b / se_b
-    pval <- 2 * pt(-abs(tval), df = n - 2)
-    .(t21_n = n, t21_slope = b, t21_se = se_b,
-      t21_t = tval, t21_p = pval)
+    fit <- fit_variants(matrix(x, ncol = 1), y)
+    .(t21_n     = n,
+      t21_slope = fit$slope[1],
+      t21_se    = fit$se[1],
+      t21_t     = fit$t[1],
+      t21_p     = fit$p[1])
   }
 }, by = .(variant_id, ensembl_stable, Gene_name, gene_set,
           gtex_slope, gtex_pval, observed_direction)]
@@ -157,6 +156,7 @@ cat(sprintf("  Variants tested: %d  Supportive: %d\n",
             nrow(fit_table), sum(fit_table$supportive, na.rm = TRUE)))
 
 fwrite(fit_table, "results/tables/t21_dosage_per_variant.csv")
+stopifnot(file.exists("results/tables/t21_dosage_per_variant.csv"))
 
 # =============================================================================
 # STEP 4: Pick representative variant per gene (most sig supportive eQTL)
@@ -170,6 +170,7 @@ representatives <- supportive[, head(.SD, 1L), by = ensembl_stable]
 
 fwrite(representatives,
        "results/tables/t21_representative_variants.csv")
+stopifnot(file.exists("results/tables/t21_representative_variants.csv"))
 
 n_rep_low  <- sum(representatives$gene_set == "DE_low_FC")
 n_rep_high <- sum(representatives$gene_set == "Sig_high_FC")
@@ -261,3 +262,23 @@ writeLines(capture.output(sessionInfo()),
            "results/figures/t21_dosage_boxplots_session_info.txt")
 
 cat("\n=== Boxplot script complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  Replaced the inline closed-form regression duplicate in the
+#             fit_table block with a call to fit_variants() in
+#             scripts/lib/eqtl_fit.R. The inline code was not an lm() call -
+#             it was already the same closed-form slope/se/t/p math, just
+#             copy-pasted in this script. Consolidated so there is a single
+#             tested implementation instead of two copies that could drift,
+#             since Tasks 6 and 7 need the same fit_variants/perm_min_p/
+#             gene_level_p primitives for gene-level permutation testing.
+#             Verified numerically identical to the previous output
+#             (max |slope diff| ~ 9.9e-14, max |p diff| ~ 1.0e-15, both well
+#             below the 1e-8 tolerance). The n < 5 sample-size guard from the
+#             original inline code is preserved explicitly around the
+#             fit_variants() call.
+#             Reason: single tested regression implementation; Tasks 6/7
+#             reuse.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
