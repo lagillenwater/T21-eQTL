@@ -47,6 +47,9 @@ data/raw/*
 *.rds
 *.RDS
 
+# Working notes, not canonical docs
+docs/REPO_STATE.md
+
 # OS / IDE
 .DS_Store
 Thumbs.db

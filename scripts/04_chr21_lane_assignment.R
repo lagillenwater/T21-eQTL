@@ -21,7 +21,7 @@
 #                                       signif_pairs at all)
 #
 # Inputs:
-#   - results/tables/deseq2_chr21_combined.csv
+#   - results/tables/deseq2_chr21_genes_both_analyses.csv
 #   - results/tables/deseq2_all_genes_ploidy_normalized.csv  (cohort-noise SD)
 #   - results/tables/t21_dosage_per_variant.csv
 #   - data/processed/eqtl_target_variants.csv
@@ -71,7 +71,7 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 
 cat("Step 1: Loading inputs...\n")
 
-deseq <- fread("results/tables/deseq2_chr21_combined.csv")
+deseq <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
 deseq[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
 if (RESTRICT_TO_PROTEIN_CODING) {
   n_before <- nrow(deseq)

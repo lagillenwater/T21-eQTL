@@ -18,7 +18,7 @@
 #              for them produces misleading "explained" calls.
 #
 # Inputs:
-#   - results/tables/deseq2_chr21_combined.csv
+#   - results/tables/deseq2_chr21_genes_both_analyses.csv
 #   - results/tables/deseq2_all_genes_ploidy_normalized.csv
 #   - data/processed/blacklisted_genes.csv
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
@@ -69,7 +69,7 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 
 cat("Step 1: Identifying target genes...\n")
 
-chr21    <- fread("results/tables/deseq2_chr21_combined.csv")
+chr21    <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
 all_lfc  <- fread(
   "results/tables/deseq2_all_genes_ploidy_normalized.csv")
 
