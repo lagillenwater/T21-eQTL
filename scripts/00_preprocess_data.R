@@ -121,6 +121,138 @@ metadata_matched <- metadata %>%
 cat(sprintf("  Final matched samples: %d\n", length(samples_both)))
 
 # =============================================================================
+# STEP 3b: Analysis-cohort definition and Table 1
+# =============================================================================
+#
+# The cohort is asymmetric: T21 needs RNA-seq AND chr21 WGS (genotypes feed
+# the within-T21 dosage regressions only); Control needs RNA-seq alone. See
+# scripts/lib/cohort.R for the full rationale.
+
+cat("\nStep 3b: Defining analysis cohort and building Table 1...\n")
+
+source("scripts/lib/cohort.R")
+source("scripts/lib/table1.R")
+
+if (!dir.exists("results/tables")) {
+  dir.create("results/tables", recursive = TRUE)
+}
+
+# WGS roster from the PASS file headers only - cheap, and needed here because
+# script 01 must run DE on the analysis cohort, before script 02 processes any
+# genotypes.
+wgs <- wgs_subjects(c("data/chr21_ds_PASS.csv", "data/chr21_ctrl_PASS.csv"))
+cat(sprintf("  Subjects with chr21 WGS (from headers): %d\n", length(wgs)))
+
+metadata_matched <- metadata_matched %>%
+  mutate(subject_id = subject_id_from_labid(LabID),
+         has_wgs = subject_id %in% wgs)
+
+print(as.data.frame(metadata_matched %>%
+  count(Karyotype, name = "rnaseq") %>%
+  left_join(metadata_matched %>% filter(has_wgs) %>% count(Karyotype, name = "with_wgs"),
+            by = "Karyotype")))
+
+cohort <- analysis_cohort(as.data.table(metadata_matched))
+cat(sprintf("  Analysis cohort: T21 %d, Control %d, total %d\n",
+            sum(cohort$Karyotype == "T21"), sum(cohort$Karyotype == "Control"),
+            nrow(cohort)))
+stopifnot(sum(cohort$Karyotype == "T21") == 302,
+          sum(cohort$Karyotype == "Control") == 95)
+fwrite(cohort, "data/processed/analysis_cohort.csv")
+if (!file.exists("data/processed/analysis_cohort.csv")) {
+  stop("failed to write data/processed/analysis_cohort.csv")
+}
+cat("  Saved: data/processed/analysis_cohort.csv\n")
+
+# --- Table 1 -----------------------------------------------------------
+
+t21a <- cohort[Karyotype == "T21"]
+ctla <- cohort[Karyotype == "Control"]
+
+row_cont <- function(label, var, digits = 1) {
+  cmp <- compare_groups(cohort[[var]], cohort$Karyotype)
+  data.table(characteristic = label, level = "median [IQR]",
+             t21 = summarize_continuous(t21a[[var]], digits),
+             control = summarize_continuous(ctla[[var]], digits),
+             overall = summarize_continuous(cohort[[var]], digits),
+             p_value = cmp$p, test = cmp$test,
+             n_missing = sum(is.na(cohort[[var]])))
+}
+row_cat <- function(label, var) {
+  cmp  <- compare_groups(cohort[[var]], cohort$Karyotype)
+  levs <- sort(unique(as.character(cohort[[var]][!is.na(cohort[[var]])])))
+  rbindlist(lapply(seq_along(levs), function(i)
+    data.table(characteristic = if (i == 1) label else "", level = levs[i],
+               t21 = summarize_categorical(t21a[[var]], levs[i]),
+               control = summarize_categorical(ctla[[var]], levs[i]),
+               overall = summarize_categorical(cohort[[var]], levs[i]),
+               p_value = if (i == 1) cmp$p else NA_real_,
+               test = if (i == 1) cmp$test else "",
+               n_missing = if (i == 1) sum(is.na(cohort[[var]])) else NA_integer_)))
+}
+
+tbl1 <- rbindlist(list(
+  data.table(characteristic = "Subjects in analysis cohort", level = "n",
+             t21 = as.character(nrow(t21a)), control = as.character(nrow(ctla)),
+             overall = as.character(nrow(cohort)),
+             p_value = NA_real_, test = "", n_missing = NA_integer_),
+  data.table(characteristic = "Excluded: RNA-seq without WGS", level = "n",
+             t21 = as.character(sum(metadata_matched$Karyotype == "T21" & !metadata_matched$has_wgs)),
+             control = "0 (not required)",
+             overall = as.character(sum(metadata_matched$Karyotype == "T21" & !metadata_matched$has_wgs)),
+             p_value = NA_real_, test = "", n_missing = NA_integer_),
+  row_cont("Age at visit (years)", "Age_at_visit"),
+  row_cont("BMI", "BMI"),
+  row_cat("Sex", "Sex"),
+  row_cat("Sample source", "Sample_source"),
+  row_cat("Study visit", "Event_name")))
+
+# Optional comorbidity block. Long format with ONE comment line before the
+# header: RecordID, Condition, HasCondition, Age.group, min_Age, max_Age.
+como_path <- "data/P4C_Comorbidity_020921.tsv"
+if (file.exists(como_path)) {
+  como <- fread(como_path, skip = 1)
+  if (all(c("RecordID", "Condition", "HasCondition") %in% names(como))) {
+    como <- como[RecordID %in% cohort$RecordID]
+    top  <- como[, .(n_with = sum(HasCondition == 1, na.rm = TRUE)), by = Condition][
+      order(-n_with)][seq_len(min(5, .N))]
+    wide <- dcast(como, RecordID ~ Condition, value.var = "HasCondition")
+    ann  <- merge(cohort[, .(RecordID, Karyotype)], wide, by = "RecordID")
+    tbl1 <- rbindlist(list(tbl1, rbindlist(lapply(top$Condition, function(cn) {
+      cmp <- compare_groups(as.character(ann[[cn]]), ann$Karyotype)
+      data.table(characteristic = cn, level = "n (%) with condition",
+                 t21 = summarize_categorical(ann[Karyotype == "T21"][[cn]], 1),
+                 control = summarize_categorical(ann[Karyotype == "Control"][[cn]], 1),
+                 overall = summarize_categorical(ann[[cn]], 1),
+                 p_value = cmp$p, test = cmp$test, n_missing = sum(is.na(ann[[cn]])))
+    }))))
+  } else {
+    cat("  comorbidity file present but unexpected columns; skipping that block\n")
+  }
+}
+
+tbl1[, p_value := ifelse(is.na(p_value), "", format.pval(p_value, digits = 2, eps = 1e-4))]
+fwrite(tbl1, "results/tables/table1_analysis_cohort.csv")
+writeLines(c(
+  "# Table 1. Characteristics of the analysis cohort", "",
+  sprintf("T21 subjects require both whole-blood RNA-seq and chr21 WGS (n = %d of %d).",
+          nrow(t21a), sum(metadata_matched$Karyotype == "T21")),
+  sprintf("Controls require RNA-seq only (n = %d), because genotypes are used solely",
+          nrow(ctla)),
+  "for the within-T21 dosage regressions, which controls do not enter.",
+  "Race and ethnicity are not recorded in the available metadata.", "",
+  paste("|", paste(names(tbl1), collapse = " | "), "|"),
+  paste("|", paste(rep("---", ncol(tbl1)), collapse = " | "), "|"),
+  apply(tbl1, 1, function(r) paste("|", paste(r, collapse = " | "), "|"))),
+  "results/tables/table1_analysis_cohort.md")
+for (f in c("results/tables/table1_analysis_cohort.csv",
+            "results/tables/table1_analysis_cohort.md")) {
+  if (!file.exists(f)) stop("failed to write ", f)
+  cat("  Wrote ", f, "\n", sep = "")
+}
+print(tbl1)
+
+# =============================================================================
 # STEP 4: Create gene annotation table
 # =============================================================================
 
@@ -278,3 +410,21 @@ cat("\nSaved session info to data/processed/preprocessing_session_info.txt\n")
 
 cat("\n=== Preprocessing Complete ===\n")
 cat("Next step: Run 01_deseq2_analysis.R\n\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  ADDED the analysis-cohort definition and Table 1.
+#             The cohort is asymmetric by design: T21 require RNA-seq AND chr21
+#             WGS (302 of 304), Controls require RNA-seq only (95 of 95).
+#             Reason: genotypes are used only for the within-T21 dosage
+#             regressions, which controls never enter, so requiring WGS of a
+#             control would discard 89 of 95 for no analytic gain. Dropping the
+#             2 ungenotyped T21 makes the DE cohort and the eQTL cohort the same
+#             people; previously DE ran on 304 and eQTL on 302.
+#             The WGS roster is read from the PASS file HEADERS only, so this
+#             stays cheap enough to run before any genotype processing.
+#             sample_metadata.csv keeps all 399 rows and gains subject_id and
+#             has_wgs; data/processed/analysis_cohort.csv carries the 397-row
+#             roster that scripts 01-04 subset to.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
