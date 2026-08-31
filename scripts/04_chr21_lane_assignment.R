@@ -49,15 +49,15 @@ cat("=== T21-eQTL: Per-Gene Lane Assignment (DE x eQTL) ===\n\n")
 ALPHA               <- 0.01    # paper: padj < .01 (Fig. 2B, 3B)
 ALPHA_REPRO         <- 0.05    # within-T21 nominal p for a cis variant to
                                # count as a reproducible supporter
-MAGNITUDE_THRESHOLD <- 1.0     # |norm_log2FC| / cohort_sd >= this to be
-                               # eligible for eQTL-based explanation. Genes
-                               # below this threshold are flagged
-                               # "below_cohort_noise" - their statistically
-                               # significant deviations are within typical
-                               # cohort variation, so no eQTL explanation
-                               # is sought. This filter is also applied
-                               # upstream in script 02 (gene selection)
-                               # so failing genes have no genotype data.
+OUTLIER_FDR         <- 0.10    # FDR-controlled robust outlier test against a
+                               # chr21-internal median/MAD null. Genes that do
+                               # not clear this are flagged "Expected_dosage"
+                               # - their statistically significant deviations
+                               # are within typical chr21 variation, so no
+                               # eQTL explanation is sought. This filter is
+                               # also applied upstream in script 02 (gene
+                               # selection) so failing genes have no genotype
+                               # data.
 LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
 RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise
                                      # reference to protein-coding genes
@@ -195,22 +195,34 @@ cat(sprintf("  baseMean cutoff at %.0fth percentile: %.2f\n",
 m[, low_expr   := !is.na(baseMean) & baseMean < basemean_threshold]
 m[, high_repeat := Gene_name %in% high_repeat_genes]
 
-# Deviation magnitude vs cohort noise (computed BEFORE lane assignment so
-# the magnitude filter can gate the eQTL lane downstream).
-all_genes_lfc <- fread(
-  "results/tables/deseq2_all_genes_ploidy_normalized.csv")
-if (RESTRICT_TO_PROTEIN_CODING) {
-  all_genes_lfc <- all_genes_lfc[Gene_type == "protein_coding"]
-}
-non_chr21_sd <- sd(
-  all_genes_lfc[Chr != "chr21" & !is.na(log2FoldChange), log2FoldChange])
-cat(sprintf("  cohort-noise SD (non-chr21%s): %.3f\n",
-            if (RESTRICT_TO_PROTEIN_CODING) ", protein-coding" else "",
-            non_chr21_sd))
+# Deviation magnitude vs a chr21-internal null (computed BEFORE lane
+# assignment so the outlier filter can gate the eQTL lane downstream).
+source("scripts/lib/chr21_threshold.R")
+
 m[, deviation_magnitude := abs(norm_log2FC)]
-m[, deviation_vs_cohort_sd := deviation_magnitude / non_chr21_sd]
-m[, passes_magnitude_filter := !is.na(deviation_vs_cohort_sd) &
-                               deviation_vs_cohort_sd >= MAGNITUDE_THRESHOLD]
+
+# Null from eligible genes only; z and q reported for all genes so the table
+# stays complete. q is NA for ineligible genes, which fails the filter by
+# construction - they are caught by the High_repeats / Low_expression lanes.
+eligible_idx <- !m$low_expr & !m$high_repeat & !is.na(m$norm_log2FC)
+null <- chr21_null(m$norm_log2FC[eligible_idx])
+cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d eligible genes)\n",
+            null$center, null$scale, null$n))
+
+m[, dev_z := robust_z(norm_log2FC, null)]
+m[, q_outlier := NA_real_]
+m[eligible_idx, q_outlier := outlier_fdr(dev_z)]
+m[, passes_magnitude_filter := !is.na(q_outlier) & q_outlier < OUTLIER_FDR]
+
+cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
+            OUTLIER_FDR, sum(m$passes_magnitude_filter),
+            effective_k(m$dev_z, m$q_outlier, OUTLIER_FDR)))
+
+sens <- k_sensitivity(m$dev_z[eligible_idx])
+fwrite(sens, "results/tables/chr21_k_sensitivity.csv")
+stopifnot(file.exists("results/tables/chr21_k_sensitivity.csv"))
+cat("  Wrote results/tables/chr21_k_sensitivity.csv\n")
+print(sens)
 
 # Significance lane - cohort-noise filter is the FIRST split. Genes whose
 # ploidy-corrected deviation is within typical cohort variation are
@@ -248,7 +260,7 @@ setcolorder(m, c(
   "EnsemblID", "ensembl_stable", "Gene_name", "Gene_type", "Chr",
   "baseMean", "raw_log2FC", "raw_FC", "raw_padj",
   "norm_log2FC", "norm_padj",
-  "deviation_magnitude", "deviation_vs_cohort_sd",
+  "deviation_magnitude", "dev_z", "q_outlier",
   "passes_magnitude_filter",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
@@ -309,4 +321,25 @@ print(m[Gene_name %in% c("APP", "COL18A1", "OLIG2", "BACE2", "MX1", "CSTB"),
 writeLines(capture.output(sessionInfo()),
            "results/tables/chr21_lane_assignment_session_info.txt")
 
+stopifnot(
+  file.exists("results/tables/chr21_lane_assignments.csv"),
+  file.exists("results/tables/chr21_lane_summary.csv"),
+  file.exists("results/tables/chr21_k_sensitivity.csv")
+)
+
 cat("\n=== Lane assignment complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  REPLACED the cohort-SD magnitude filter with the chr21-internal
+#             FDR outlier test; dropped column deviation_vs_cohort_sd in favour
+#             of dev_z and q_outlier; added chr21_k_sensitivity.csv.
+#             Reason: ploidy normalization does not act on diploid genes
+#             (mean |raw - norm| 0.0048 off chr21 vs 0.583 on it), so their
+#             spread measured a different quantity; and a 1-SD cut selects the
+#             top ~third of any distribution (18.3% of non-chr21 genes cleared
+#             it themselves, vs 20.6% of chr21 - binomial p = 0.26). The null is
+#             now estimated AFTER the expression and repeat filters, because
+#             log2FC variance scales with counts.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md

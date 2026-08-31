@@ -50,9 +50,11 @@ cat("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes ===\n\n")
 # =============================================================================
 
 ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
-MAGNITUDE_THRESHOLD <- 1.0   # |norm_log2FC| / cohort_sd >= this to be
-                             # eQTL-tested. 1.0 = above typical cohort
-                             # variation. Raise to 1.5 or 2.0 for stricter.
+# Deviation threshold. The old rule (|norm_log2FC| >= 1.0 * SD of non-chr21
+# genes) used the wrong reference - ploidy normalization does not act on diploid
+# genes - and 1 SD selects the top ~third of any distribution. The null is now
+# chr21-internal median/MAD and the cut is an FDR on robust z.
+OUTLIER_FDR <- 0.10
 LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
 GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
                              # (~ matches the effective signif_pairs cutoff)
@@ -87,25 +89,30 @@ if (RESTRICT_TO_PROTEIN_CODING) {
               n_chr21_before, nrow(chr21)))
 }
 
-# Cohort-noise SD from non-chr21 ploidy-normalized log2FC (the empirical
-# null distribution for "deviation from expected ploidy"). Restricted to
-# protein-coding too if RESTRICT_TO_PROTEIN_CODING is TRUE.
-cohort_sd <- sd(
-  all_lfc[Chr != "chr21" & !is.na(log2FoldChange), log2FoldChange])
-cat(sprintf("  Cohort-noise SD (non-chr21%s): %.3f\n",
-            if (RESTRICT_TO_PROTEIN_CODING) ", protein-coding" else "",
-            cohort_sd))
-cat(sprintf("  Magnitude threshold: %.1f cohort SDs (= %.3f log2FC)\n",
-            MAGNITUDE_THRESHOLD, MAGNITUDE_THRESHOLD * cohort_sd))
+source("scripts/lib/chr21_threshold.R")
 
+# Eligibility filters run BEFORE the null is estimated: log2FC variance scales
+# with expression, so near-zero-count genes would otherwise set the scale.
 basemean_threshold <- quantile(chr21$baseMean, LOW_EXPR_QUANT, na.rm = TRUE)
+eligible <- chr21[baseMean >= basemean_threshold &
+                    !(Gene_name %in% high_repeat_genes) &
+                    !is.na(norm_log2FC)]
+cat(sprintf("  Eligible for the null (expressed, non-repeat): %d of %d\n",
+            nrow(eligible), nrow(chr21)))
 
-target_genes <- chr21[
-  !is.na(norm_padj) & norm_padj < ALPHA_DE &
-    !is.na(norm_log2FC) &
-    abs(norm_log2FC) >= MAGNITUDE_THRESHOLD * cohort_sd &
-    baseMean >= basemean_threshold &
-    !(Gene_name %in% high_repeat_genes)]
+null <- chr21_null(eligible$norm_log2FC)
+cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d)\n",
+            null$center, null$scale, null$n))
+
+eligible[, dev_z := robust_z(norm_log2FC, null)]
+eligible[, q_outlier := outlier_fdr(dev_z)]
+cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
+            OUTLIER_FDR, sum(eligible$q_outlier < OUTLIER_FDR, na.rm = TRUE),
+            effective_k(eligible$dev_z, eligible$q_outlier, OUTLIER_FDR)))
+
+# Composite rule: real deviation (padj) AND unusually large deviation (FDR).
+target_genes <- eligible[!is.na(norm_padj) & norm_padj < ALPHA_DE &
+                           !is.na(q_outlier) & q_outlier < OUTLIER_FDR]
 
 target_genes[, gene_set := fifelse(norm_log2FC < 0,
                                    "DE_low_FC", "Sig_high_FC")]
@@ -336,4 +343,27 @@ cat("(Expect Control max <= 2; T21 max <= 3 on chr21)\n")
 writeLines(capture.output(sessionInfo()),
            "data/processed/genotype_filter_session_info.txt")
 
+stopifnot(
+  file.exists("data/processed/eqtl_supported_genes.csv"),
+  file.exists("data/processed/eqtl_target_variants.csv"),
+  file.exists("data/processed/genotypes_filtered.csv")
+)
+
 cat("\n=== Filter complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  REPLACED the cohort-SD magnitude filter
+#             (abs(norm_log2FC) >= MAGNITUDE_THRESHOLD * sd(non-chr21 log2FC),
+#             threshold 1.0) with an FDR-controlled robust outlier test against
+#             a chr21-internal median/MAD null (scripts/lib/chr21_threshold.R,
+#             OUTLIER_FDR = 0.10).
+#             Reason: ploidy normalization does not act on diploid genes
+#             (mean |raw - norm| 0.0048 off chr21 vs 0.583 on it), so their
+#             spread measured a different quantity; and a 1-SD cut selects the
+#             top ~third of any distribution (18.3% of non-chr21 genes cleared
+#             it themselves, vs 20.6% of chr21 - binomial p = 0.26). The null is
+#             now estimated AFTER the expression and repeat filters, because
+#             log2FC variance scales with counts.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
