@@ -232,6 +232,46 @@ stopifnot(file.exists("results/tables/eqtl_negative_controls.csv"))
 cat("  Wrote results/tables/eqtl_negative_controls.csv\n")
 
 # =============================================================================
+# GENE-LEVEL PERMUTATION SIGNIFICANCE (GTEx / FastQTL eGene procedure)
+# =============================================================================
+# The "any of N variants" rule mostly measures N (21 to 136 here). Permuting
+# expression labels and taking the smallest p across variants per permutation
+# builds the null of the BEST variant, handling multiplicity and LD together.
+# Unlike picking the lead variant this does not assume the top association is
+# causal - in LD the lead variant is frequently only a tag.
+
+N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "100"))   # 1000 on Alpine
+FDR_GENE <- 0.05
+cat(sprintf("\n=== Gene-level permutation (%d permutations) ===\n", N_PERM))
+
+perm_res <- rbindlist(lapply(de_genes, function(g) {
+  vg   <- fit_table[Gene_name == g]
+  cols <- intersect(vg$variant_id, colnames(G_all))
+  e    <- if (length(cols)) expr_of_gene(g, subj, counts, meta_t21) else NA_real_
+  if (length(cols) == 0 || all(is.na(e))) {
+    return(data.table(Gene_name = g, n_variants = length(cols), min_p_obs = NA_real_,
+                      best_variant = NA_character_, p_gene_perm = NA_real_))
+  }
+  G    <- G_all[, cols, drop = FALSE]
+  fits <- fit_variants(G, e)
+  best <- which.min(fits$p)
+  data.table(Gene_name = g, n_variants = length(cols),
+             min_p_obs = fits$p[best], best_variant = cols[best],
+             p_gene_perm = gene_level_p(fits$p[best],
+                                        perm_min_p(G, e, n_perm = N_PERM, seed = 2026)))
+}))
+perm_res[, q_gene_bh := p.adjust(p_gene_perm, "BH")]
+perm_res[, explained_perm := !is.na(q_gene_bh) & q_gene_bh < FDR_GENE]
+setorder(perm_res, p_gene_perm)
+print(as.data.frame(perm_res))
+
+fwrite(perm_res, "results/tables/eqtl_gene_level_perm.csv")
+if (!file.exists("results/tables/eqtl_gene_level_perm.csv")) {
+  stop("failed to write results/tables/eqtl_gene_level_perm.csv")
+}
+cat("  Wrote results/tables/eqtl_gene_level_perm.csv\n")
+
+# =============================================================================
 # STEP 4: Pick representative variant per gene (most sig supportive eQTL)
 # =============================================================================
 
@@ -369,3 +409,6 @@ cat("\n=== Boxplot script complete ===\n")
 #             larger DE gene set would be needed to resolve whether the
 #             gap between observed and permuted holds up statistically.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  ADDED gene-level permutation p-values (GTEx/FastQTL eGene
+#             procedure) -> results/tables/eqtl_gene_level_perm.csv.

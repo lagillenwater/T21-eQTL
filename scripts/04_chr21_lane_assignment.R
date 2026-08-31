@@ -248,17 +248,29 @@ m[, sig_lane := fcase(
   !is.na(norm_padj) & norm_padj < ALPHA & norm_log2FC > 0, "DE_high",
   default                                                = "Not_DE_outside_noise")]
 
+# eQTL lane, now gated on gene-level permutation significance rather than
+# "at least one supportive variant". The old rule scaled with the number of cis
+# variants tested (median n_cis 107 for explained genes vs 36 for the one
+# unexplained gene), so it measured variant count more than genetic evidence.
+perm <- if (file.exists("results/tables/eqtl_gene_level_perm.csv")) {
+  fread("results/tables/eqtl_gene_level_perm.csv")
+} else {
+  stop("run scripts/03_t21_dosage_boxplots.R first - eqtl_gene_level_perm.csv is missing")
+}
+m <- merge(m, perm[, .(Gene_name, p_gene_perm, q_gene_bh, explained_perm, best_variant)],
+           by = "Gene_name", all.x = TRUE)
+
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")
 #   - DE genes:
-#       n_cis_total == 0       -> "no_GTEx_data"
-#       n_supp_with_repro >= 1 -> "explained"
-#       otherwise              -> "unexplained"
+#       n_cis_total == 0                                -> "no_GTEx_data"
+#       gene-level permutation q < FDR_GENE (BH)         -> "explained"
+#       otherwise                                        -> "unexplained"
 m[, eqtl_lane := fcase(
-  !(sig_lane %in% c("DE_low", "DE_high")), "not_evaluated",
-  n_cis_total == 0L,                       "no_GTEx_data",
-  n_supp_with_repro >= 1L,                 "explained",
-  default                                = "unexplained")]
+  !(sig_lane %in% c("DE_low", "DE_high")),         "not_evaluated",
+  n_cis_total == 0L,                               "no_GTEx_data",
+  !is.na(explained_perm) & explained_perm == TRUE, "explained",
+  default =                                        "unexplained")]
 
 # =============================================================================
 # STEP 4: Ordered output table
@@ -275,6 +287,7 @@ setcolorder(m, c(
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
   "n_cis_total", "n_dir_match", "n_supp_with_repro",
+  "p_gene_perm", "q_gene_bh", "explained_perm",
   "strongest_supp_pval", "strongest_supp_variant",
   "strongest_dir_pval", "strongest_dir_variant",
   "strongest_overall_pval", "strongest_overall_variant"
@@ -352,4 +365,16 @@ cat("\n=== Lane assignment complete ===\n")
 #             it themselves, vs 20.6% of chr21 - binomial p = 0.26). The null is
 #             now estimated AFTER the expression and repeat filters, because
 #             log2FC variance scales with counts.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  REPLACED the eqtl_lane rule "at least one cis variant is
+#             direction-matched and reproduces at t21_p < 0.05" with gene-level
+#             permutation significance at BH FDR < 0.05.
+#             Reason: the old rule scaled with the number of cis variants tested
+#             (21 to 1083 per gene, no multiplicity control); median n_cis was
+#             107 for explained genes vs 36 for the one unexplained gene, and
+#             RBM11 was called explained on 1 supporting variant of 83 where
+#             chance predicts ~4. The lead variant was rejected as an
+#             alternative because in LD it is frequently a tag, not the causal
+#             variant.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
