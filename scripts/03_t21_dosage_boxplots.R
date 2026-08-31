@@ -33,6 +33,9 @@ source("scripts/lib/eqtl_fit.R")
 
 set.seed(42)
 
+ALPHA_REPRO <- 0.05   # within-T21 nominal p for a cis variant to count as
+                      # reproducible; must match scripts/04_chr21_lane_assignment.R
+
 cat("=== T21-eQTL: Within-T21 Dosage-Expression Boxplots ===\n\n")
 
 # =============================================================================
@@ -159,6 +162,79 @@ fwrite(fit_table, "results/tables/t21_dosage_per_variant.csv")
 stopifnot(file.exists("results/tables/t21_dosage_per_variant.csv"))
 
 # =============================================================================
+# NEGATIVE CONTROLS for the "explained" call
+# =============================================================================
+# C2 direction flip       - negate the deviation direction and recount. The rule
+#                           only asks that some cis variant point the same way
+#                           as the deviation, so flipping measures its
+#                           discriminating power.
+# C1 genotype permutation - shuffle subject labels and refit. Destroys the
+#                           genotype-expression link while preserving the number
+#                           of variants per gene and their LD, which is the
+#                           multiplicity the "any variant" rule ignores.
+# A sound criterion collapses toward 0% under both.
+
+cat("\n=== Negative controls ===\n")
+N_PERM_SETS <- as.integer(Sys.getenv("T21_PERM_SETS", "20"))
+
+score_explained <- function(dt, deviation_sign, t21_slope, t21_p) {
+  supportive <- sign(dt$gtex_slope) == deviation_sign &
+                sign(t21_slope) == sign(dt$gtex_slope) &
+                !is.na(t21_p) & t21_p < ALPHA_REPRO
+  tapply(supportive, dt$Gene_name, function(x) any(x, na.rm = TRUE))
+}
+
+obs  <- score_explained(fit_table, fit_table$observed_direction,
+                        fit_table$t21_slope, fit_table$t21_p)
+flip <- score_explained(fit_table, -fit_table$observed_direction,
+                        fit_table$t21_slope, fit_table$t21_p)
+cat(sprintf("  observed:          %d/%d explained (%.1f%%)\n",
+            sum(obs), length(obs), 100 * mean(obs)))
+cat(sprintf("  direction flipped: %d/%d explained (%.1f%%)\n",
+            sum(flip), length(flip), 100 * mean(flip)))
+
+gwide <- dcast(geno_t21, subject_id ~ variant_id, value.var = "alt_dosage")
+subj  <- gwide$subject_id
+G_all <- as.matrix(gwide[, -1])
+de_genes <- unique(fit_table$Gene_name)
+
+# expr_of_gene() (scripts/lib/eqtl_fit.R) looks subjects up against the
+# meta table's RecordID column (see its own unit test), but `subj` here is
+# the HTP-style subject_id used by the genotype table. Give it a RecordID
+# column that actually holds those ids rather than editing the shared lib.
+meta_t21_for_expr <- copy(meta_t21)
+meta_t21_for_expr[, RecordID := subject_id]
+
+perm_rate <- vapply(seq_len(N_PERM_SETS), function(b) {
+  set.seed(1000 + b)
+  ord <- sample.int(length(subj))
+  mean(vapply(de_genes, function(g) {
+    vg   <- fit_table[Gene_name == g]
+    cols <- intersect(vg$variant_id, colnames(G_all))
+    if (length(cols) == 0) return(FALSE)
+    e <- expr_of_gene(g, subj, counts, meta_t21_for_expr)
+    if (all(is.na(e))) return(FALSE)
+    fits <- fit_variants(G_all[ord, cols, drop = FALSE], e)
+    vgm  <- vg[match(cols, vg$variant_id)]
+    any(sign(vgm$gtex_slope) == vgm$observed_direction &
+        sign(fits$slope) == sign(vgm$gtex_slope) &
+        !is.na(fits$p) & fits$p < ALPHA_REPRO, na.rm = TRUE)
+  }, logical(1)))
+}, numeric(1))
+cat(sprintf("  genotype permuted: %.1f%% explained (mean of %d shuffles, range %.1f-%.1f%%)\n",
+            100 * mean(perm_rate), N_PERM_SETS,
+            100 * min(perm_rate), 100 * max(perm_rate)))
+
+neg_ctrl <- data.table(
+  control        = c("observed", "direction_flip", "genotype_permutation"),
+  n_genes_tested = c(length(obs), length(flip), length(de_genes)),
+  n_explained    = c(sum(obs), sum(flip), round(mean(perm_rate) * length(de_genes))),
+  pct_explained  = c(100 * mean(obs), 100 * mean(flip), 100 * mean(perm_rate)))
+fwrite(neg_ctrl, "results/tables/eqtl_negative_controls.csv")
+stopifnot(file.exists("results/tables/eqtl_negative_controls.csv"))
+cat("  Wrote results/tables/eqtl_negative_controls.csv\n")
+
+# =============================================================================
 # STEP 4: Pick representative variant per gene (most sig supportive eQTL)
 # =============================================================================
 
@@ -281,4 +357,18 @@ cat("\n=== Boxplot script complete ===\n")
 #             fit_variants() call.
 #             Reason: single tested regression implementation; Tasks 6/7
 #             reuse.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  ADDED negative controls C1 (genotype permutation) and C2
+#             (direction flip) -> results/tables/eqtl_negative_controls.csv.
+#             Reason: the "explained" call had no null. With the current
+#             3-gene DE set (OLIG2, COL6A1, TSPEAR; 247 variants), the
+#             observed and direction-flipped rates are both 3/3 (100.0%),
+#             and the genotype-permuted rate (mean of 20 shuffles) is
+#             15.0% (per-shuffle range 0.0-66.7%) -- well below the
+#             observed rate but nonzero, consistent with 3 genes giving
+#             only a 0/33/67/100% resolution ladder. The "any variant"
+#             rule is not fully discriminating at this gene count: a
+#             larger DE gene set would be needed to resolve whether the
+#             gap between observed and permuted holds up statistically.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
