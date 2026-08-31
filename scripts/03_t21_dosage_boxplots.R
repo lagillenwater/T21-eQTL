@@ -198,13 +198,6 @@ subj  <- gwide$subject_id
 G_all <- as.matrix(gwide[, -1])
 de_genes <- unique(fit_table$Gene_name)
 
-# expr_of_gene() (scripts/lib/eqtl_fit.R) looks subjects up against the
-# meta table's RecordID column (see its own unit test), but `subj` here is
-# the HTP-style subject_id used by the genotype table. Give it a RecordID
-# column that actually holds those ids rather than editing the shared lib.
-meta_t21_for_expr <- copy(meta_t21)
-meta_t21_for_expr[, RecordID := subject_id]
-
 perm_rate <- vapply(seq_len(N_PERM_SETS), function(b) {
   set.seed(1000 + b)
   ord <- sample.int(length(subj))
@@ -212,7 +205,7 @@ perm_rate <- vapply(seq_len(N_PERM_SETS), function(b) {
     vg   <- fit_table[Gene_name == g]
     cols <- intersect(vg$variant_id, colnames(G_all))
     if (length(cols) == 0) return(FALSE)
-    e <- expr_of_gene(g, subj, counts, meta_t21_for_expr)
+    e <- expr_of_gene(g, subj, counts, meta_t21)
     if (all(is.na(e))) return(FALSE)
     fits <- fit_variants(G_all[ord, cols, drop = FALSE], e)
     vgm  <- vg[match(cols, vg$variant_id)]

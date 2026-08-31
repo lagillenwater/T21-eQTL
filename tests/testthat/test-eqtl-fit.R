@@ -71,8 +71,13 @@ test_that("a real eQTL beats its own permutation null", {
 })
 
 test_that("expr_of_gene aligns counts to subject ids and log-transforms", {
-  counts <- data.table::data.table(Gene_name = "GENEA", LAB1 = 3, LAB2 = 7)
-  meta   <- data.table::data.table(RecordID = c("S1", "S2"), LabID = c("LAB1", "LAB2"))
-  expect_equal(expr_of_gene("GENEA", c("S1", "S2"), counts, meta), log2(c(3, 7) + 1))
-  expect_true(all(is.na(expr_of_gene("MISSING", "S1", counts, meta))))
+  counts <- data.table::data.table(Gene_name = "GENEA", HTP0001A = 3, HTP0002B = 7)
+  meta   <- data.table::data.table(RecordID = c("INVAAA", "INVBBB"),
+                                    LabID = c("HTP0001A", "HTP0002B"))
+  expect_equal(expr_of_gene("GENEA", c("HTP0001", "HTP0002"), counts, meta),
+               log2(c(3, 7) + 1))
+  expect_true(all(is.na(expr_of_gene("MISSING", "HTP0001", counts, meta))))
+  # RecordID is a different ID space (INV...) from subject_id (HTP...); passing
+  # RecordID values must NOT accidentally resolve to expression rows.
+  expect_true(all(is.na(expr_of_gene("GENEA", c("INVAAA", "INVBBB"), counts, meta))))
 })

@@ -67,7 +67,20 @@ gene_level_p <- function(min_p_obs, min_p_perm) {
 expr_of_gene <- function(gene_name, subject_ids, counts, meta_t21) {
   row <- counts[Gene_name == gene_name]
   if (nrow(row) == 0) return(rep(NA_real_, length(subject_ids)))
-  lab_for_subj <- setNames(meta_t21$LabID, meta_t21$RecordID)
+  # Key on subject_id, the join key the genotype tables use. RecordID is a
+  # different ID space entirely (INV... vs HTP...) and keying on it returns all
+  # NA for every caller in this pipeline.
+  subj <- if ("subject_id" %in% names(meta_t21)) {
+    as.character(meta_t21$subject_id)
+  } else {
+    sub("(?<=[0-9])[A-Z][0-9]*$", "", as.character(meta_t21$LabID), perl = TRUE)
+  }
+  lab_for_subj <- setNames(as.character(meta_t21$LabID), subj)
   labs <- lab_for_subj[as.character(subject_ids)]
-  log2(suppressWarnings(as.numeric(row[1, match(labs, names(row)), with = FALSE])) + 1)
+  # Index via a plain named vector rather than row[1, j, with = FALSE]: when
+  # labs contains NA (unmatched subject_id), data.table's `[.data.table`
+  # errors on an NA column index instead of returning NA.
+  row_vals <- suppressWarnings(as.numeric(row[1]))
+  names(row_vals) <- names(row)
+  log2(unname(row_vals[labs]) + 1)
 }
