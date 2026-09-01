@@ -68,7 +68,8 @@ OUTLIER_FDR         <- 0.10    # FDR-controlled robust outlier test against a
                                # follow expected dosage, so the sig_lane
                                # fcase below must test high_repeat/low_expr
                                # BEFORE passes_magnitude_filter.
-DEVIATION_LFC       <- log2(1.5)   # Hunter et al.'s FC >= 1.5 cut, applied on
+DEVIATION_LFC       <- log2(1.5)   # tier 1 (primary, Hunter)
+DEVIATION_LFC_T2    <- log2(4/3)   # tier 2 (secondary)   # Hunter et al.'s FC >= 1.5 cut, applied on
                                    # the ploidy-corrected log2FC scale
 LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
 RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise
@@ -214,7 +215,15 @@ m[, deviation_magnitude := abs(norm_log2FC)]
 # scripts/lib/lane_rules.R so it can be unit-tested; this call is the only
 # place it is applied. It adds eligible_idx, passes_magnitude_filter, sig_lane.
 source("scripts/lib/lane_rules.R")
-assign_sig_lane(m, alpha = ALPHA, deviation_lfc = DEVIATION_LFC)
+assign_sig_lane(m, alpha = ALPHA, deviation_lfc = DEVIATION_LFC_T2)
+# Tier annotation: 1 = Hunter's primary rule, 2 = secondary band, NA = not DE.
+m[, tier := fcase(
+  sig_lane %in% c("DE_high", "DE_low") & abs(norm_log2FC) >= DEVIATION_LFC, 1L,
+  sig_lane %in% c("DE_high", "DE_low"),                                     2L,
+  default = NA_integer_)]
+cat(sprintf("  Tier 1 (>= %.3f): %d genes; tier 2 (>= %.3f): %d genes\n",
+            DEVIATION_LFC, sum(m$tier == 1L, na.rm = TRUE),
+            DEVIATION_LFC_T2, sum(m$tier == 2L, na.rm = TRUE)))
 
 cat(sprintf("  Hunter rule (padj < %.2g AND |corrected log2FC| >= %.3f): %d genes\n",
             ALPHA, DEVIATION_LFC,
@@ -360,7 +369,7 @@ setcolorder(m, c(
   "baseMean", "raw_log2FC", "raw_FC", "raw_padj",
   "norm_log2FC", "norm_padj",
   "deviation_magnitude", "dev_z", "q_outlier",
-  "eligible_idx", "passes_magnitude_filter",
+  "eligible_idx", "passes_magnitude_filter", "tier",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
   "verdict", "residual_lfc",
@@ -518,3 +527,8 @@ cat("\n=== Lane assignment complete ===\n")
 #             welds the Hunter-rule gene count onto the outlier test's
 #             effective k - the two are printed separately, and the outlier
 #             line is labelled annotation-only.
+# 2026-09-01  ADDED the two-tier scheme: DE lanes now admit tier 2
+#             (>= log2(4/3)) as well as tier 1 (>= log2(1.5), Hunter, primary),
+#             distinguished by the new `tier` column. passes_magnitude_filter
+#             therefore reflects the tier-2 threshold. Composition control and
+#             the cis-eQTL permutation run on both tiers.

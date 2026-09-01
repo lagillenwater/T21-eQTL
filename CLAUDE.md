@@ -249,7 +249,11 @@ The current classification rule matches Hunter et al.'s own criterion
 directly, rather than a cohort-derived noise threshold: a chr21 gene
 deviates if `norm_padj < ALPHA_DE` (0.01) AND `abs(norm_log2FC) >=
 DEVIATION_LFC` (`log2(1.5)`, their FC >= 1.5 cut, applied on the
-ploidy-corrected scale). This is the sole gate on `sig_lane` /
+ploidy-corrected scale). That is tier 1, the primary result. A labelled
+secondary tier 2 (`DEVIATION_LFC_T2 = log2(4/3)`) admits near-threshold
+genes with the same padj requirement; both tiers get the composition
+control and the cis-eQTL permutation test, and the `tier` column in
+`chr21_lane_assignments.csv` records which is which. This is the sole gate on `sig_lane` /
 `passes_magnitude_filter` in scripts 02 and 04.
 
 A chr21-internal FDR-controlled robust outlier test (`scripts/lib/

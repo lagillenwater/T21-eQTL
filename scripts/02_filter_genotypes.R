@@ -60,7 +60,8 @@ ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
 # robust z-score are reported for reference (dev_z, q_outlier); they do not
 # select genes. The selection rule is DEVIATION_LFC + ALPHA_DE below.
 OUTLIER_FDR <- 0.10
-DEVIATION_LFC     <- log2(1.5)   # Hunter et al.'s FC >= 1.5 cut, applied on
+DEVIATION_LFC     <- log2(1.5)   # tier 1: Hunter et al.'s FC >= 1.5 cut
+DEVIATION_LFC_T2  <- log2(4/3)   # Hunter et al.'s FC >= 1.5 cut, applied on
                                  # the ploidy-corrected log2FC scale
 LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
 GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
@@ -116,8 +117,12 @@ cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (
 
 # Composite rule: real deviation (padj) AND at least 1.5-fold (Hunter et al.'s
 # effect-size cut on the ploidy-corrected scale).
+# Two tiers, both eQTL-tested downstream. Tier 1 is Hunter's rule and is the
+# primary result; tier 2 (>= 4/3-fold, < 1.5-fold) is the labelled secondary
+# tier adopted 2026-09-01 so near-threshold genes are reported, not hidden.
 target_genes <- eligible[!is.na(norm_padj) & norm_padj < ALPHA_DE &
-                           abs(norm_log2FC) >= DEVIATION_LFC]
+                           abs(norm_log2FC) >= DEVIATION_LFC_T2]
+target_genes[, tier := fifelse(abs(norm_log2FC) >= DEVIATION_LFC, 1L, 2L)]
 
 target_genes[, gene_set := fifelse(norm_log2FC < 0,
                                    "DE_low_FC", "Sig_high_FC")]
@@ -125,7 +130,7 @@ target_genes[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
 target_genes[, observed_direction := sign(norm_log2FC)]
 target_genes <- target_genes[, .(EnsemblID, Gene_name, raw_log2FC,
                                  norm_log2FC, norm_padj, gene_set,
-                                 ensembl_stable, observed_direction)]
+                                 ensembl_stable, observed_direction, tier)]
 
 n_low  <- sum(target_genes$gene_set == "DE_low_FC")
 n_high <- sum(target_genes$gene_set == "Sig_high_FC")
@@ -386,3 +391,9 @@ cat("\n=== Filter complete ===\n")
 #             cut. No behaviour change: the code already selected on
 #             ALPHA_DE + DEVIATION_LFC. The FDR-outlier print is now labelled
 #             annotation-only so the two cannot be confused again.
+# 2026-09-01  ADDED tier 2 (DEVIATION_LFC_T2 = log2(4/3)): the target set now
+#             carries both tiers with a `tier` column; tier 1 (log2(1.5),
+#             Hunter) remains the primary result. Adopted after review of the
+#             volcano figure showed genes with crushing padj within 0.02-0.09
+#             of the tier-1 line; reported as a labelled secondary tier rather
+#             than moving the pre-registered primary threshold.

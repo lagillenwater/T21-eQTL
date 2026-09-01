@@ -90,7 +90,7 @@ lane_groups <- lane %>%
     TRUE ~ NA_character_
   )) %>%
   filter(!is.na(group)) %>%
-  select(Gene_name, group)
+  select(Gene_name, group, tier)
 
 cat("  Labelled genes by group:\n")
 for (g in names(PALETTE)) {
@@ -139,7 +139,10 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
     geom_point(data = bg,    aes(shape = capped), size = 0.5, alpha = 0.45) +
     geom_point(data = c21,   aes(shape = capped), size = 0.9, alpha = 0.75) +
     geom_point(data = named, aes(shape = capped), size = 1.8) +
-    geom_text_repel(data = named, aes(label = Gene_name), size = 2.4,
+    geom_text_repel(data = named,
+                    aes(label = Gene_name,
+                        fontface = ifelse(!is.na(tier) & tier == 1L, "bold", "plain")),
+                    size = 2.4,
                     max.overlaps = Inf, min.segment.length = 0,
                     segment.size = 0.2, segment.alpha = 0.6,
                     box.padding = 0.4, force = 6, seed = 1,
@@ -212,10 +215,11 @@ panel_c <- build_volcano(
 panel_d <- build_volcano(
   res_chr21, "norm_log2FC", "norm_padj",
   title    = "D  Ploidy-corrected, chr21 only",
-  subtitle = sprintf("%d protein-coding chr21 genes; deviating = %s",
+  subtitle = sprintf("%d chr21 genes; tier 1 (bold): %s; tier 2: %d more",
                      nrow(res_chr21),
-                     paste(sort(lane$Gene_name[lane$sig_lane %in% c("DE_high", "DE_low")]),
-                           collapse = ", ")),
+                     paste(sort(lane$Gene_name[!is.na(lane$tier) & lane$tier == 1L]),
+                           collapse = ", "),
+                     sum(lane$tier == 2L, na.rm = TRUE)),
   show_trisomy_line = FALSE
 )
 
@@ -278,3 +282,5 @@ cat("Done.\n")
 #             grid and tidyr loads and the SANKEY_PNG switch.
 #             Reason: user request - the SankeyMATIC render is preferred and
 #             the chr21-only view is more legible than the flattened alluvial.
+# 2026-09-01  Two-tier labelling: tier-1 (Hunter) gene names bold, tier-2
+#             plain; panel D subtitle names tier 1 and counts tier 2.
