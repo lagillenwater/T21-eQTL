@@ -181,7 +181,7 @@ lanes_de[, lane_label := factor(lane_label,
 ctrl_sd <- sd(matched$log2FoldChange)
 
 p_lane <- ggplot(lanes_de,
-                 aes(x = lane_label, y = deviation_vs_cohort_sd,
+                 aes(x = lane_label, y = abs(dev_z),
                      color = sig_lane)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.7, size = 1.6) +
   geom_hline(yintercept = c(1, 2), linetype = "dashed", color = "grey40") +
@@ -189,9 +189,9 @@ p_lane <- ggplot(lanes_de,
                                 "DE_high" = "#1F77B4")) +
   labs(
     title    = "Per-gene deviation magnitude vs cohort noise, by lane",
-    subtitle = paste0("Dashed lines at 1 and 2 cohort-noise SDs. ",
+    subtitle = paste0("Dashed lines at |robust z| = 1 and 2 (chr21 median/MAD null). ",
                       "Genes <1 SD are within typical cohort variation; ",
-                      ">2 SDs sit clearly outside it."),
+                      "|z| > 2 sit clearly outside it."),
     x        = NULL,
     y        = expression("|norm log2FC| / cohort-noise SD"),
     color    = NULL
@@ -231,13 +231,25 @@ cat(sprintf("chr21 median: %.3f   non-chr21 matched median: %.3f   shift: %.3f\n
             median(chr21$log2FoldChange), median(matched$log2FoldChange),
             median(chr21$log2FoldChange) - median(matched$log2FoldChange)))
 
-cat("\nLane-magnitude triage (n with deviation >= 2 cohort SD):\n")
+cat("\nLane-magnitude triage (n with |robust z| >= 2):\n")
 print(lanes_de[, .(n_total = .N,
-                   n_above_1sd = sum(deviation_vs_cohort_sd > 1),
-                   n_above_2sd = sum(deviation_vs_cohort_sd > 2)),
+                   n_above_1z = sum(abs(dev_z) > 1),
+                   n_above_2z = sum(abs(dev_z) > 2)),
                by = .(sig_lane, lane_label)])
 
 writeLines(capture.output(sessionInfo()),
            "results/figures/chr21_vs_genome_distribution_session_info.txt")
 
 cat("\n=== Distribution panel complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-09-01  REPLACED deviation_vs_cohort_sd (dropped from the lane table by
+#             the 2026-08-31 threshold change) with abs(dev_z), the robust z
+#             against the chr21 median/MAD null. abs() is required: the old
+#             column was a magnitude, dev_z is signed, and a naive rename made
+#             the DE_low tallies read 0. Labels updated from "cohort-noise SDs"
+#             to robust-z units. This script was omitted from the branch's
+#             full-chain check, which is how the break survived review.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
