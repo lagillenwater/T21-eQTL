@@ -48,7 +48,11 @@ data/raw/*
 *.RDS
 
 # Working notes, not canonical docs
+CLAUDE.md
 docs/REPO_STATE.md
+docs/ABSTRACT_DEVIATIONS.md
+docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+docs/superpowers/
 
 # OS / IDE
 .DS_Store
