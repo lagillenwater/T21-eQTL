@@ -21,7 +21,7 @@ jobs:
         with:
           use-public-rspm: true
       - name: Install test dependencies
-        run: Rscript -e 'install.packages(c("data.table", "testthat", "covr"))'
+        run: Rscript -e 'install.packages(c("data.table", "testthat", "covr", "xml2"))'
       - name: Parse-check all pipeline scripts
         # The pipeline itself needs ~15 GB of local data and cannot run in CI;
         # parsing every script still catches syntax errors and half-applied
