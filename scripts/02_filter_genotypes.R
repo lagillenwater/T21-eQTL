@@ -55,6 +55,8 @@ ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
 # genes - and 1 SD selects the top ~third of any distribution. The null is now
 # chr21-internal median/MAD and the cut is an FDR on robust z.
 OUTLIER_FDR <- 0.10
+DEVIATION_LFC     <- log2(1.5)   # Hunter et al.'s FC >= 1.5 cut, applied on
+                                 # the ploidy-corrected log2FC scale
 LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
 GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
                              # (~ matches the effective signif_pairs cutoff)
@@ -107,9 +109,10 @@ cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
             OUTLIER_FDR, sum(eligible$q_outlier < OUTLIER_FDR, na.rm = TRUE),
             effective_k(eligible$dev_z, eligible$q_outlier, OUTLIER_FDR)))
 
-# Composite rule: real deviation (padj) AND unusually large deviation (FDR).
+# Composite rule: real deviation (padj) AND at least 1.5-fold (Hunter et al.'s
+# effect-size cut on the ploidy-corrected scale).
 target_genes <- eligible[!is.na(norm_padj) & norm_padj < ALPHA_DE &
-                           !is.na(q_outlier) & q_outlier < OUTLIER_FDR]
+                           abs(norm_log2FC) >= DEVIATION_LFC]
 
 target_genes[, gene_set := fifelse(norm_log2FC < 0,
                                    "DE_low_FC", "Sig_high_FC")]
@@ -364,3 +367,10 @@ cat("\n=== Filter complete ===\n")
 #             now estimated AFTER the expression and repeat filters, because
 #             log2FC variance scales with counts.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  REPLACED the FDR-outlier test in the target-gene rule with
+#             Hunter et al.'s own classification: deviating = padj < 0.01 AND
+#             abs(norm_log2FC) >= log2(1.5) (DEVIATION_LFC). dev_z / q_outlier
+#             are retained as annotation columns on the eligible table but no
+#             longer drive target-gene selection.
+#             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task A)

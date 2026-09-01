@@ -64,6 +64,8 @@ OUTLIER_FDR         <- 0.10    # FDR-controlled robust outlier test against a
                                # follow expected dosage, so the sig_lane
                                # fcase below must test high_repeat/low_expr
                                # BEFORE passes_magnitude_filter.
+DEVIATION_LFC       <- log2(1.5)   # Hunter et al.'s FC >= 1.5 cut, applied on
+                                   # the ploidy-corrected log2FC scale
 LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
 RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise
                                      # reference to protein-coding genes
@@ -218,7 +220,7 @@ cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d eligible genes)\n",
 m[, dev_z := robust_z(norm_log2FC, null)]
 m[, q_outlier := NA_real_]
 m[eligible_idx, q_outlier := outlier_fdr(dev_z)]
-m[, passes_magnitude_filter := !is.na(q_outlier) & q_outlier < OUTLIER_FDR]
+m[, passes_magnitude_filter := eligible_idx & abs(norm_log2FC) >= DEVIATION_LFC]
 
 cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
             OUTLIER_FDR, sum(m$passes_magnitude_filter),
@@ -382,3 +384,11 @@ cat("\n=== Lane assignment complete ===\n")
 #             The lead variant was rejected as an alternative because in LD it
 #             is frequently a tag, not the causal variant.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  REPLACED the FDR-outlier test driving passes_magnitude_filter
+#             with Hunter et al.'s own classification: deviating = padj < 0.01
+#             AND abs(norm_log2FC) >= log2(1.5) (DEVIATION_LFC), gated on
+#             eligibility (eligible_idx) so it is never NA. dev_z / q_outlier
+#             are retained as annotation columns; the sig_lane fcase order is
+#             unchanged.
+#             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task A)
