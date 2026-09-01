@@ -275,6 +275,74 @@ m[, eqtl_lane := fcase(
   default =                                        "unexplained")]
 
 # =============================================================================
+# STEP 3b: Composition control for deviating (DE_low / DE_high) genes
+# =============================================================================
+#
+# A chr21 gene can appear to deviate from dosage expectation because the
+# blood cell type that expresses it changed in abundance in T21, not because
+# of any regulatory effect on the gene itself. Composition shifts move whole
+# co-expression programs, not single genes: for each deviating gene, find its
+# 20 most co-expressed non-chr21 genes using CONTROLS ONLY (so the karyotype
+# effect cannot leak into the correlation), take the median T21-vs-Control
+# log2FC of those partners, and compare it to a null of 2000 random 20-gene
+# sets. If the partners shift with the gene, that looks like a program
+# (composition or shared pathway), not gene-specific dosage regulation.
+
+cat("\nStep 3b: Composition control for deviating genes...\n")
+
+source("scripts/lib/composition.R")
+
+count_mat <- fread("data/processed/count_matrix.csv")
+cohort <- fread("data/processed/analysis_cohort.csv")
+de_all <- fread("results/tables/deseq2_all_genes_ploidy_normalized.csv")
+
+lab_ids <- intersect(setdiff(names(count_mat), c("EnsemblID", "Gene_name", "Chr")),
+                     cohort$LabID)
+karyotype <- cohort$Karyotype[match(lab_ids, cohort$LabID)]
+
+M <- as.matrix(count_mat[, ..lab_ids])
+rownames(M) <- count_mat$Gene_name
+L <- log2(t(t(M) / colSums(M) * 1e6) + 1)
+
+partner_pool <- rowMeans(M) >= 25 & count_mat$Chr != "chr21"
+L_ctrl <- L[partner_pool, karyotype == "Control"]
+
+genome_lfc <- setNames(de_all$log2FoldChange, de_all$Gene_name)
+lfc_bg <- genome_lfc[rownames(L_ctrl)]
+lfc_bg <- lfc_bg[!is.na(lfc_bg)]
+
+deviating_genes <- m$Gene_name[m$sig_lane %in% c("DE_high", "DE_low")]
+deviating_genes <- intersect(deviating_genes, rownames(L))
+
+null <- partner_null(lfc_bg, n_partners = 20, n_draw = 2000, seed = 1)
+
+composition <- rbindlist(lapply(deviating_genes, function(g) {
+  gene_lfc <- genome_lfc[[g]]
+  gene_ctrl <- L[g, karyotype == "Control"]
+  partner_lfc <- partner_shift(g, L_ctrl, gene_ctrl, lfc_bg, n_partners = 20)
+  s <- sign(gene_lfc)
+  p_partners <- mean(s * null >= s * partner_lfc)
+  verdict <- composition_verdict(gene_lfc, partner_lfc, p_partners)
+  data.table(
+    Gene_name    = g,
+    gene_lfc     = gene_lfc,
+    partner_lfc  = partner_lfc,
+    p_partners   = p_partners,
+    program_share = partner_lfc / gene_lfc,
+    residual_lfc = gene_lfc - partner_lfc,
+    verdict      = verdict
+  )
+}))
+
+fwrite(composition, "results/tables/chr21_composition_control.csv")
+stopifnot(file.exists("results/tables/chr21_composition_control.csv"))
+cat("  Wrote results/tables/chr21_composition_control.csv\n")
+print(composition)
+
+m <- merge(m, composition[, .(Gene_name, verdict, residual_lfc)],
+           by = "Gene_name", all.x = TRUE)
+
+# =============================================================================
 # STEP 4: Ordered output table
 # =============================================================================
 
@@ -288,6 +356,7 @@ setcolorder(m, c(
   "passes_magnitude_filter",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
+  "verdict", "residual_lfc",
   "n_cis_total", "n_dir_match", "n_supp_with_repro",
   "p_gene_perm", "q_gene_bh", "explained_perm",
   "strongest_supp_pval", "strongest_supp_variant",
@@ -392,3 +461,16 @@ cat("\n=== Lane assignment complete ===\n")
 #             are retained as annotation columns; the sig_lane fcase order is
 #             unchanged.
 #             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task A)
+#
+# 2026-08-31  ADDED a composition control for DE_high/DE_low genes (Step 3b):
+#             for each deviating gene, find its 20 most co-expressed non-chr21
+#             genes using CONTROLS ONLY, take their median T21-vs-Control
+#             log2FC, and compare it to a null of 2000 random 20-gene sets.
+#             Reason: a chr21 gene can appear to deviate because the blood
+#             cell type expressing it changed abundance in T21, not because
+#             of a regulatory effect on the gene - composition shifts move
+#             whole co-expression programs, not single genes. Writes
+#             results/tables/chr21_composition_control.csv and merges
+#             verdict / residual_lfc into chr21_lane_assignments.csv.
+#             New library: scripts/lib/composition.R.
+#             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task B)
