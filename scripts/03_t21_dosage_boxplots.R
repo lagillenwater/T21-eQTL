@@ -240,7 +240,7 @@ cat("  Wrote results/tables/eqtl_negative_controls.csv\n")
 # Unlike picking the lead variant this does not assume the top association is
 # causal - in LD the lead variant is frequently only a tag.
 
-N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "100"))   # 1000 on Alpine
+N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "1000"))
 FDR_GENE <- 0.05
 cat(sprintf("\n=== Gene-level permutation (%d permutations) ===\n", N_PERM))
 
@@ -413,3 +413,9 @@ cat("\n=== Boxplot script complete ===\n")
 #
 # 2026-08-31  ADDED gene-level permutation p-values (GTEx/FastQTL eGene
 #             procedure) -> results/tables/eqtl_gene_level_perm.csv.
+#
+# 2026-08-31  CHANGED N_PERM default from 100 to 1000 (T21_N_PERM env var
+#             still overrides). The planned Alpine offload that the 100
+#             default was set for has been cancelled, and 1000 permutations
+#             over the current 4-gene DE set is cheap locally (seconds),
+#             restoring the previously committed 0.000999 p-value floor.
