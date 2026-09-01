@@ -3,7 +3,7 @@
 # Purpose: Assemble the 3-panel summary figure.
 #   Panel A - volcano of the UNCORRECTED (no ploidy normalization) DESeq2 results.
 #   Panel B - volcano of the PLOIDY-CORRECTED DESeq2 results.
-#   Panel C - flow of the chr21 genes that fall outside cohort noise, from
+#   Panel C - flow of the chr21 genes not classified as expected dosage, from
 #             sub-category to eQTL outcome.
 #
 # All panels are restricted to protein-coding genes (chr21 and the genome-wide
@@ -16,9 +16,9 @@
 # trisomy expectation. Labelled genes are read from the lane table rather than
 # hardcoded, so the figure cannot drift from the pipeline.
 #
-# Panel C shows only the genes OUTSIDE cohort noise. The 127 Expected-dosage
-# genes are stated in the subtitle instead of drawn: at ~79% of the total they
-# flatten every other lane into an illegible sliver (this is what the
+# Panel C shows only the genes that are NOT classified as expected dosage. The
+# Expected-dosage genes are stated in the subtitle instead of drawn: at ~72% of
+# the total they flatten every other lane into an illegible sliver (this is what the
 # script 05 alluvial does). To use a hand-rendered SankeyMATIC diagram of the
 # full flow instead, render results/tables/chr21_lane_sankeymatic_input.txt at
 # https://sankeymatic.com/build/, save the PNG, and set SANKEY_PNG below.
@@ -49,8 +49,13 @@ Y_CAP       <- 60           # -log10(padj) display ceiling; see note below
 SANKEY_PNG  <- NULL         # set to a SankeyMATIC PNG path to use it for panel C
 OUT_STEM    <- "results/figures/three_panel_summary"
 
-# Group labels, ordered high -> low so the legend reads top-down.
+# Group labels, ordered high -> low so the legend reads top-down. Every
+# (sig_lane, eqtl_lane) combination the pipeline can produce needs a label
+# here: a combination with no branch falls through to NA and is silently drawn
+# as "Other chr21" grey. LAB_HI_UNEX is empty at present but is the
+# OLIG2-shaped case on the high side, and would otherwise disappear.
 LAB_HI_EXPL <- "Higher, cis-eQTL detected"
+LAB_HI_UNEX <- "Higher, no cis-eQTL detected"
 LAB_HI_NOEQ <- "Higher, no GTEx eQTL"
 LAB_LO_EXPL <- "Lower, cis-eQTL detected"
 LAB_LO_UNEX <- "Lower, no cis-eQTL detected"
@@ -59,10 +64,10 @@ LAB_NOPADJ  <- "Outside noise, padj not estimable"
 LAB_CHR21   <- "Other chr21"
 LAB_OTHER   <- "Other protein-coding"
 
-PALETTE <- c("#B2182B", "#E08214", "#2166AC", "#D6604D", "#762A83",
+PALETTE <- c("#B2182B", "#67001F", "#E08214", "#2166AC", "#D6604D", "#762A83",
              "#1B7837", "#F4A582", "grey80")
-names(PALETTE) <- c(LAB_HI_EXPL, LAB_HI_NOEQ, LAB_LO_EXPL, LAB_LO_UNEX,
-                    LAB_LO_NOEQ, LAB_NOPADJ, LAB_CHR21, LAB_OTHER)
+names(PALETTE) <- c(LAB_HI_EXPL, LAB_HI_UNEX, LAB_HI_NOEQ, LAB_LO_EXPL,
+                    LAB_LO_UNEX, LAB_LO_NOEQ, LAB_NOPADJ, LAB_CHR21, LAB_OTHER)
 
 # ---- load -------------------------------------------------------------------
 cat("Loading DESeq2 results and lane assignments...\n")
@@ -86,6 +91,7 @@ cat(sprintf("  %d protein-coding genes (%d on chr21)\n",
 lane_groups <- lane %>%
   mutate(group = case_when(
     sig_lane == "DE_high" & eqtl_lane == "cis_eqtl"     ~ LAB_HI_EXPL,
+    sig_lane == "DE_high" & eqtl_lane == "no_cis_eqtl"  ~ LAB_HI_UNEX,
     sig_lane == "DE_high" & eqtl_lane == "no_GTEx_data" ~ LAB_HI_NOEQ,
     sig_lane == "DE_low"  & eqtl_lane == "cis_eqtl"     ~ LAB_LO_EXPL,
     sig_lane == "DE_low"  & eqtl_lane == "no_cis_eqtl"  ~ LAB_LO_UNEX,
@@ -214,7 +220,7 @@ if (!is.null(SANKEY_PNG) && file.exists(SANKEY_PNG)) {
     theme(plot.title = element_text(face = "bold", size = 10, hjust = 0,
                                     margin = margin(b = 4)))
 } else {
-  cat("Panel C: drawing alluvial of the outside-cohort-noise genes\n")
+  cat("Panel C: drawing alluvial of the genes not classified as expected dosage\n")
 
   pretty_eqtl <- c(cis_eqtl      = "cis-eQTL\ndetected",
                    no_cis_eqtl   = "eQTL-tested,\nnone detected",
@@ -225,8 +231,8 @@ if (!is.null(SANKEY_PNG) && file.exists(SANKEY_PNG)) {
     filter(sig_lane != "Expected_dosage") %>%
     mutate(
       Subcategory = recode(sig_lane,
-                           DE_high              = "DE high\n(>= 1.5 raw FC)",
-                           DE_low               = "DE low\n(< 1.5 raw FC)",
+                           DE_high              = "DE high\n(corrected log2FC >= +0.585)",
+                           DE_low               = "DE low\n(corrected log2FC <= -0.585)",
                            High_repeats         = "High repeats",
                            Low_expression       = "Low expression",
                            Not_DE_outside_noise = "Not DE"),
@@ -267,10 +273,12 @@ if (!is.null(SANKEY_PNG) && file.exists(SANKEY_PNG)) {
                      expand = c(0.16, 0.16)) +
     scale_fill_brewer(palette = "Set2", guide = "none") +
     labs(
-      title = "C  Fate of the chr21 genes outside cohort noise",
+      title = "C  Fate of the chr21 genes not classified as expected dosage",
       subtitle = sprintf(
-        paste0("%d of %d chr21 protein-coding genes deviate by >= 1 cohort-noise SD. ",
-               "The other %d are within noise (expected dosage) and not shown."),
+        paste0("%d of %d chr21 protein-coding genes are not classified as ",
+               "expected dosage (repeat- or low-expression-flagged, or ",
+               "|ploidy-corrected log2FC| >= log2(1.5)). The other %d follow ",
+               "the dosage expectation and are not shown."),
         n_outside, n_total, n_expected),
       y = "Number of genes", x = NULL) +
     theme_bw(base_size = 9) +
@@ -317,3 +325,20 @@ for (f in paste0(OUT_STEM, c(".pdf", ".png"))) {
 writeLines(capture.output(sessionInfo()),
            "results/figures/three_panel_summary_session_info.txt")
 cat("Done.\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  ADDED LAB_HI_UNEX ("Higher, no cis-eQTL detected") with its own
+#             palette entry and case_when branch. DE_high & no_cis_eqtl had no
+#             branch, so such a gene fell through to NA and was drawn as grey
+#             "Other chr21" - silently unlabelled. The combination is empty
+#             today but is the OLIG2-shaped case on the high side, and the two
+#             DE_high genes are one permutation result away from it.
+#
+# 2026-08-31  RELABELLED the panel C sub-categories: "DE high (>= 1.5 raw FC)"
+#             / "DE low (< 1.5 raw FC)" named the raw fold change, but the rule
+#             is abs(norm_log2FC) >= log2(1.5) on the ploidy-corrected scale.
+#             The panel title, subtitle and header comment likewise described
+#             the retired cohort-noise SD filter and a stale gene count; they
+#             now state the current rule without hardcoded numbers.

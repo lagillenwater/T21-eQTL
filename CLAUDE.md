@@ -176,7 +176,8 @@ filename above.
 The production pipeline is the 00-07 chain in `scripts/`, backed by shared
 helpers in `scripts/lib/` (`cohort.R` - analysis-cohort definition;
 `chr21_threshold.R` - chr21-internal robust outlier test, annotation only;
-`composition.R` - co-expression composition control; `eqtl_fit.R` -
+`composition.R` - co-expression composition control; `lane_rules.R` -
+the sig_lane classification rule (`assign_sig_lane`); `eqtl_fit.R` -
 vectorized per-variant regressions and the gene-level permutation test;
 `table1.R` - cohort-characteristics table helpers).
 
@@ -188,8 +189,8 @@ vectorized per-variant regressions and the gene-level permutation test;
 | 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, `deseq2_all_genes_both_analyses.csv`, QC PDFs |
 | 02_filter_genotypes | Select deviating chr21 genes by Hunter et al.'s rule (`norm_padj < ALPHA_DE` AND `abs(norm_log2FC) >= DEVIATION_LFC`), restrict to protein-coding, compute the chr21-internal FDR-outlier annotation (`dev_z`, `q_outlier`, via `scripts/lib/chr21_threshold.R`), pull GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
 | 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); negative controls (direction-flip, genotype-permutation) on the retired any-variant rule | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv`, `eqtl_gene_level_perm.csv`, `eqtl_negative_controls.csv` |
-| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`cis_eqtl`/`no_cis_eqtl`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
-| 05_alluvial_lane_assignment | Alluvial flow (Cohort filter -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
+| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`, applied by `scripts/lib/lane_rules.R`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`cis_eqtl`/`no_cis_eqtl`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
+| 05_alluvial_lane_assignment | Alluvial flow (Classification -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
 | 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
 | 07_three_panel_figure | Panel A/B: volcano before/after ploidy correction; Panel C: flow of deviating genes to eQTL outcome, labels read from the lane table | `results/figures/three_panel_summary.{pdf,png}` |
 
@@ -269,8 +270,21 @@ gene itself - a composition shift moves a whole co-expression program, not
 one gene. For each deviating gene: find its 20 most-correlated non-chr21
 partners (correlated in controls only, so the karyotype effect cannot leak
 into the neighborhood definition), take their median T21-vs-Control
-log2FC (`partner_lfc`), and compare against a null of `n_draw` random
-`n_partners`-gene sets to get `p_partners`. Verdict: **PROGRAM** if
+log2FC (`partner_lfc`), and compare against a **correlation-matched** null
+to get `p_partners`.
+
+The null must be matched, not independent. `partner_null(L_ctrl, lfc,
+n_partners = 20, n_draw = 300, seed = 1)` draws `n_draw` random seed genes
+from the same non-chr21 expressed pool and, for each seed, takes the median
+log2FC of *its own* top-`n_partners` correlated genes - a null draw is a
+co-expression module built exactly like the observed one. The seed is
+excluded from its own partner set. An earlier version drew independent
+random 20-gene sets, which is anti-conservative: a module moves together,
+so its median log2FC is several times more variable (measured here: SD
+0.259 matched vs 0.058 independent), and an independent null called almost
+any partner shift significant. `partner_p()` reports the one-sided
+empirical p as `(1 + k) / (n_draw + 1)`, so it is never exactly 0.
+Verdict: **PROGRAM** if
 `p_partners < 0.05` and `partner_lfc / gene_lfc >= 0.5`; **MIXED** if
 `p_partners < 0.05` only; else **GENE-SPECIFIC**. Written to
 `results/tables/chr21_composition_control.csv`
@@ -284,9 +298,10 @@ merged back into `chr21_lane_assignments.csv`.
 the canonical per-gene table. Each row has:
 
 - DESeq2 stats: `baseMean`, `raw_log2FC`, `raw_FC`, `norm_log2FC`, `norm_padj`.
-- Magnitude annotation: `deviation_magnitude`, `passes_magnitude_filter`
-  (Hunter's rule), plus the annotation-only outlier columns `dev_z`,
-  `q_outlier`.
+- Magnitude annotation: `deviation_magnitude`, `eligible_idx` (not
+  repeat-flagged, not low-expression, corrected log2FC estimable),
+  `passes_magnitude_filter` (`eligible_idx` AND Hunter's cut), plus the
+  annotation-only outlier columns `dev_z`, `q_outlier`.
 - Categorization flags: `low_expr`, `high_repeat`.
 - **`sig_lane`**: one of `Expected_dosage` (fails Hunter's rule),
   `High_repeats`, `Low_expression`, `DE_low`, `DE_high`, `Not_DE_outside_noise`.
@@ -411,12 +426,20 @@ The visualization scripts (05, 06) finish in seconds each.
 - **`Sig_high_FC` vs `DE_high`**: an early version of the pipeline used
   `Sig_high_FC` in `eqtl_supported_genes.csv` `gene_set` column (written
   by script 02). The current lane terminology (in script 04 onward) is
-  `DE_high`. Both refer to the same set: genes with `raw_FC >= 1.5` AND
-  `norm_padj < 0.01` under Hunter's padj + 1.5-fold classification rule.
+  `DE_high`. Both refer to the same set: genes with `norm_padj < 0.01` AND
+  `norm_log2FC >= log2(1.5)`. The cut is on the PLOIDY-CORRECTED log2FC and
+  split by its sign, not on `raw_FC` - the raw chr21 fold change centres on
+  1.5 by ploidy alone, so a raw-FC cut would select on the trisomy itself.
+  Figure labels that said "raw FC" were wrong and were corrected.
+- **`passes_magnitude_filter` is not "expected dosage"**: it is FALSE for
+  repeat-flagged and low-expression genes too, because they are never
+  eligible for the cut. Split figures on `sig_lane`, never on that flag -
+  doing the latter drew 41 unassessable genes inside the Expected-dosage
+  stratum in script 05 until it was fixed.
 - **Self-loops in SankeyMATIC**: `chr21_lane_sankeymatic_input.txt` skips
   level-to-level passes where the source and target name are identical
-  (e.g., the 119 Expected dosage genes terminate at level 2 and would
-  otherwise self-loop at levels 3 and 4). The flow file
+  (e.g., Expected dosage genes terminate at level 2 and would otherwise
+  self-loop at levels 3 and 4). The flow file
   `chr21_lane_alluvial_flow.csv` keeps them.
 - **Two T21 expression-only subjects**: 304 T21 in the expression cohort,
   302 in the genotype cohort. The 2 missing-genotype subjects are

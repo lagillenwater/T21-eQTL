@@ -252,11 +252,19 @@ dds_norm <- DESeq(dds_norm, betaPrior = FALSE)
 # Extract results
 results_norm <- results(dds_norm, name = "karyotype_T21_vs_Control")
 
-# Hunter et al. step 4 residue. DESeq2 nulls the p-value (not just padj) for
-# genes with an extreme count outlier. MX1 is affected: baseMean 9017,
-# norm_log2FC 0.819, stat 5.63 - one of the largest deviations on the
-# chromosome - yet pvalue NA, so the pipeline's !is.na(norm_padj) filter drops
-# it. Emit both arms so the effect is visible.
+# Hunter et al. step 4 residue. DESeq2 can null the p-value (not just padj) for
+# genes with an extreme count outlier, and the original audit of this pipeline
+# predicted that would bite here - MX1 in particular, one of the largest
+# deviations on the chromosome, was reported as dropped by the
+# !is.na(norm_padj) filter.
+#
+# That is NOT what the corrected run does. With the size-factor bug fixed,
+# Cook's filtering nulls 0 genes and MX1 has padj 1.67e-4. The reason is
+# cohort size: with >= minReplicatesForReplace (7) samples per group, DESeq2
+# takes the outlier-REPLACEMENT path instead of the p-value-nulling one, so
+# nothing is silently dropped. The cooksCutoff=FALSE arm below is retained as a
+# standing check that this stays true rather than as a fix for a live problem;
+# the printed count is the evidence.
 results_norm_nocooks <- results(dds_norm, name = "karyotype_T21_vs_Control",
                                 cooksCutoff = FALSE)
 
@@ -544,8 +552,13 @@ cat("Next step: Run 02_categorize_genes.R\n\n")
 #             later eQTL-support analysis.
 #
 #  [step 4]   ADDED a cooksCutoff=FALSE sensitivity arm and Cook's diagnostics.
-#             Reason: MX1 and 216 other genes have p-values nulled by outlier
-#             filtering; the pipeline dropped them silently.
+#             Reason: the original audit predicted that MX1 and ~216 other
+#             genes would have p-values nulled by Cook's outlier filtering and
+#             be dropped silently. Verified on the corrected run, that does not
+#             happen: 0 genes are nulled and MX1 has padj 1.67e-4. At this
+#             cohort size DESeq2 takes the outlier-REPLACEMENT path
+#             (minReplicatesForReplace = 7) rather than nulling p-values. The
+#             Cook's arm is retained as a standing check, not as a live fix.
 #
 #  [step 2]   AUDITED, no change. Implemented as a LABEL at gene level:
 #             scripts/archive/process_blacklist.R overlaps chr21 genes against
@@ -555,3 +568,13 @@ cat("Next step: Run 02_categorize_genes.R\n\n")
 #             precomputed from Synapse. State as a manuscript limitation.
 #
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  CORRECTED the Cook's-filtering narrative in the [step 4] entry
+#             above and in the comment at the cooksCutoff=FALSE arm. Both
+#             asserted that MX1 and 216 other genes had p-values nulled by
+#             outlier filtering. That was the original audit's prediction, not
+#             what the corrected run does: verified on the current results,
+#             0 genes are nulled and MX1 has padj 1.67e-4. At n = 397 DESeq2
+#             takes the outlier-REPLACEMENT path (minReplicatesForReplace = 7)
+#             instead of nulling p-values. The Cook's arm and its diagnostics
+#             are retained as a standing check. Text only, no behaviour change.

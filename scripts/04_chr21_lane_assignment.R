@@ -207,16 +207,30 @@ cat(sprintf("  baseMean cutoff at %.0fth percentile: %.2f\n",
 m[, low_expr   := !is.na(baseMean) & baseMean < basemean_threshold]
 m[, high_repeat := Gene_name %in% high_repeat_genes]
 
-# Deviation magnitude vs a chr21-internal null (computed BEFORE lane
-# assignment so the outlier filter can gate the eQTL lane downstream).
-source("scripts/lib/chr21_threshold.R")
-
 m[, deviation_magnitude := abs(norm_log2FC)]
 
+# Significance lane - Hunter's padj + 1.5-fold rule, gated on eligibility.
+# The rule (and the reason its fcase order is what it is) lives in
+# scripts/lib/lane_rules.R so it can be unit-tested; this call is the only
+# place it is applied. It adds eligible_idx, passes_magnitude_filter, sig_lane.
+source("scripts/lib/lane_rules.R")
+assign_sig_lane(m, alpha = ALPHA, deviation_lfc = DEVIATION_LFC)
+
+cat(sprintf("  Hunter rule (padj < %.2g AND |corrected log2FC| >= %.3f): %d genes\n",
+            ALPHA, DEVIATION_LFC,
+            sum(m$sig_lane %in% c("DE_low", "DE_high"))))
+cat(sprintf("  Clearing the magnitude cut alone: %d eligible genes\n",
+            sum(m$passes_magnitude_filter)))
+
+# Deviation magnitude vs a chr21-internal null. ANNOTATION ONLY - dev_z,
+# q_outlier and chr21_k_sensitivity.csv do not gate any lane; the Hunter rule
+# above is the sole classification rule. See docs/REPO_STATE.md decision log.
+source("scripts/lib/chr21_threshold.R")
+
 # Null from eligible genes only; z and q reported for all genes so the table
-# stays complete. q is NA for ineligible genes, which fails the filter by
-# construction - they are caught by the High_repeats / Low_expression lanes.
-eligible_idx <- !m$low_expr & !m$high_repeat & !is.na(m$norm_log2FC)
+# stays complete. q is NA for ineligible genes - they are caught by the
+# High_repeats / Low_expression lanes.
+eligible_idx <- m$eligible_idx
 null <- chr21_null(m$norm_log2FC[eligible_idx])
 cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d eligible genes)\n",
             null$center, null$scale, null$n))
@@ -224,10 +238,9 @@ cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d eligible genes)\n",
 m[, dev_z := robust_z(norm_log2FC, null)]
 m[, q_outlier := NA_real_]
 m[eligible_idx, q_outlier := outlier_fdr(dev_z)]
-m[, passes_magnitude_filter := eligible_idx & abs(norm_log2FC) >= DEVIATION_LFC]
 
-cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
-            OUTLIER_FDR, sum(m$passes_magnitude_filter),
+cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (effective k = %.2f)\n",
+            OUTLIER_FDR, sum(m$q_outlier < OUTLIER_FDR, na.rm = TRUE),
             effective_k(m$dev_z, m$q_outlier, OUTLIER_FDR)))
 
 sens <- k_sensitivity(m$dev_z[eligible_idx])
@@ -235,24 +248,6 @@ fwrite(sens, "results/tables/chr21_k_sensitivity.csv")
 stopifnot(file.exists("results/tables/chr21_k_sensitivity.csv"))
 cat("  Wrote results/tables/chr21_k_sensitivity.csv\n")
 print(sens)
-
-# Significance lane - eligibility (high_repeat / low_expr) is tested FIRST,
-# ahead of the outlier filter: those genes were excluded from the null
-# because they are too noisy to assess, not because they follow expected
-# dosage, so labeling them Expected_dosage would be a false claim. Only
-# eligible genes fall through to the outlier filter; genes whose
-# ploidy-corrected deviation is within typical chr21 variation are
-# categorized as Expected_dosage regardless of raw FC sign or padj
-# (statistical significance at large n is not the same as biological
-# departure from ploidy expectation). Surviving genes get the standard
-# categorization.
-m[, sig_lane := fcase(
-  high_repeat == TRUE,                                     "High_repeats",
-  low_expr == TRUE,                                        "Low_expression",
-  passes_magnitude_filter == FALSE,                        "Expected_dosage",
-  !is.na(norm_padj) & norm_padj < ALPHA & norm_log2FC < 0, "DE_low",
-  !is.na(norm_padj) & norm_padj < ALPHA & norm_log2FC > 0, "DE_high",
-  default                                                = "Not_DE_outside_noise")]
 
 # eQTL lane, now gated on gene-level permutation significance rather than
 # "at least one supportive variant". The old rule scaled with the number of cis
@@ -290,9 +285,14 @@ m[, eqtl_lane := fcase(
 # co-expression programs, not single genes: for each deviating gene, find its
 # 20 most co-expressed non-chr21 genes using CONTROLS ONLY (so the karyotype
 # effect cannot leak into the correlation), take the median T21-vs-Control
-# log2FC of those partners, and compare it to a null of 2000 random 20-gene
-# sets. If the partners shift with the gene, that looks like a program
-# (composition or shared pathway), not gene-specific dosage regulation.
+# log2FC of those partners, and compare it to a CORRELATION-MATCHED null -
+# random seed genes from the same pool, each contributing the median log2FC of
+# its own top-20 correlated partners. Matching matters: a co-expression module
+# moves together, so its median log2FC is several times more variable than an
+# independent 20-gene set's, and an independent null would call almost any
+# partner shift significant. If the partners shift with the gene, that looks
+# like a program (composition or shared pathway), not gene-specific dosage
+# regulation.
 
 cat("\nStep 3b: Composition control for deviating genes...\n")
 
@@ -320,14 +320,15 @@ lfc_bg <- lfc_bg[!is.na(lfc_bg)]
 deviating_genes <- m$Gene_name[m$sig_lane %in% c("DE_high", "DE_low")]
 deviating_genes <- intersect(deviating_genes, rownames(L))
 
-null <- partner_null(lfc_bg, n_partners = 20, n_draw = 2000, seed = 1)
+null <- partner_null(L_ctrl, lfc_bg, n_partners = 20, n_draw = 300, seed = 1)
+cat(sprintf("  Correlation-matched null: %d module draws, median %.4f, SD %.4f\n",
+            length(null), median(null), sd(null)))
 
 composition <- rbindlist(lapply(deviating_genes, function(g) {
   gene_lfc <- genome_lfc[[g]]
   gene_ctrl <- L[g, karyotype == "Control"]
   partner_lfc <- partner_shift(g, L_ctrl, gene_ctrl, lfc_bg, n_partners = 20)
-  s <- sign(gene_lfc)
-  p_partners <- mean(s * null >= s * partner_lfc)
+  p_partners <- partner_p(gene_lfc, partner_lfc, null)
   verdict <- composition_verdict(gene_lfc, partner_lfc, p_partners)
   data.table(
     Gene_name    = g,
@@ -359,7 +360,7 @@ setcolorder(m, c(
   "baseMean", "raw_log2FC", "raw_FC", "raw_padj",
   "norm_log2FC", "norm_padj",
   "deviation_magnitude", "dev_z", "q_outlier",
-  "passes_magnitude_filter",
+  "eligible_idx", "passes_magnitude_filter",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
   "verdict", "residual_lfc",
@@ -490,3 +491,30 @@ cat("\n=== Lane assignment complete ===\n")
 #             scripts/05_alluvial_lane_assignment.R,
 #             scripts/06_chr21_distribution_panel.R,
 #             scripts/07_three_panel_figure.R.
+#
+# 2026-08-31  REPLACED the composition null with a CORRELATION-MATCHED one
+#             (partner_null now takes L_ctrl and draws random seed genes, each
+#             contributing the median log2FC of its OWN top-20 correlated
+#             partners; 300 draws, p reported as (1 + k) / (n_draw + 1)).
+#             Reason: the old null drew independent random 20-gene sets, but
+#             the observed partners are a co-expression module and move
+#             together - measured on this cohort, module medians have SD 0.259
+#             against 0.058 for independent sets. Testing a module against an
+#             independent null is anti-conservative and drove both PROGRAM-side
+#             p-values to exactly 0. Verdicts are unchanged (COL6A1 MIXED
+#             p 0.043, OLIG2 MIXED p 0.013, RIPK4 GENE-SPECIFIC p 0.316,
+#             TSPEAR GENE-SPECIFIC p 0.492).
+#
+# 2026-08-31  EXTRACTED the sig_lane rule to scripts/lib/lane_rules.R
+#             (assign_sig_lane), with tests/testthat/test-lane-rules.R covering
+#             lane reachability, the eligibility-before-magnitude fcase order,
+#             the inclusive log2(1.5) boundary, sign routing and NA log2FC.
+#             Logic is unchanged - the sig_lane column is byte-identical to the
+#             pre-extraction table. Reason: this rule produces the headline
+#             classification, lived inline, and had already broken once with an
+#             unreachable-lanes regression that only output inspection caught.
+#             Side effects: eligible_idx is now a column of the lane table
+#             rather than a local vector, and the FDR-outlier print no longer
+#             welds the Hunter-rule gene count onto the outlier test's
+#             effective k - the two are printed separately, and the outlier
+#             line is labelled annotation-only.

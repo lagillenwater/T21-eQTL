@@ -8,15 +8,21 @@
 #              extract), not signif_pairs - so we get full cis-window
 #              coverage per gene. We apply a nominal pval threshold to
 #              keep the variant universe manageable.
-#          (b) gene selection now applies an FDR-controlled robust outlier
-#              test BEFORE eQTL testing. The null is a chr21-internal
-#              median/MAD estimated from expressed, non-repeat chr21 genes;
-#              a gene must clear a BH-FDR threshold (OUTLIER_FDR) on its
-#              robust z-score AND padj < ALPHA_DE to be pulled. Genes whose
-#              deviation is not an outlier against that null are not
-#              eQTL-tested - their statistical significance is downstream of
-#              sample size, not biological compensation, and asking the
-#              eQTL question for them produces misleading detection calls.
+#          (b) gene selection applies Hunter et al. (2023)'s own classification
+#              rule BEFORE eQTL testing: a gene is pulled if it is eligible
+#              (expressed above the q20 baseMean cut, not repeat-flagged) AND
+#              norm_padj < ALPHA_DE AND abs(norm_log2FC) >= DEVIATION_LFC
+#              (= log2(1.5)), on the ploidy-corrected scale. Genes whose
+#              deviation is inside that threshold are not eQTL-tested - their
+#              statistical significance is downstream of sample size, not
+#              biological compensation, and asking the eQTL question for them
+#              produces misleading detection calls.
+#
+#              The chr21-internal FDR-outlier test (OUTLIER_FDR, dev_z,
+#              q_outlier) is retained as an ANNOTATION only. It does not
+#              select genes and does not gate any lane. See the decision log
+#              in docs/REPO_STATE.md and
+#              docs/superpowers/plans/2026-08-31-tight-plan.md.
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_genes_both_analyses.csv
@@ -50,10 +56,9 @@ cat("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes ===\n\n")
 # =============================================================================
 
 ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
-# Deviation threshold. The old rule (|norm_log2FC| >= 1.0 * SD of non-chr21
-# genes) used the wrong reference - ploidy normalization does not act on diploid
-# genes - and 1 SD selects the top ~third of any distribution. The null is now
-# chr21-internal median/MAD and the cut is an FDR on robust z.
+# Annotation only. The chr21-internal median/MAD null and its BH-FDR cut on the
+# robust z-score are reported for reference (dev_z, q_outlier); they do not
+# select genes. The selection rule is DEVIATION_LFC + ALPHA_DE below.
 OUTLIER_FDR <- 0.10
 DEVIATION_LFC     <- log2(1.5)   # Hunter et al.'s FC >= 1.5 cut, applied on
                                  # the ploidy-corrected log2FC scale
@@ -105,7 +110,7 @@ cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d)\n",
 
 eligible[, dev_z := robust_z(norm_log2FC, null)]
 eligible[, q_outlier := outlier_fdr(dev_z)]
-cat(sprintf("  Outlier test at FDR < %.2f: %d genes (effective k = %.2f)\n",
+cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (effective k = %.2f)\n",
             OUTLIER_FDR, sum(eligible$q_outlier < OUTLIER_FDR, na.rm = TRUE),
             effective_k(eligible$dev_z, eligible$q_outlier, OUTLIER_FDR)))
 
@@ -374,3 +379,10 @@ cat("\n=== Filter complete ===\n")
 #             are retained as annotation columns on the eligible table but no
 #             longer drive target-gene selection.
 #             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task A)
+#
+# 2026-08-31  REWROTE the header and the OUTLIER_FDR comment, which still
+#             described the FDR-outlier test as the gene-selection rule after
+#             the rule itself had been replaced by Hunter's padj + 1.5-fold
+#             cut. No behaviour change: the code already selected on
+#             ALPHA_DE + DEVIATION_LFC. The FDR-outlier print is now labelled
+#             annotation-only so the two cannot be confused again.

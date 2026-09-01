@@ -15,10 +15,17 @@
 # correlation of any two genes that both respond to trisomy, which is
 # exactly the confound this control is meant to catch.
 #
-# The null is the median log2FC of 2000 random 20-gene sets drawn from the
-# same background (expressed, non-chr21 genes) - "how much would a random
-# gene set of this size appear to shift, just from background noise/other
-# programs".
+# The null must be CORRELATION-MATCHED. An earlier version drew independent
+# random 20-gene sets, which is anti-conservative: the observed partners are a
+# co-expression module and move together, so their median log2FC is far more
+# variable than an independent set's (measured on this cohort: SD 0.259 for
+# correlation-matched draws vs 0.058 for independent ones). The null therefore
+# draws random SEED genes from the same background pool and, for each seed,
+# takes ITS OWN top-n_partners correlated genes (controls-only correlation,
+# exactly as the real computation does) - so a null draw is a co-expression
+# module of the same construction as the observed one, and the comparison is
+# "does this gene's module shift more than a typical module", not "more than a
+# typical random gene list".
 
 #' Median log2FC of a gene's top-n co-expressed non-chr21 partners.
 #'
@@ -37,23 +44,66 @@ partner_shift <- function(gene, L_ctrl, gene_ctrl, lfc, n_partners = 20) {
   median(lfc[top], na.rm = TRUE)
 }
 
-#' Null distribution for partner_shift: median log2FC of random gene sets.
+#' Correlation-matched null distribution for partner_shift.
 #'
-#' Vectorised - draws all n_draw * n_partners indices at once and takes
-#' column medians, rather than looping over draws.
+#' Draws n_draw random SEED genes from the partner pool and, for each seed,
+#' returns the median log2FC of that seed's own top-n_partners co-expressed
+#' genes (correlation computed in controls only, as in partner_shift). A null
+#' draw is therefore a co-expression module built the same way as the observed
+#' one, not an independent random gene list.
 #'
-#' @param lfc_bg    background vector of log2FC values to sample from
-#' @param n_partners  genes per random set
-#' @param n_draw    number of random sets to draw
-#' @param seed      RNG seed, for reproducibility
-#' @return numeric vector of length n_draw, the median log2FC of each set
-partner_null <- function(lfc_bg, n_partners = 20, n_draw = 2000, seed = 1) {
-  stopifnot(is.numeric(lfc_bg))
+#' Vectorised: the full seed-by-pool correlation matrix is computed in a single
+#' cor() call, then each row's top partners are taken by row-wise ordering.
+#' There is no loop over draws re-calling cor().
+#'
+#' The seed gene is excluded from its own partner set (its self-correlation is
+#' 1), matching the real computation where the chr21 target gene is not a
+#' member of the non-chr21 partner pool.
+#'
+#' @param L_ctrl      genes x controls log2-CPM matrix of the partner pool
+#'                    (expressed, non-chr21 genes); rownames are gene names
+#' @param lfc         named vector of genome-wide T21-vs-Control log2FC
+#' @param n_partners  genes per module
+#' @param n_draw      number of seed genes to draw
+#' @param seed        RNG seed, for reproducibility
+#' @return numeric vector of length n_draw, the median partner log2FC per draw
+partner_null <- function(L_ctrl, lfc, n_partners = 20, n_draw = 300, seed = 1) {
+  stopifnot(is.matrix(L_ctrl), is.numeric(lfc), !is.null(rownames(L_ctrl)))
+  n_pool <- nrow(L_ctrl)
+  stopifnot(n_pool > n_partners + 1L)
+
   set.seed(seed)
-  idx <- matrix(sample.int(length(lfc_bg), n_partners * n_draw, replace = TRUE),
-                nrow = n_partners, ncol = n_draw)
-  draws <- matrix(lfc_bg[idx], nrow = n_partners, ncol = n_draw)
-  apply(draws, 2, median, na.rm = TRUE)
+  seed_idx <- sample.int(n_pool, n_draw, replace = n_draw > n_pool)
+
+  # n_draw x n_pool correlation matrix, one cor() call.
+  R <- suppressWarnings(cor(t(L_ctrl[seed_idx, , drop = FALSE]), t(L_ctrl)))
+
+  # Drop each seed's self-correlation so it cannot be its own top partner.
+  R[cbind(seq_len(n_draw), seed_idx)] <- -Inf
+
+  lfc_pool <- lfc[rownames(L_ctrl)]
+  apply(R, 1, function(r) {
+    top <- order(r, decreasing = TRUE, na.last = TRUE)[seq_len(n_partners)]
+    median(lfc_pool[top], na.rm = TRUE)
+  })
+}
+
+#' One-sided empirical p for an observed partner shift against the null.
+#'
+#' "How often does a null module shift at least as far as the observed partner
+#' set, in the direction the gene itself moved." The (1 + k) / (n_draw + 1)
+#' form is the standard permutation p-value: it can never be exactly 0, which
+#' would otherwise claim more resolution than n_draw draws can supply.
+#'
+#' @param gene_lfc     the gene's own T21-vs-Control log2FC (supplies direction)
+#' @param partner_lfc  observed median log2FC of the gene's partners
+#' @param null         numeric vector from partner_null()
+#' @return scalar p in (0, 1]
+partner_p <- function(gene_lfc, partner_lfc, null) {
+  stopifnot(is.numeric(gene_lfc), is.numeric(partner_lfc), is.numeric(null),
+            length(null) > 0)
+  s <- sign(gene_lfc)
+  (1 + sum(s * null >= s * partner_lfc)) / (length(null) + 1)
 }
 
 #' Classify a gene's deviation as program-driven, mixed, or gene-specific.
@@ -64,9 +114,7 @@ partner_null <- function(lfc_bg, n_partners = 20, n_draw = 2000, seed = 1) {
 #'
 #' @param gene_lfc     the gene's own T21-vs-Control log2FC
 #' @param partner_lfc  median log2FC of the gene's co-expressed partners
-#' @param p            empirical p-value (see partner_null / the p computed
-#'                      by the caller as mean(sign(gene_lfc) * null >=
-#'                      sign(gene_lfc) * partner_lfc))
+#' @param p            empirical p-value from partner_p()
 #' @return one of "PROGRAM", "MIXED", "GENE-SPECIFIC"
 composition_verdict <- function(gene_lfc, partner_lfc, p) {
   stopifnot(is.numeric(gene_lfc), is.numeric(partner_lfc), is.numeric(p))

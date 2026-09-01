@@ -8,7 +8,10 @@
 #
 #          Flow structure:
 #            Level 1: All chr21 genes
-#            Level 2: raw_FC arm (>= 1.5 vs < 1.5)
+#            Level 2: Hunter deviation cut on the PLOIDY-CORRECTED scale
+#                     (|norm_log2FC| >= log2(1.5) vs inside it). Not the raw
+#                     fold change - the raw chr21 FC centres on 1.5 by ploidy,
+#                     so the rule can only be read after correction.
 #            Level 3: categorization (Expected dosage / High repeats /
 #                     Low expression / Not DE / DE)
 #            Level 4: eQTL terminal for DE arms
@@ -46,50 +49,54 @@ lanes <- fread("results/tables/chr21_lane_assignments.csv")
 cat(sprintf("  chr21 genes: %d\n", nrow(lanes)))
 
 # =============================================================================
-# STEP 2: Build flow data - cohort-noise filter is the FIRST split
+# STEP 2: Build flow data - the classification lane is the FIRST split
 # =============================================================================
 
 cat("\nStep 2: Building flow structure...\n")
 
-# Level 2: cohort-noise filter (first categorization). Genes that fail are
-# categorized as Expected dosage; genes that pass continue to further
-# categorization downstream.
-lanes[, level2 := fifelse(passes_magnitude_filter,
-                          "Outside cohort noise",
-                          "Within cohort noise (Expected dosage)")]
+# Level 2 is read off sig_lane, NOT off passes_magnitude_filter. Repeat-flagged
+# and low-expression genes have passes_magnitude_filter == FALSE because they
+# are never eligible for the cut, so splitting on that flag swept all 41 of
+# them into the Expected-dosage stratum - the exact false claim the lane rule's
+# fcase order exists to prevent (scripts/lib/lane_rules.R). They get their own
+# arm here.
+lanes[, level2 := fcase(
+  sig_lane == "Expected_dosage",                        "Expected dosage",
+  sig_lane %in% c("High_repeats", "Low_expression"),    "Not assessable",
+  default =                                             "Outside dosage expectation")]
 
-# Level 3: only meaningful for "Outside cohort noise" survivors.
-#   For survivors: split into DE_high / DE_low / High_repeats /
-#                  Low_expression / Not_DE_outside_noise.
-#   For Expected dosage: terminate at level 2 (pass through unchanged).
+# Level 3:
+#   Expected dosage: terminates at level 2 (passes through unchanged).
+#   Not assessable:  splits into High repeats / Low expression.
+#   Outside dosage expectation: splits into DE (high) / DE (low) / Not DE.
 lanes[, level3 := fcase(
-  level2 == "Within cohort noise (Expected dosage)",
-    "Within cohort noise (Expected dosage)",
+  sig_lane == "Expected_dosage",
+    "Expected dosage",
   sig_lane == "DE_low",
-    "DE (low) [< 1.5 raw FC]",
+    "DE (low) [corrected log2FC <= -0.585]",
   sig_lane == "DE_high",
-    "DE (high) [>= 1.5 raw FC]",
+    "DE (high) [corrected log2FC >= +0.585]",
   sig_lane == "High_repeats",
     "High repeats",
   sig_lane == "Low_expression",
     "Low expression",
   sig_lane == "Not_DE_outside_noise",
-    "Not DE (outside cohort noise)",
+    "Not DE (padj >= 0.01)",
   default = "Other")]
 
 # Level 4: eQTL terminal (only for DE_low / DE_high; other lanes pass through)
 lanes[, level4 := fcase(
-  level3 == "DE (low) [< 1.5 raw FC]" & eqtl_lane == "cis_eqtl",
+  level3 == "DE (low) [corrected log2FC <= -0.585]" & eqtl_lane == "cis_eqtl",
     "DE (low): cis-eQTL detected",
-  level3 == "DE (low) [< 1.5 raw FC]" & eqtl_lane == "no_cis_eqtl",
+  level3 == "DE (low) [corrected log2FC <= -0.585]" & eqtl_lane == "no_cis_eqtl",
     "DE (low): eQTL-tested, none detected",
-  level3 == "DE (low) [< 1.5 raw FC]" & eqtl_lane == "no_GTEx_data",
+  level3 == "DE (low) [corrected log2FC <= -0.585]" & eqtl_lane == "no_GTEx_data",
     "DE (low): no GTEx eQTL data",
-  level3 == "DE (high) [>= 1.5 raw FC]" & eqtl_lane == "cis_eqtl",
+  level3 == "DE (high) [corrected log2FC >= +0.585]" & eqtl_lane == "cis_eqtl",
     "DE (high): cis-eQTL detected",
-  level3 == "DE (high) [>= 1.5 raw FC]" & eqtl_lane == "no_cis_eqtl",
+  level3 == "DE (high) [corrected log2FC >= +0.585]" & eqtl_lane == "no_cis_eqtl",
     "DE (high): eQTL-tested, none detected",
-  level3 == "DE (high) [>= 1.5 raw FC]" & eqtl_lane == "no_GTEx_data",
+  level3 == "DE (high) [corrected log2FC >= +0.585]" & eqtl_lane == "no_GTEx_data",
     "DE (high): no GTEx eQTL data",
   default = level3)]
 
@@ -98,23 +105,24 @@ flow <- lanes[, .(n_genes = .N),
               by = .(level2, level3, level4)]
 
 # Order strata for vertical layout
-level2_order <- c("Outside cohort noise",
-                  "Within cohort noise (Expected dosage)")
-level3_order <- c("DE (high) [>= 1.5 raw FC]",
+level2_order <- c("Outside dosage expectation",
+                  "Not assessable",
+                  "Expected dosage")
+level3_order <- c("DE (high) [corrected log2FC >= +0.585]",
+                  "Not DE (padj >= 0.01)",
+                  "DE (low) [corrected log2FC <= -0.585]",
                   "High repeats", "Low expression",
-                  "Not DE (outside cohort noise)",
-                  "DE (low) [< 1.5 raw FC]",
-                  "Within cohort noise (Expected dosage)")
+                  "Expected dosage")
 level4_order <- c(
   "DE (high): cis-eQTL detected",
   "DE (high): eQTL-tested, none detected",
   "DE (high): no GTEx eQTL data",
-  "High repeats", "Low expression",
-  "Not DE (outside cohort noise)",
+  "Not DE (padj >= 0.01)",
   "DE (low): cis-eQTL detected",
   "DE (low): eQTL-tested, none detected",
   "DE (low): no GTEx eQTL data",
-  "Within cohort noise (Expected dosage)"
+  "High repeats", "Low expression",
+  "Expected dosage"
 )
 
 flow[, level2 := factor(level2, levels = level2_order)]
@@ -143,15 +151,16 @@ to_long[, final_category := level4]
 # Color palette - flows colored by FINAL terminal so the eye traces
 # explanatory vs unexplained vs no-data outcomes through the diagram.
 palette_terminal <- c(
-  # Cohort-noise filter strata (level 2)
-  "Outside cohort noise"                       = "#808080",
-  "Within cohort noise (Expected dosage)"      = "#5AB4AC",
+  # Classification strata (level 2)
+  "Outside dosage expectation"                 = "#808080",
+  "Not assessable"                             = "#BDBDBD",
+  "Expected dosage"                            = "#5AB4AC",
   # Sub-categories (level 3)
-  "DE (high) [>= 1.5 raw FC]"                  = "#1F77B4",
-  "DE (low) [< 1.5 raw FC]"                    = "#4DAF4A",
+  "DE (high) [corrected log2FC >= +0.585]"     = "#1F77B4",
+  "DE (low) [corrected log2FC <= -0.585]"      = "#4DAF4A",
   "High repeats"                               = "#E8967A",
   "Low expression"                             = "#DDA0DD",
-  "Not DE (outside cohort noise)"              = "#D2B48C",
+  "Not DE (padj >= 0.01)"                      = "#D2B48C",
   # eQTL terminals (level 4)
   "DE (high): cis-eQTL detected"               = "#1F77B4",
   "DE (high): eQTL-tested, none detected"      = "#9467BD",
@@ -175,16 +184,17 @@ p <- ggplot(to_long,
             size = 2.4, lineheight = 0.85) +
   scale_fill_manual(values = palette_terminal) +
   scale_x_discrete(limits = c("level2", "level3", "level4"),
-                   labels = c("Cohort-noise filter",
+                   labels = c("Classification",
                               "Sub-category", "eQTL terminal"),
                    expand = c(0.08, 0.08)) +
   labs(
     title    = "Chr21 gene classification by lane",
     subtitle = sprintf(
-      paste0("Cohort-noise filter (1.0 SD of non-chr21 distribution) is ",
-             "the first split: small-magnitude deviations -> Expected ",
-             "dosage. Survivors then split by raw FC sign and eQTL ",
-             "evidence. (n=%d)"),
+      paste0("Hunter et al.'s rule on the ploidy-corrected scale: deviating ",
+             "= padj < 0.01 AND |corrected log2FC| >= log2(1.5) = 0.585. ",
+             "Repeat-flagged and low-expression genes are not assessable and ",
+             "are kept separate from expected dosage. Deviating genes then ",
+             "split by sign and by eQTL evidence. (n=%d)"),
       nrow(lanes)),
     y = "Number of genes"
   ) +
@@ -217,7 +227,7 @@ cat("\nStep 4: Writing SankeyMATIC input...\n")
 # Aggregate flows at each level transition into Source [count] Target lines
 sm_lines <- character(0)
 
-# Level 1 -> Level 2: All chr21 -> raw FC arms
+# Level 1 -> Level 2: All chr21 -> deviation-filter arms
 l12 <- flow[, .(n_genes = sum(n_genes)), by = level2]
 for (i in seq_len(nrow(l12))) {
   sm_lines <- c(sm_lines,
@@ -253,13 +263,14 @@ color_lines <- c(
   "",
   "// Suggested colors (paste into SankeyMATIC color editor)",
   "// :Chr21 protein-coding #808080",
-  "// :Outside cohort noise #808080",
-  "// :Within cohort noise (Expected dosage) #5AB4AC",
-  "// :DE (high) [>= 1.5 raw FC] #1F77B4",
-  "// :DE (low) [< 1.5 raw FC] #4DAF4A",
+  "// :Outside dosage expectation #808080",
+  "// :Not assessable #BDBDBD",
+  "// :Expected dosage #5AB4AC",
+  "// :DE (high) [corrected log2FC >= +0.585] #1F77B4",
+  "// :DE (low) [corrected log2FC <= -0.585] #4DAF4A",
   "// :High repeats #E8967A",
   "// :Low expression #DDA0DD",
-  "// :Not DE (outside cohort noise) #D2B48C",
+  "// :Not DE (padj >= 0.01) #D2B48C",
   "// :DE (high): cis-eQTL detected #1F77B4",
   "// :DE (high): eQTL-tested, none detected #9467BD",
   "// :DE (high): no GTEx eQTL data #AEC7E8",
@@ -298,3 +309,28 @@ writeLines(capture.output(sessionInfo()),
            "results/figures/chr21_lane_alluvial_session_info.txt")
 
 cat("\n=== Alluvial complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  RELABELLED the DE strata. They read "[>= 1.5 raw FC]" and
+#             "[< 1.5 raw FC]", but the rule is abs(norm_log2FC) >= log2(1.5)
+#             on the PLOIDY-CORRECTED scale, split by sign. The raw chr21 fold
+#             change centres on 1.5 by ploidy alone, so the old labels named a
+#             quantity the rule never looks at. Now
+#             "DE (high) [corrected log2FC >= +0.585]" /
+#             "DE (low) [corrected log2FC <= -0.585]". The subtitle, which
+#             still described the retired 1.0-cohort-SD filter, was rewritten
+#             to state Hunter's rule.
+#
+# 2026-08-31  FIXED the level-2 split, which was taken from
+#             passes_magnitude_filter. Repeat-flagged and low-expression genes
+#             have that flag FALSE because they are never eligible for the cut,
+#             not because they follow dosage expectation - so all 41 of them
+#             were drawn inside the "Expected dosage" stratum (156 genes where
+#             the lane table says 115). That is exactly the false claim the
+#             fcase order in scripts/lib/lane_rules.R exists to prevent. Level 2
+#             now reads sig_lane directly and gives them their own "Not
+#             assessable" arm, which level 3 splits into High repeats (12) and
+#             Low expression (29). Display only - no lane, verdict or count in
+#             chr21_lane_assignments.csv changes.
