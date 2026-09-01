@@ -170,12 +170,12 @@ lanes <- fread("results/tables/chr21_lane_assignments.csv")
 lanes_de <- lanes[sig_lane %in% c("DE_low", "DE_high") &
                   low_expr == FALSE & high_repeat == FALSE]
 lanes_de[, lane_label := fcase(
-  eqtl_lane == "explained",   "eQTL-supported",
-  eqtl_lane == "unexplained", "eQTL-tested, not supported",
+  eqtl_lane == "cis_eqtl",     "cis-eQTL detected",
+  eqtl_lane == "no_cis_eqtl",  "eQTL-tested, none detected",
   eqtl_lane == "no_GTEx_data", "no GTEx eQTL data")]
 lanes_de[, lane_label := factor(lane_label,
-  levels = c("eQTL-supported",
-             "eQTL-tested, not supported",
+  levels = c("cis-eQTL detected",
+             "eQTL-tested, none detected",
              "no GTEx eQTL data"))]
 
 ctrl_sd <- sd(matched$log2FoldChange)

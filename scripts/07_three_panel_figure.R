@@ -50,10 +50,10 @@ SANKEY_PNG  <- NULL         # set to a SankeyMATIC PNG path to use it for panel 
 OUT_STEM    <- "results/figures/three_panel_summary"
 
 # Group labels, ordered high -> low so the legend reads top-down.
-LAB_HI_EXPL <- "Higher, eQTL-explained"
+LAB_HI_EXPL <- "Higher, cis-eQTL detected"
 LAB_HI_NOEQ <- "Higher, no GTEx eQTL"
-LAB_LO_EXPL <- "Lower, eQTL-explained"
-LAB_LO_UNEX <- "Lower, no genetic explanation"
+LAB_LO_EXPL <- "Lower, cis-eQTL detected"
+LAB_LO_UNEX <- "Lower, no cis-eQTL detected"
 LAB_LO_NOEQ <- "Lower, no GTEx eQTL"
 LAB_NOPADJ  <- "Outside noise, padj not estimable"
 LAB_CHR21   <- "Other chr21"
@@ -85,10 +85,10 @@ cat(sprintf("  %d protein-coding genes (%d on chr21)\n",
 # labelled here.
 lane_groups <- lane %>%
   mutate(group = case_when(
-    sig_lane == "DE_high" & eqtl_lane == "explained"    ~ LAB_HI_EXPL,
+    sig_lane == "DE_high" & eqtl_lane == "cis_eqtl"     ~ LAB_HI_EXPL,
     sig_lane == "DE_high" & eqtl_lane == "no_GTEx_data" ~ LAB_HI_NOEQ,
-    sig_lane == "DE_low"  & eqtl_lane == "explained"    ~ LAB_LO_EXPL,
-    sig_lane == "DE_low"  & eqtl_lane == "unexplained"  ~ LAB_LO_UNEX,
+    sig_lane == "DE_low"  & eqtl_lane == "cis_eqtl"     ~ LAB_LO_EXPL,
+    sig_lane == "DE_low"  & eqtl_lane == "no_cis_eqtl"  ~ LAB_LO_UNEX,
     sig_lane == "DE_low"  & eqtl_lane == "no_GTEx_data" ~ LAB_LO_NOEQ,
     sig_lane == "Not_DE_outside_noise" & is.na(norm_padj) ~ LAB_NOPADJ,
     TRUE ~ NA_character_
@@ -216,9 +216,9 @@ if (!is.null(SANKEY_PNG) && file.exists(SANKEY_PNG)) {
 } else {
   cat("Panel C: drawing alluvial of the outside-cohort-noise genes\n")
 
-  pretty_eqtl <- c(explained    = "eQTL-explained",
-                   unexplained  = "eQTL-tested,\nnot supported",
-                   no_GTEx_data = "No GTEx\neQTL data",
+  pretty_eqtl <- c(cis_eqtl      = "cis-eQTL\ndetected",
+                   no_cis_eqtl   = "eQTL-tested,\nnone detected",
+                   no_GTEx_data  = "No GTEx\neQTL data",
                    not_evaluated = "Not evaluated")
 
   flow <- lane %>%

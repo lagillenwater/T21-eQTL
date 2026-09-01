@@ -150,7 +150,7 @@ kept for future covariate adjustment.
 
 **Files**: `data/chr21_ds_PASS.csv` and `data/chr21_ctrl_PASS.csv`. VCF-style
 CSVs filtered to PASS variants, chr21 only. T21 file uses ploidy-3 calls;
-Control file uses ploidy-2. Streamed by script 09 to extract only the
+Control file uses ploidy-2. Streamed by script 02 to extract only the
 positions of the eQTL universe.
 
 ### 5. GTEx whole-blood eQTLs
@@ -185,10 +185,10 @@ vectorized per-variant regressions and the gene-level permutation test;
 | Script | Purpose | Output |
 |---|---|---|
 | 00_preprocess_data | Long -> wide gene x sample matrix; match metadata | `data/processed/count_matrix.csv`, `sample_metadata.csv`, `gene_annotations.csv` |
-| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_chr21_combined.csv`, `deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, QC PDFs |
+| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, `deseq2_all_genes_both_analyses.csv`, QC PDFs |
 | 02_filter_genotypes | Select deviating chr21 genes by Hunter et al.'s rule (`norm_padj < ALPHA_DE` AND `abs(norm_log2FC) >= DEVIATION_LFC`), restrict to protein-coding, compute the chr21-internal FDR-outlier annotation (`dev_z`, `q_outlier`, via `scripts/lib/chr21_threshold.R`), pull GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
 | 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); negative controls (direction-flip, genotype-permutation) on the retired any-variant rule | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv`, `eqtl_gene_level_perm.csv`, `eqtl_negative_controls.csv` |
-| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`explained`/`unexplained`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
+| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`cis_eqtl`/`no_cis_eqtl`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
 | 05_alluvial_lane_assignment | Alluvial flow (Cohort filter -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
 | 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
 | 07_three_panel_figure | Panel A/B: volcano before/after ploidy correction; Panel C: flow of deviating genes to eQTL outcome, labels read from the lane table | `results/figures/three_panel_summary.{pdf,png}` |
@@ -237,7 +237,7 @@ Fixes (script 01):
 - `betaPrior = FALSE` (no shrinkage), so the MAP fold change reflects the
   raw maximum-likelihood estimate.
 - Apply a minimum baseMean filter (paper's "second quintile"; pipeline uses
-  the 20th-percentile baseMean cutoff for consistency with script 09).
+  the 20th-percentile baseMean cutoff for consistency with script 02).
 
 After ploidy normalization, the appropriate null on chr21 is back to `FC = 1`,
 so DESeq2's standard p-value testing applies cleanly.
@@ -291,11 +291,12 @@ the canonical per-gene table. Each row has:
 - **`sig_lane`**: one of `Expected_dosage` (fails Hunter's rule),
   `High_repeats`, `Low_expression`, `DE_low`, `DE_high`, `Not_DE_outside_noise`.
 - Composition control: `verdict` (PROGRAM/MIXED/GENE-SPECIFIC), `residual_lfc`.
-- **`eqtl_lane`**: one of `not_evaluated` (non-deviating), `explained`
-  (gene-level permutation `q_gene_bh < FDR_GENE`), `unexplained`,
-  `no_GTEx_data`.
+- **`eqtl_lane`**: one of `not_evaluated` (non-deviating), `cis_eqtl`
+  (gene-level permutation `q_gene_bh < FDR_GENE`), `no_cis_eqtl`,
+  `no_GTEx_data`. A detection result, not an "explained by eQTL" claim -
+  see `docs/REPO_STATE.md` decision log.
 - Gene-level permutation result: `p_gene_perm`, `q_gene_bh`,
-  `explained_perm`, `best_variant`.
+  `cis_eqtl_detected`, `best_variant`.
 - Locus-level eQTL aggregation (retained for context, not the
   classification rule): `n_cis_total`, `n_dir_match`, `n_supp_with_repro`.
 - Representative-variant choices for downstream visualization:
@@ -314,7 +315,7 @@ gene-level permutation test (`scripts/lib/eqtl_fit.R`, run in script 03):
 for each deviating gene, the best-variant test statistic is compared
 against its null distribution under permutation of genotype-to-expression
 assignment, giving `p_gene_perm`; BH-adjusted across deviating genes to
-`q_gene_bh`. `eqtl_lane = explained` when `q_gene_bh < FDR_GENE` (0.05).
+`q_gene_bh`. `eqtl_lane = cis_eqtl` when `q_gene_bh < FDR_GENE` (0.05).
 
 ### Constants worth knowing
 
@@ -326,7 +327,7 @@ Defined at the top of scripts 02, 03, and 04; change once, propagates through:
   in this analysis - see `docs/REPO_STATE.md` decision log.
 - `ALPHA_REPRO = 0.05` - within-T21 nominal p for a cis variant to count as
   reproducible (locus-level context column, not the classification rule).
-- `FDR_GENE = 0.05` - BH threshold on `q_gene_bh` for `explained_perm`.
+- `FDR_GENE = 0.05` - BH threshold on `q_gene_bh` for `cis_eqtl_detected`.
 - `OUTLIER_FDR = 0.10` - FDR threshold for the chr21-internal outlier
   annotation (`dev_z`/`q_outlier`); **annotation only, retired from
   classification** (was `MAGNITUDE_THRESHOLD` in an earlier cohort-SD
@@ -335,8 +336,9 @@ Defined at the top of scripts 02, 03, and 04; change once, propagates through:
   expression filter.
 - `GTEX_PVAL_KEEP = 1e-4` - nominal cis-eQTL pval cutoff in allpairs
   (matches the effective signif_pairs cutoff).
-- `RESTRICT_TO_PROTEIN_CODING = TRUE` - restrict both target chr21 set and
-  cohort-noise reference to protein-coding genes.
+- `RESTRICT_TO_PROTEIN_CODING = TRUE` - restrict the target chr21 gene set
+  (and the eligible-gene pool for the chr21-internal outlier null) to
+  protein-coding genes.
 
 ---
 
@@ -345,10 +347,12 @@ Defined at the top of scripts 02, 03, and 04; change once, propagates through:
 ### Tables
 
 `results/tables/`:
-- `deseq2_chr21_combined.csv` - chr21 DESeq2 results (raw + ploidy-corrected
-  in one row per gene).
+- `deseq2_chr21_genes_both_analyses.csv` - chr21 DESeq2 results (raw + ploidy-
+  corrected in one row per gene).
 - `deseq2_all_genes_ploidy_normalized.csv` - genome-wide ploidy-corrected
-  DESeq2 results; also the source of the cohort-noise SD reference.
+  DESeq2 results (all genes, used for the ploidy-corrected volcano panel and
+  general reference; not used for gene classification, which is Hunter's
+  padj + 1.5-fold rule on the chr21 table directly).
 - **`chr21_lane_assignments.csv`** - canonical per-gene lane table (read
   this for the headline numbers).
 - `chr21_lane_summary.csv` - lane counts (all chr21 + after paper filters).
@@ -389,12 +393,12 @@ outputs. Stages are independent at the file level - if you change script
 
 Common re-run patterns:
 
-- **Tweak the magnitude threshold**: edit `MAGNITUDE_THRESHOLD` at top of
-  scripts 02 and 04, then re-run 02 -> 03 -> 04 -> 05 -> 06. (Cheaper if
-  only the lane assignment is changing: re-run 04 -> 05 -> 06 only.)
+- **Tweak the deviation threshold**: edit `DEVIATION_LFC` at top of
+  scripts 02 and 04, then re-run 02 -> 03 -> 04 -> 05 -> 06 -> 07. (Cheaper
+  if only the lane assignment is changing: re-run 04 -> 05 -> 06 -> 07 only.)
 - **Switch to/from protein-coding**: set `RESTRICT_TO_PROTEIN_CODING` in
   scripts 02, 04, 06. Re-run from 02.
-- **Change padj threshold**: `ALPHA` in script 04. Re-run 04 onward.
+- **Change padj threshold**: `ALPHA_DE` in scripts 02 and 04. Re-run 02 onward.
 
 The cost concentrations: script 02 (~3 min, awk-streaming PASS files);
 script 03 (~5-15 min depending on variant count, per-variant regressions).
@@ -408,7 +412,7 @@ The visualization scripts (05, 06) finish in seconds each.
   `Sig_high_FC` in `eqtl_supported_genes.csv` `gene_set` column (written
   by script 02). The current lane terminology (in script 04 onward) is
   `DE_high`. Both refer to the same set: genes with `raw_FC >= 1.5` AND
-  `norm_padj < 0.01` (after the cohort-SD filter is applied first).
+  `norm_padj < 0.01` under Hunter's padj + 1.5-fold classification rule.
 - **Self-loops in SankeyMATIC**: `chr21_lane_sankeymatic_input.txt` skips
   level-to-level passes where the source and target name are identical
   (e.g., the 119 Expected dosage genes terminate at level 2 and would
@@ -418,7 +422,7 @@ The visualization scripts (05, 06) finish in seconds each.
   302 in the genotype cohort. The 2 missing-genotype subjects are
   expression-only and are silently dropped from the within-T21 regression
   step. Phrase paper text accordingly ("302 of 304").
-- **lfcSE column**: chr21 combined output (`deseq2_chr21_combined.csv`)
+- **lfcSE column**: chr21 combined output (`deseq2_chr21_genes_both_analyses.csv`)
   does not carry `lfcSE`; the all-genes ploidy-normalized output does.
   The archived forest-plot script joins lfcSE in from the all-genes table.
 

@@ -16,7 +16,7 @@
 #              deviation is not an outlier against that null are not
 #              eQTL-tested - their statistical significance is downstream of
 #              sample size, not biological compensation, and asking the
-#              eQTL question for them produces misleading "explained" calls.
+#              eQTL question for them produces misleading detection calls.
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_genes_both_analyses.csv

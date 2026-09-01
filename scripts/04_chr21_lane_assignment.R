@@ -13,12 +13,16 @@
 #          Sig lane: DE_low (norm_padj < 0.01 AND norm_log2FC < 0)
 #                    DE_high (norm_padj < 0.01 AND norm_log2FC > 0)
 #                    Not_DE_or_NA (otherwise)
-#          eQTL lane: explained        (>= 1 cis variant with both:
-#                                       sign(gtex_slope) == sign(norm_log2FC)
-#                                       AND sign(t21_slope) == sign(gtex_slope))
-#                     unexplained      (cis variants exist but none satisfy)
+#          eQTL lane: cis_eqtl         (gene-level permutation test detects a
+#                                       cis-eQTL: q_gene_bh < FDR_GENE - see
+#                                       Step 5 in scripts/03_t21_dosage_boxplots.R)
+#                     no_cis_eqtl      (permutation test run, did not detect one)
 #                     no_GTEx_data     (gene not in GTEx whole-blood
 #                                       signif_pairs at all)
+#
+#          NOTE: eqtl_lane is NOT an "explained by eQTL" claim - see the
+#          tight plan (docs/superpowers/plans/2026-08-31-tight-plan.md),
+#          which retires that framing, and docs/REPO_STATE.md's decision log.
 #
 # Inputs:
 #   - results/tables/deseq2_chr21_genes_both_analyses.csv
@@ -252,27 +256,29 @@ m[, sig_lane := fcase(
 
 # eQTL lane, now gated on gene-level permutation significance rather than
 # "at least one supportive variant". The old rule scaled with the number of cis
-# variants tested (median n_cis 107 for explained genes vs 36 for the one
-# unexplained gene), so it measured variant count more than genetic evidence.
+# variants tested (median n_cis 107 for cis_eqtl genes vs 36 for the one
+# no_cis_eqtl gene), so it measured variant count more than genetic evidence.
 perm <- if (file.exists("results/tables/eqtl_gene_level_perm.csv")) {
   fread("results/tables/eqtl_gene_level_perm.csv")
 } else {
   stop("run scripts/03_t21_dosage_boxplots.R first - eqtl_gene_level_perm.csv is missing")
 }
-m <- merge(m, perm[, .(Gene_name, p_gene_perm, q_gene_bh, explained_perm, best_variant)],
+m <- merge(m, perm[, .(Gene_name, p_gene_perm, q_gene_bh, cis_eqtl_detected, best_variant)],
            by = "Gene_name", all.x = TRUE)
 
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")
 #   - DE genes:
 #       n_cis_total == 0                                -> "no_GTEx_data"
-#       gene-level permutation q < FDR_GENE (BH)         -> "explained"
-#       otherwise                                        -> "unexplained"
+#       gene-level permutation q < FDR_GENE (BH)         -> "cis_eqtl"
+#       otherwise                                        -> "no_cis_eqtl"
+# eqtl_lane is a detection result, not an "explained by eQTL" claim - see
+# docs/REPO_STATE.md decision log.
 m[, eqtl_lane := fcase(
-  !(sig_lane %in% c("DE_low", "DE_high")),         "not_evaluated",
-  n_cis_total == 0L,                               "no_GTEx_data",
-  !is.na(explained_perm) & explained_perm == TRUE, "explained",
-  default =                                        "unexplained")]
+  !(sig_lane %in% c("DE_low", "DE_high")),             "not_evaluated",
+  n_cis_total == 0L,                                   "no_GTEx_data",
+  !is.na(cis_eqtl_detected) & cis_eqtl_detected == TRUE, "cis_eqtl",
+  default =                                            "no_cis_eqtl")]
 
 # =============================================================================
 # STEP 3b: Composition control for deviating (DE_low / DE_high) genes
@@ -358,7 +364,7 @@ setcolorder(m, c(
   "sig_lane", "eqtl_lane",
   "verdict", "residual_lfc",
   "n_cis_total", "n_dir_match", "n_supp_with_repro",
-  "p_gene_perm", "q_gene_bh", "explained_perm",
+  "p_gene_perm", "q_gene_bh", "cis_eqtl_detected",
   "strongest_supp_pval", "strongest_supp_variant",
   "strongest_dir_pval", "strongest_dir_variant",
   "strongest_overall_pval", "strongest_overall_variant"
@@ -474,3 +480,13 @@ cat("\n=== Lane assignment complete ===\n")
 #             verdict / residual_lfc into chr21_lane_assignments.csv.
 #             New library: scripts/lib/composition.R.
 #             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task B)
+#
+# 2026-08-31  RENAMED eqtl_lane values "explained" -> "cis_eqtl" and
+#             "unexplained" -> "no_cis_eqtl"; merged column explained_perm ->
+#             cis_eqtl_detected (matches the rename in script 03).
+#             "no_GTEx_data" and "not_evaluated" are unchanged. Reason: the
+#             tight plan retires any "explained by eQTL" claim - see
+#             docs/REPO_STATE.md decision log. Downstream consumers updated:
+#             scripts/05_alluvial_lane_assignment.R,
+#             scripts/06_chr21_distribution_panel.R,
+#             scripts/07_three_panel_figure.R.

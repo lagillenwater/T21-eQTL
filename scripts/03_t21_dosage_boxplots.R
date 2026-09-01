@@ -162,7 +162,9 @@ fwrite(fit_table, "results/tables/t21_dosage_per_variant.csv")
 stopifnot(file.exists("results/tables/t21_dosage_per_variant.csv"))
 
 # =============================================================================
-# NEGATIVE CONTROLS for the "explained" call
+# NEGATIVE CONTROLS for the retired any-variant detection rule (see the
+# 2026-08-31 CHANGELOG entry below - this rule is not the current
+# classification path, superseded by the gene-level permutation test)
 # =============================================================================
 # C2 direction flip       - negate the deviation direction and recount. The rule
 #                           only asks that some cis variant point the same way
@@ -262,7 +264,7 @@ perm_res <- rbindlist(lapply(de_genes, function(g) {
                                                    seed = 2026L + match(g, de_genes))))
 }))
 perm_res[, q_gene_bh := p.adjust(p_gene_perm, "BH")]
-perm_res[, explained_perm := !is.na(q_gene_bh) & q_gene_bh < FDR_GENE]
+perm_res[, cis_eqtl_detected := !is.na(q_gene_bh) & q_gene_bh < FDR_GENE]
 setorder(perm_res, p_gene_perm)
 print(as.data.frame(perm_res))
 
@@ -419,3 +421,11 @@ cat("\n=== Boxplot script complete ===\n")
 #             default was set for has been cancelled, and 1000 permutations
 #             over the current 4-gene DE set is cheap locally (seconds),
 #             restoring the previously committed 0.000999 p-value floor.
+#
+# 2026-08-31  RENAMED eqtl_gene_level_perm.csv column explained_perm ->
+#             cis_eqtl_detected. Reason: the tight plan explicitly retires
+#             any "explained by eQTL" claim (see docs/REPO_STATE.md decision
+#             log); "explained" implies a causal/complete account this test
+#             does not make. The column still means the same thing (gene-
+#             level permutation q_gene_bh < FDR_GENE) under a name that
+#             doesn't overclaim.
