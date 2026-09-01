@@ -1,0 +1,130 @@
+---
+title: "T21-eQTL results summary"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(knitr)
+  library(here)
+})
+
+lanes <- read.csv(here("results/tables/chr21_lane_assignments.csv"))
+dev   <- lanes %>% filter(sig_lane %in% c("DE_high", "DE_low"))
+
+n_total    <- nrow(lanes)
+n_expected <- sum(lanes$sig_lane == "Expected_dosage")
+n_repeat   <- sum(lanes$sig_lane == "High_repeats")
+n_lowexpr  <- sum(lanes$sig_lane == "Low_expression")
+n_dev      <- nrow(dev)
+n_high     <- sum(dev$sig_lane == "DE_high")
+n_low      <- sum(dev$sig_lane == "DE_low")
+n_tier1    <- sum(dev$tier == 1)
+n_tier2    <- sum(dev$tier == 2)
+n_cis      <- sum(dev$eqtl_lane == "cis_eqtl")
+n_nocis    <- sum(dev$eqtl_lane == "no_cis_eqtl")
+n_nogtex   <- sum(dev$eqtl_lane == "no_GTEx_data")
+
+gene_list <- function(d) paste(sort(d$Gene_name), collapse = ", ")
+cand_tested   <- dev %>% filter(eqtl_lane == "no_cis_eqtl")
+cand_untested <- dev %>% filter(eqtl_lane == "no_GTEx_data")
+
+git_rev <- tryCatch(
+  system("git rev-parse --short HEAD", intern = TRUE),
+  error = function(e) "unknown"
+)
+```
+
+Computed from the pipeline outputs in `results/tables/` at commit
+`` `r git_rev` ``. To refresh after a pipeline run:
+`Rscript -e 'rmarkdown::render("docs/summary.Rmd")'`. Methodology and
+its history: `README.md` and `docs/decisions.md`.
+
+## Overview
+
+Of the **`r n_total`** chr21 protein-coding genes classified:
+**`r n_expected`** are Expected dosage, **`r n_repeat`** are flagged as high repeats and
+**`r n_lowexpr`** low-expression (depth < 30), and
+**`r n_dev`** deviate (**`r n_high`** DE_high, **`r n_low`** DE_low;
+**`r n_tier1`** (padj <.05 and FC >= 1.5), **`r n_tier2`** 
+near-threshold padj < .05 and  1.35 <= FC < 1.5). Of the deviating genes, **`r n_cis`** have a
+detectable GTEX cis-eQTL, **`r n_nocis`** do not have a GTEX eQTL, and **`r n_nogtex`** have no GTEx cis coverage.
+
+```{r lane-table}
+lanes %>%
+  count(sig_lane, eqtl_lane) %>%
+  pivot_wider(names_from = eqtl_lane, values_from = n, values_fill = 0) %>%
+  mutate(Total = rowSums(across(where(is.numeric)))) %>%
+  arrange(desc(Total)) %>%
+  kable(caption = "Lane counts by eQTL terminal. cis_eqtl is a detection result (q_gene_bh < 0.05), not an 'explained by eQTL' claim.")
+```
+
+
+
+## Deviating genes
+
+```{r dev-table}
+dev %>%
+  transmute(
+    Gene = Gene_name,
+    lane = sig_lane,
+    tier,
+    log2FC = round(norm_log2FC, 2),
+    padj = formatC(norm_padj, format = "e", digits = 1),
+    eqtl = eqtl_lane,
+    q_perm = signif(q_gene_bh, 2),
+    composition = verdict,
+    residual_lfc = round(residual_lfc, 2)
+  ) %>%
+  arrange(lane, desc(abs(log2FC))) %>%
+  kable(caption = "Ploidy-corrected stats, gene-level permutation q, and composition-control verdict. 
+  composition = the verdict based on the gene's expression pattern and its relationship to control genes.
+    PROGRAM if p < 0.05 and partner_lfc / gene_lfc >= 0.5;
+   MIXED if p < 0.05; 
+   else GENE-SPECIFIC if p >= 0.05 and partner_lfc / gene_lfc < 0.5.
+  residual_lfc = gene log2FC minus the median log2FC of its 20 control-defined co-expression partners.")
+```
+
+
+
+Deviating genes without a detectable common cis-eQTL remain open as
+compensation candidates (absence of a detection does not by itself
+establish compensation):
+
+- Tested against GTEx, no detection (`r nrow(cand_tested)`):
+  **`r gene_list(cand_tested)`**
+- No GTEx cis coverage, untestable here (`r nrow(cand_untested)`):
+  **`r gene_list(cand_untested)`**
+
+## Figures
+
+Linked from `results/figures/` (not tracked; run the pipeline to
+regenerate them locally).
+
+
+
+### chr21 vs baseMean-matched non-chr21 ploidy-corrected log2FC distributions, with the per-lane magnitude scatter (script 06):
+
+```{r fig-dist, out.width="100%"}
+include_graphics("./figures/chr21_vs_genome_distribution.png")
+```
+
+
+
+### Volcano summary panel, all-genes before/after ploidy correction and chr21-only (script 07):
+
+```{r fig-volcano, out.width="100%"}
+include_graphics("./figures/Chr21_DEG.png")
+```
+
+### Sankey plot generated with Sankeymatic
+
+```{r}
+include_graphics("./figures/Sankey.png")
+```
