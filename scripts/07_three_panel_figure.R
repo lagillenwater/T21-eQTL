@@ -1,53 +1,43 @@
 # 07_three_panel_figure.R
 #
-# Purpose: Assemble the 3-panel summary figure.
-#   Panel A - volcano of the UNCORRECTED (no ploidy normalization) DESeq2 results.
-#   Panel B - volcano of the PLOIDY-CORRECTED DESeq2 results.
-#   Panel C - flow of the chr21 genes not classified as expected dosage, from
-#             sub-category to eQTL outcome.
+# Purpose: Chr21_DEG - a 2 x 2 volcano figure.
+#   A  uncorrected DESeq2, all protein-coding genes, chr21 highlighted
+#   B  ploidy-corrected DESeq2, all protein-coding genes, chr21 highlighted
+#   C  uncorrected, chr21 genes only
+#   D  ploidy-corrected, chr21 genes only
 #
-# All panels are restricted to protein-coding genes (chr21 and the genome-wide
-# background alike), matching RESTRICT_TO_PROTEIN_CODING in scripts 02/04.
-#
-# Panels A and B share axes so the shift is readable directly: before
+# All four panels share axes so the shift is readable directly: before
 # correction the chr21 cloud sits near log2(1.5) = 0.585 and is almost
 # uniformly significant; after correction it recenters on 0 and most of that
 # significance is absorbed, leaving the genes that genuinely deviate from the
-# trisomy expectation. Labelled genes are read from the lane table rather than
-# hardcoded, so the figure cannot drift from the pipeline.
+# trisomy expectation. The bottom row removes the genome-wide background so the
+# chr21 structure is visible on its own. Labelled genes are read from the lane
+# table rather than hardcoded, so the figure cannot drift from the pipeline.
 #
-# Panel C shows only the genes that are NOT classified as expected dosage. The
-# Expected-dosage genes are stated in the subtitle instead of drawn: at ~72% of
-# the total they flatten every other lane into an illegible sliver (this is what the
-# script 05 alluvial does). To use a hand-rendered SankeyMATIC diagram of the
-# full flow instead, render results/tables/chr21_lane_sankeymatic_input.txt at
-# https://sankeymatic.com/build/, save the PNG, and set SANKEY_PNG below.
+# The lane-flow diagram is NOT drawn here: paste
+# results/tables/chr21_lane_sankeymatic_input.txt into
+# https://sankeymatic.com/build/ to render it.
 #
 # Inputs:
 #   - results/tables/deseq2_all_genes_both_analyses.csv (script 01)
 #   - results/tables/chr21_lane_assignments.csv         (script 04)
 # Outputs:
-#   - results/figures/three_panel_summary.pdf
-#   - results/figures/three_panel_summary.png
+#   - results/figures/Chr21_DEG.pdf
+#   - results/figures/Chr21_DEG.png
 
 suppressPackageStartupMessages({
   library(readr)
   library(dplyr)
-  library(tidyr)
   library(ggplot2)
   library(ggrepel)
-  library(ggalluvial)
   library(patchwork)
-  library(png)
-  library(grid)
 })
 
 # ---- constants --------------------------------------------------------------
 ALPHA       <- 0.01         # padj threshold, matches scripts 02/04
 TRISOMY_LFC <- log2(1.5)    # 0.585, the expected chr21 dosage bump
 Y_CAP       <- 60           # -log10(padj) display ceiling; see note below
-SANKEY_PNG  <- NULL         # set to a SankeyMATIC PNG path to use it for panel C
-OUT_STEM    <- "results/figures/three_panel_summary"
+OUT_STEM    <- "results/figures/Chr21_DEG"
 
 # Group labels, ordered high -> low so the legend reads top-down. Every
 # (sig_lane, eqtl_lane) combination the pipeline can produce needs a label
@@ -206,114 +196,52 @@ panel_b <- build_volcano(
   show_trisomy_line = FALSE
 )
 
-# ---- panel C ----------------------------------------------------------------
-n_total    <- nrow(lane)
-n_expected <- sum(lane$sig_lane == "Expected_dosage")
-n_outside  <- n_total - n_expected
+# ---- panels C and D: chr21 only -------------------------------------------
+# Same builder, same axes, but the genome-wide background is removed so the
+# 160 chr21 genes can be read on their own.
+res_chr21 <- res %>% filter(Chr == "chr21")
 
-if (!is.null(SANKEY_PNG) && file.exists(SANKEY_PNG)) {
-  cat(sprintf("Panel C: using SankeyMATIC raster %s\n", SANKEY_PNG))
-  panel_c <- wrap_elements(full = grobTree(
-    rasterGrob(readPNG(SANKEY_PNG), interpolate = TRUE)
-  )) +
-    labs(title = "C  Chr21 gene classification and eQTL support") +
-    theme(plot.title = element_text(face = "bold", size = 10, hjust = 0,
-                                    margin = margin(b = 4)))
-} else {
-  cat("Panel C: drawing alluvial of the genes not classified as expected dosage\n")
+panel_c <- build_volcano(
+  res_chr21, "raw_log2FC", "raw_padj",
+  title    = "C  Uncorrected, chr21 only",
+  subtitle = sprintf("%d protein-coding chr21 genes; dotted = 1.5x expectation",
+                     nrow(res_chr21)),
+  show_trisomy_line = TRUE
+)
 
-  pretty_eqtl <- c(cis_eqtl      = "cis-eQTL\ndetected",
-                   no_cis_eqtl   = "eQTL-tested,\nnone detected",
-                   no_GTEx_data  = "No GTEx\neQTL data",
-                   not_evaluated = "Not evaluated")
-
-  flow <- lane %>%
-    filter(sig_lane != "Expected_dosage") %>%
-    mutate(
-      Subcategory = recode(sig_lane,
-                           DE_high              = "DE high\n(corrected log2FC >= +0.585)",
-                           DE_low               = "DE low\n(corrected log2FC <= -0.585)",
-                           High_repeats         = "High repeats",
-                           Low_expression       = "Low expression",
-                           Not_DE_outside_noise = "Not DE"),
-      Outcome = unname(pretty_eqtl[eqtl_lane])
-    ) %>%
-    count(Subcategory, Outcome, name = "n")
-
-  # Order strata by size so the DE lanes, the point of the panel, sit on top.
-  sub_levels <- flow %>% group_by(Subcategory) %>% summarise(t = sum(n)) %>%
-    arrange(desc(t)) %>% pull(Subcategory)
-  out_levels <- flow %>% group_by(Outcome) %>% summarise(t = sum(n)) %>%
-    arrange(desc(t)) %>% pull(Outcome)
-
-  flow <- flow %>%
-    mutate(Subcategory = factor(Subcategory, levels = rev(sub_levels)),
-           Outcome     = factor(Outcome,     levels = rev(out_levels)))
-
-  panel_c <- ggplot(flow,
-                    aes(axis1 = Subcategory, axis2 = Outcome, y = n)) +
-    geom_alluvium(aes(fill = Subcategory), width = 0.28, alpha = 0.75,
-                  colour = NA) +
-    geom_stratum(width = 0.28, fill = "grey96", colour = "grey40",
-                 linewidth = 0.3) +
-    # Strata of 1-3 genes are too thin to hold text without colliding with
-    # their neighbours, so label those outside the stratum with a leader line
-    # and keep in-stratum text for the rest.
-    geom_text(stat = "stratum", min.y = 4,
-              aes(label = sprintf("%s\n(%d)", after_stat(stratum),
-                                  after_stat(count))),
-              size = 2.3, lineheight = 0.9) +
-    geom_text_repel(stat = "stratum", max.y = 4,
-                    aes(label = sprintf("%s (%d)", after_stat(stratum),
-                                        after_stat(count))),
-                    size = 2.2, direction = "y", nudge_x = 0.35,
-                    segment.size = 0.2, segment.colour = "grey50",
-                    min.segment.length = 0, box.padding = 0.15, seed = 1) +
-    scale_x_discrete(limits = c("Sub-category", "eQTL outcome"),
-                     expand = c(0.16, 0.16)) +
-    scale_fill_brewer(palette = "Set2", guide = "none") +
-    labs(
-      title = "C  Fate of the chr21 genes not classified as expected dosage",
-      subtitle = sprintf(
-        paste0("%d of %d chr21 protein-coding genes are not classified as ",
-               "expected dosage (repeat- or low-expression-flagged, or ",
-               "|ploidy-corrected log2FC| >= log2(1.5)). The other %d follow ",
-               "the dosage expectation and are not shown."),
-        n_outside, n_total, n_expected),
-      y = "Number of genes", x = NULL) +
-    theme_bw(base_size = 9) +
-    theme(
-      panel.grid.major.x = element_blank(),
-      panel.grid.minor   = element_blank(),
-      plot.title         = element_text(face = "bold", size = 10),
-      plot.subtitle      = element_text(size = 7.5, colour = "grey30"),
-      axis.text.x        = element_text(face = "bold", size = 8)
-    )
-}
+panel_d <- build_volcano(
+  res_chr21, "norm_log2FC", "norm_padj",
+  title    = "D  Ploidy-corrected, chr21 only",
+  subtitle = sprintf("%d protein-coding chr21 genes; deviating = %s",
+                     nrow(res_chr21),
+                     paste(sort(lane$Gene_name[lane$sig_lane %in% c("DE_high", "DE_low")]),
+                           collapse = ", ")),
+  show_trisomy_line = FALSE
+)
 
 # ---- assemble ---------------------------------------------------------------
-# One legend, deterministically. patchwork's guides="collect" only merges
-# guides it considers identical, and these two are not: panel B drops MX1
-# (no corrected padj), so its colour guide is built from different data and
-# both legends get drawn. Rather than rely on the merge, strip panel B's
-# legend outright and let the single remaining one land in guide_area().
+# One legend, deterministically: patchwork only merges guides it considers
+# identical, and the four panels build theirs from different data. Keep the
+# legend on panel A only and let guides = "collect" place it in guide_area().
 panel_a <- panel_a + theme(legend.position = "bottom")
-panel_b <- panel_b + theme(legend.position = "none")
+for (nm in c("panel_b", "panel_c", "panel_d")) {
+  assign(nm, get(nm) + theme(legend.position = "none"))
+}
 
 design <- "AB
-CC
-DD"
+CD
+EE"
 
-fig <- panel_a + panel_b + guide_area() + panel_c +
+fig <- panel_a + panel_b + panel_c + panel_d + guide_area() +
   plot_layout(design = design, guides = "collect",
-              heights = c(1, 0.14, 0.88))
+              heights = c(1, 1, 0.14))
 
 cat("Writing figure...\n")
 # Plain pdf() rather than cairo_pdf: cairo is not available on every machine
 # here (no X11), and cairo_pdf fails to write at all when it is missing.
-ggsave(paste0(OUT_STEM, ".pdf"), fig, width = 9.5, height = 10,
+ggsave(paste0(OUT_STEM, ".pdf"), fig, width = 9.5, height = 9.5,
        units = "in", device = "pdf")
-ggsave(paste0(OUT_STEM, ".png"), fig, width = 9.5, height = 10,
+ggsave(paste0(OUT_STEM, ".png"), fig, width = 9.5, height = 9.5,
        units = "in", dpi = 300)
 
 # Confirm both actually landed - a failed graphics device is otherwise silent.
@@ -323,7 +251,7 @@ for (f in paste0(OUT_STEM, c(".pdf", ".png"))) {
 }
 
 writeLines(capture.output(sessionInfo()),
-           "results/figures/three_panel_summary_session_info.txt")
+           "results/figures/Chr21_DEG_session_info.txt")
 cat("Done.\n")
 
 # =============================================================================
@@ -342,3 +270,11 @@ cat("Done.\n")
 #             The panel title, subtitle and header comment likewise described
 #             the retired cohort-noise SD filter and a stale gene count; they
 #             now state the current rule without hardcoded numbers.
+# 2026-09-01  REPLACED panel C (the ggalluvial lane-flow) with two chr21-only
+#             volcano panels (C uncorrected, D ploidy-corrected), making a 2x2
+#             figure. Output renamed three_panel_summary -> Chr21_DEG. The lane
+#             flow is rendered by hand from chr21_lane_sankeymatic_input.txt at
+#             sankeymatic.com instead. Dropped the now-unused ggalluvial, png,
+#             grid and tidyr loads and the SANKEY_PNG switch.
+#             Reason: user request - the SankeyMATIC render is preferred and
+#             the chr21-only view is more legible than the flattened alluvial.

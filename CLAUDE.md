@@ -192,7 +192,7 @@ vectorized per-variant regressions and the gene-level permutation test;
 | **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`, applied by `scripts/lib/lane_rules.R`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`cis_eqtl`/`no_cis_eqtl`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
 | 05_alluvial_lane_assignment | Alluvial flow (Classification -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
 | 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
-| 07_three_panel_figure | Panel A/B: volcano before/after ploidy correction; Panel C: flow of deviating genes to eQTL outcome, labels read from the lane table | `results/figures/three_panel_summary.{pdf,png}` |
+| 07_three_panel_figure | 2x2 volcanoes: A/B all genes before/after ploidy correction, C/D chr21 only; labels read from the lane table. Lane flow rendered separately via SankeyMATIC from chr21_lane_sankeymatic_input.txt | `results/figures/Chr21_DEG.{pdf,png}` |
 
 ### Archived / supplementary (scripts/archive/, do not edit)
 
