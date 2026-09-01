@@ -62,7 +62,7 @@ test_that("NA norm_log2FC is never DE and never errors", {
                norm_padj   = c(1e-30, NA_real_))
   expect_silent(assign_sig_lane(d, ALPHA_T, DEV_T))
   expect_false(any(d$sig_lane %in% c("DE_high", "DE_low")))
-  expect_equal(d$sig_lane, rep("Expected_dosage", 2))
+  expect_equal(d$sig_lane, rep("Not_assessable", 2))
   expect_false(any(d$eligible_idx))
   expect_false(any(is.na(d$passes_magnitude_filter)))
 })

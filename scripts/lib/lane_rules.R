@@ -46,6 +46,10 @@ assign_sig_lane <- function(dt, alpha, deviation_lfc) {
   dt[, sig_lane := data.table::fcase(
     high_repeat == TRUE,                                     "High_repeats",
     low_expr == TRUE,                                        "Low_expression",
+    # A gene whose corrected log2FC is not estimable (e.g. nulled by DESeq2
+    # outlier filtering, as MX1 once was) must not claim Expected_dosage -
+    # that is an affirmative statement the data cannot support.
+    is.na(norm_log2FC),                                      "Not_assessable",
     passes_magnitude_filter == FALSE,                        "Expected_dosage",
     !is.na(norm_padj) & norm_padj < alpha & norm_log2FC < 0, "DE_low",
     !is.na(norm_padj) & norm_padj < alpha & norm_log2FC > 0, "DE_high",

@@ -62,7 +62,7 @@ cat("\nStep 2: Building flow structure...\n")
 # arm here.
 lanes[, level2 := fcase(
   sig_lane == "Expected_dosage",                        "Expected dosage",
-  sig_lane %in% c("High_repeats", "Low_expression"),    "Not assessable",
+  sig_lane %in% c("High_repeats", "Low_expression", "Not_assessable"), "Not assessable",
   default =                                             "Outside dosage expectation")]
 
 # Level 3:
@@ -70,12 +70,13 @@ lanes[, level2 := fcase(
 #   Not assessable:  splits into High repeats / Low expression.
 #   Outside dosage expectation: splits into DE (high) / DE (low) / Not DE.
 lanes[, level3 := fcase(
+  sig_lane == "Not_assessable", "Not estimable",
   sig_lane == "Expected_dosage",
     "Expected dosage",
   sig_lane == "DE_low",
-    "DE (low) [corrected log2FC <= -0.585]",
+    "DE (low) [tier 1 <= -0.585; tier 2 <= -0.415]",
   sig_lane == "DE_high",
-    "DE (high) [corrected log2FC >= +0.585]",
+    "DE (high) [tier 1 >= +0.585; tier 2 >= +0.415]",
   sig_lane == "High_repeats",
     "High repeats",
   sig_lane == "Low_expression",
@@ -131,6 +132,7 @@ flow[, level4 := factor(level4, levels = level4_order)]
 setorder(flow, level2, level3, level4)
 
 fwrite(flow, "results/tables/chr21_lane_alluvial_flow.csv")
+stopifnot(file.exists("results/tables/chr21_lane_alluvial_flow.csv"))
 cat(sprintf("  Wrote flow table (%d rows)\n", nrow(flow)))
 print(flow)
 
@@ -291,6 +293,7 @@ header <- c(
 
 sm_path <- "results/tables/chr21_lane_sankeymatic_input.txt"
 writeLines(c(header, sm_lines, color_lines), sm_path)
+stopifnot(file.exists(sm_path))
 cat(sprintf("  Wrote %s (%d flow lines)\n", sm_path, length(sm_lines)))
 
 # =============================================================================
@@ -307,6 +310,7 @@ print(flow[, .(n_genes = sum(n_genes)), by = level4][order(level4)])
 
 writeLines(capture.output(sessionInfo()),
            "results/figures/chr21_lane_alluvial_session_info.txt")
+stopifnot(file.exists("results/figures/chr21_lane_alluvial_session_info.txt"))
 
 cat("\n=== Alluvial complete ===\n")
 

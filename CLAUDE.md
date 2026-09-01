@@ -408,7 +408,7 @@ Defined at the top of scripts 02, 03, and 04; change once, propagates through:
 
 The pipeline is idempotent: running it from scratch reproduces the same
 outputs. Stages are independent at the file level - if you change script
-04, just re-run 04 -> 05 -> 06 (not 00 -> 03).
+04, just re-run 04 -> 05 -> 06 -> 07 (not 00 -> 03).
 
 Common re-run patterns:
 

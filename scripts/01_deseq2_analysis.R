@@ -518,7 +518,7 @@ writeLines(capture.output(sessionInfo()),
 cat("\nSaved session info to results/tables/deseq2_session_info.txt\n")
 
 cat("\n=== DESeq2 Analysis Complete ===\n")
-cat("Next step: Run 02_categorize_genes.R\n\n")
+cat("Next step: Run scripts/02_filter_genotypes.R\n\n")
 
 # =============================================================================
 # CHANGELOG

@@ -52,7 +52,11 @@ perm_min_p <- function(G, e, n_perm = 1000, seed = 42) {
   See <- matrix(colSums(Ec^2), nrow = nrow(Sge), ncol = n_perm, byrow = TRUE)
   slope <- Sge / Sgg
   se    <- sqrt(((See - Sge^2 / Sgg) / (n - 2)) / Sgg)
-  apply(2 * pt(-abs(slope / se), df = n - 2), 2, min, na.rm = TRUE)
+  P <- 2 * pt(-abs(slope / se), df = n - 2)
+  P[!is.finite(P)] <- NA_real_
+  # A permutation column with no finite p (e.g. a constant expression vector)
+  # must yield NA, not the Inf that min(..., na.rm = TRUE) returns.
+  apply(P, 2, function(x) if (all(is.na(x))) NA_real_ else min(x, na.rm = TRUE))
 }
 
 #' Gene-level permutation p-value. The +1s keep it strictly positive, which

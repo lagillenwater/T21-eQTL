@@ -1,3 +1,10 @@
+> **SUPERSEDED - point-in-time record.** This file captures the comparison
+> against the manuscript abstract as it stood mid-correction (the 1.0
+> cohort-SD filter era, 14 DE genes). The classification rule has since been
+> replaced by Hunter's padj + 1.5-fold rule with a labelled second tier; the
+> current numbers live in `results/tables/hunter_extension_summary.md`. Kept
+> unedited as the record of what changed and why.
+
 # Deviations: abstract claims vs. corrected pipeline
 
 Generated 2026-08-31, after fixing the stale-input bug described at the

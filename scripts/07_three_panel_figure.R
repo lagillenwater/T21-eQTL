@@ -68,10 +68,9 @@ lane <- read_csv("results/tables/chr21_lane_assignments.csv",
 
 res <- res %>% filter(Gene_type == "protein_coding")
 
-# Volcano panels need a padj to place a point on the y-axis. Keep genes with a
-# raw padj even when the corrected padj is NA (MX1) - dropping them silently
-# would hide exactly the case worth showing.
-res <- res %>% filter(!is.na(raw_padj))
+# No global padj filter here: build_volcano() filters on its own padj column
+# per panel, so a gene missing raw_padj but carrying a valid norm_padj still
+# appears in the corrected panels (and vice versa).
 cat(sprintf("  %d protein-coding genes (%d on chr21)\n",
             nrow(res), sum(res$Chr == "chr21")))
 

@@ -256,6 +256,12 @@ perm_res <- rbindlist(lapply(de_genes, function(g) {
   }
   G    <- G_all[, cols, drop = FALSE]
   fits <- fit_variants(G, e)
+  if (!any(is.finite(fits$p))) {
+    # every variant monomorphic/untestable: which.min would return integer(0)
+    # and corrupt the row; emit the explicit all-NA record instead
+    return(data.table(Gene_name = g, n_variants = length(cols), min_p_obs = NA_real_,
+                      best_variant = NA_character_, p_gene_perm = NA_real_))
+  }
   best <- which.min(fits$p)
   data.table(Gene_name = g, n_variants = length(cols),
              min_p_obs = fits$p[best], best_variant = cols[best],
@@ -347,6 +353,7 @@ make_panel <- function(df, title, out_pdf) {
   w <- max(8, ncol * 2.2)
   h <- max(5, nrow_pl * 2.2)
   ggsave(out_pdf, p, width = w, height = h, limitsize = FALSE)
+  stopifnot(file.exists(out_pdf))
   cat(sprintf("  Saved: %s (%d genes, %.1f x %.1f in)\n",
               out_pdf, ng, w, h))
 }
@@ -376,6 +383,7 @@ print(representatives[, .(
 
 writeLines(capture.output(sessionInfo()),
            "results/figures/t21_dosage_boxplots_session_info.txt")
+stopifnot(file.exists("results/figures/t21_dosage_boxplots_session_info.txt"))
 
 cat("\n=== Boxplot script complete ===\n")
 

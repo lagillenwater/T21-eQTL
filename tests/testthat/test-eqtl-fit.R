@@ -95,3 +95,12 @@ test_that("expr_of_gene prefers an explicit subject_id column over the LabID-der
   # present, so they must resolve to NA.
   expect_true(all(is.na(expr_of_gene("GENEA", c("HTP0001", "HTP0002"), counts, meta))))
 })
+
+test_that("perm_min_p returns NA, not Inf, for a constant expression vector", {
+  set.seed(16)
+  G <- matrix(rbinom(400, 3, 0.3), ncol = 4)
+  mp <- perm_min_p(G, rep(5, 100), n_perm = 20, seed = 2)
+  expect_true(all(is.na(mp)))
+  expect_false(any(is.infinite(mp)))
+  expect_equal(gene_level_p(0.01, mp), 1)   # empty null -> (1+0)/(0+1)
+})

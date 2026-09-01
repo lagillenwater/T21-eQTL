@@ -352,6 +352,7 @@ cat("(Expect Control max <= 2; T21 max <= 3 on chr21)\n")
 
 writeLines(capture.output(sessionInfo()),
            "data/processed/genotype_filter_session_info.txt")
+stopifnot(file.exists("data/processed/genotype_filter_session_info.txt"))
 
 stopifnot(
   file.exists("data/processed/eqtl_supported_genes.csv"),

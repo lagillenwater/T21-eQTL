@@ -193,7 +193,7 @@ p_lane <- ggplot(lanes_de,
                       "Genes <1 SD are within typical cohort variation; ",
                       "|z| > 2 sit clearly outside it."),
     x        = NULL,
-    y        = expression("|norm log2FC| / cohort-noise SD"),
+    y        = "|robust z| (chr21 median/MAD units)",
     color    = NULL
   ) +
   theme_bw(base_size = 11) +
@@ -239,6 +239,7 @@ print(lanes_de[, .(n_total = .N,
 
 writeLines(capture.output(sessionInfo()),
            "results/figures/chr21_vs_genome_distribution_session_info.txt")
+stopifnot(file.exists("results/figures/chr21_vs_genome_distribution_session_info.txt"))
 
 cat("\n=== Distribution panel complete ===\n")
 

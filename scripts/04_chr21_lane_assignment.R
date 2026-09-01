@@ -430,6 +430,7 @@ print(m[Gene_name %in% c("APP", "COL18A1", "OLIG2", "BACE2", "MX1", "CSTB"),
 
 writeLines(capture.output(sessionInfo()),
            "results/tables/chr21_lane_assignment_session_info.txt")
+stopifnot(file.exists("results/tables/chr21_lane_assignment_session_info.txt"))
 
 stopifnot(
   file.exists("results/tables/chr21_lane_assignments.csv"),
