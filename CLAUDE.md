@@ -33,10 +33,12 @@ Rscript install_packages.R                        # one-time package install
 
 Rscript scripts/00_preprocess_data.R              # long -> wide count matrix
 Rscript scripts/01_deseq2_analysis.R              # trisomy-aware DESeq2
-Rscript scripts/02_filter_genotypes.R             # gene + variant + genotype universe
-Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 per-variant fits
-Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table + SankeyMATIC export
-Rscript scripts/05_chr21_distribution_panel.R     # chr21 vs genome distributions
+Rscript scripts/02_filter_genotypes.R             # deviating-gene selection (Hunter's padj + 1.5-fold rule) + genotype universe
+Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 per-variant fits + gene-level eQTL permutation test
+Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table + composition control + SankeyMATIC export
+Rscript scripts/05_alluvial_lane_assignment.R     # alluvial flow figure + SankeyMATIC export
+Rscript scripts/06_chr21_distribution_panel.R     # chr21 vs genome distributions
+Rscript scripts/07_three_panel_figure.R           # 3-panel summary figure
 ```
 
 
@@ -171,19 +173,25 @@ filename above.
 
 ## Pipeline
 
-The production pipeline is the 00-05 chain in `scripts/`.
+The production pipeline is the 00-07 chain in `scripts/`, backed by shared
+helpers in `scripts/lib/` (`cohort.R` - analysis-cohort definition;
+`chr21_threshold.R` - chr21-internal robust outlier test, annotation only;
+`composition.R` - co-expression composition control; `eqtl_fit.R` -
+vectorized per-variant regressions and the gene-level permutation test;
+`table1.R` - cohort-characteristics table helpers).
 
-### Production pipeline (scripts/00-05)
+### Production pipeline (scripts/00-07)
 
 | Script | Purpose | Output |
 |---|---|---|
 | 00_preprocess_data | Long -> wide gene x sample matrix; match metadata | `data/processed/count_matrix.csv`, `sample_metadata.csv`, `gene_annotations.csv` |
-| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_chr21_combined.csv`, `deseq2_all_genes_ploidy_normalized.csv`, QC PDFs |
-| 02_filter_genotypes | Apply magnitude filter to gene set (1.0 cohort-SD threshold), restrict to protein-coding, pull GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
-| 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv` |
-| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Cohort-noise filter is the first split; survivors get DE_low/DE_high/High_repeats/Low_expression/Not_DE classification; DE genes get eQTL-supported / eQTL-tested-not-supported / no_GTEx_data terminal | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv` |
+| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_chr21_combined.csv`, `deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, QC PDFs |
+| 02_filter_genotypes | Select deviating chr21 genes by Hunter et al.'s rule (`norm_padj < ALPHA_DE` AND `abs(norm_log2FC) >= DEVIATION_LFC`), restrict to protein-coding, compute the chr21-internal FDR-outlier annotation (`dev_z`, `q_outlier`, via `scripts/lib/chr21_threshold.R`), pull GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
+| 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); negative controls (direction-flip, genotype-permutation) on the retired any-variant rule | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv`, `eqtl_gene_level_perm.csv`, `eqtl_negative_controls.csv` |
+| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`: `Expected_dosage`/`High_repeats`/`Low_expression`/`DE_low`/`DE_high`); deviating genes get a composition control (`scripts/lib/composition.R`, PROGRAM/MIXED/GENE-SPECIFIC verdict) and an `eqtl_lane` terminal from the gene-level permutation test (`explained`/`unexplained`/`no_GTEx_data`) | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
 | 05_alluvial_lane_assignment | Alluvial flow (Cohort filter -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
 | 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
+| 07_three_panel_figure | Panel A/B: volcano before/after ploidy correction; Panel C: flow of deviating genes to eQTL outcome, labels read from the lane table | `results/figures/three_panel_summary.{pdf,png}` |
 
 ### Archived / supplementary (scripts/archive/, do not edit)
 
@@ -234,25 +242,41 @@ Fixes (script 01):
 After ploidy normalization, the appropriate null on chr21 is back to `FC = 1`,
 so DESeq2's standard p-value testing applies cleanly.
 
-### Cohort-noise (within-cohort SD) filter
+### Hunter's classification rule
 
-The paper's family-of-4 dataset got an effective magnitude filter for free
-(small `n` -> big lfcSE -> only large effects survive `padj < 0.01`). At our
-n = 304 + 95, padj catches arbitrarily small deviations as significant -
-including ones smaller than typical cohort variation.
+The current classification rule matches Hunter et al.'s own criterion
+directly, rather than a cohort-derived noise threshold: a chr21 gene
+deviates if `norm_padj < ALPHA_DE` (0.01) AND `abs(norm_log2FC) >=
+DEVIATION_LFC` (`log2(1.5)`, their FC >= 1.5 cut, applied on the
+ploidy-corrected scale). This is the sole gate on `sig_lane` /
+`passes_magnitude_filter` in scripts 02 and 04.
 
-The filter (constant `MAGNITUDE_THRESHOLD = 1.0` in scripts 02 and 04):
+A chr21-internal FDR-controlled robust outlier test (`scripts/lib/
+chr21_threshold.R`: median/MAD null estimated from expressed, non-repeat
+chr21 genes, BH-FDR on the robust z-score) is computed alongside and
+written as annotation columns `dev_z` / `q_outlier` (plus
+`chr21_k_sensitivity.csv`), but does not gate classification. Ploidy
+normalization only acts on chr21 genes, so a non-chr21 cohort-noise SD is
+not a valid reference for this null; retiring the cohort-SD filter removed
+that mismatch.
 
-1. From `deseq2_all_genes_ploidy_normalized.csv`, take all non-chr21
-   protein-coding genes. After ploidy correction these are expected to
-   center near `log2FC = 0`; their SD is the cohort-noise yardstick
-   (currently `0.40` in log2 units).
-2. For each chr21 gene, compute `|norm_log2FC| / cohort_sd`.
-3. Genes with ratio < 1.0 are categorized as **Expected dosage** before any
-   eQTL evaluation - their statistically significant deviations are within
-   typical genome-wide cohort variation, so no eQTL story is sought.
-4. Genes with ratio >= 1.0 (currently 41 of 160 protein-coding chr21 genes)
-   proceed to further categorization.
+### Composition control
+
+`scripts/lib/composition.R`, run in script 04 for every deviating gene.
+A chr21 gene can appear to deviate because the blood cell population that
+expresses it shifted in T21, not because of a regulatory effect on the
+gene itself - a composition shift moves a whole co-expression program, not
+one gene. For each deviating gene: find its 20 most-correlated non-chr21
+partners (correlated in controls only, so the karyotype effect cannot leak
+into the neighborhood definition), take their median T21-vs-Control
+log2FC (`partner_lfc`), and compare against a null of `n_draw` random
+`n_partners`-gene sets to get `p_partners`. Verdict: **PROGRAM** if
+`p_partners < 0.05` and `partner_lfc / gene_lfc >= 0.5`; **MIXED** if
+`p_partners < 0.05` only; else **GENE-SPECIFIC**. Written to
+`results/tables/chr21_composition_control.csv`
+(`Gene_name, gene_lfc, partner_lfc, p_partners, program_share,
+residual_lfc, verdict`), with `residual_lfc = gene_lfc - partner_lfc`
+merged back into `chr21_lane_assignments.csv`.
 
 ### Lane assignment
 
@@ -260,43 +284,53 @@ The filter (constant `MAGNITUDE_THRESHOLD = 1.0` in scripts 02 and 04):
 the canonical per-gene table. Each row has:
 
 - DESeq2 stats: `baseMean`, `raw_log2FC`, `raw_FC`, `norm_log2FC`, `norm_padj`.
-- Magnitude annotation: `deviation_magnitude`, `deviation_vs_cohort_sd`,
-  `passes_magnitude_filter`.
+- Magnitude annotation: `deviation_magnitude`, `passes_magnitude_filter`
+  (Hunter's rule), plus the annotation-only outlier columns `dev_z`,
+  `q_outlier`.
 - Categorization flags: `low_expr`, `high_repeat`.
-- **`sig_lane`**: one of `Expected_dosage` (cohort-noise filter failure),
+- **`sig_lane`**: one of `Expected_dosage` (fails Hunter's rule),
   `High_repeats`, `Low_expression`, `DE_low`, `DE_high`, `Not_DE_outside_noise`.
-- **`eqtl_lane`**: one of `not_evaluated` (non-DE), `explained` (>=1 cis
-  variant matches deviation direction in GTEx AND reproduces in T21 at
-  `t21_p < 0.05`), `unexplained`, `no_GTEx_data`.
-- Locus-level eQTL aggregation: `n_cis_total`, `n_dir_match`,
-  `n_supp_with_repro`.
-- Three representative-variant choices for downstream visualization:
-  `strongest_supp_variant` (T21-reproducible direction match),
-  `strongest_dir_variant` (best GTEx direction-match candidate, used when
-  `strongest_supp_variant` is missing), `strongest_overall_variant`
-  (smallest GTEx pval regardless of direction).
+- Composition control: `verdict` (PROGRAM/MIXED/GENE-SPECIFIC), `residual_lfc`.
+- **`eqtl_lane`**: one of `not_evaluated` (non-deviating), `explained`
+  (gene-level permutation `q_gene_bh < FDR_GENE`), `unexplained`,
+  `no_GTEx_data`.
+- Gene-level permutation result: `p_gene_perm`, `q_gene_bh`,
+  `explained_perm`, `best_variant`.
+- Locus-level eQTL aggregation (retained for context, not the
+  classification rule): `n_cis_total`, `n_dir_match`, `n_supp_with_repro`.
+- Representative-variant choices for downstream visualization:
+  `strongest_supp_variant`, `strongest_dir_variant`,
+  `strongest_overall_variant`.
 
-### eQTL "supported" definition
+### eQTL detection: gene-level permutation test
 
-A cis variant counts as supportive of a gene's deviation if both:
-1. `sign(GTEx_slope) == sign(norm_log2FC)` (the eQTL points the same way as
-   the observed deviation - paper's directional explanation criterion).
-2. `sign(within_T21_slope) == sign(GTEx_slope)` AND `within_T21_p < 0.05`
-   (the eQTL reproduces in our T21 cohort at nominal significance, not just
-   directional concordance).
-
-A gene is `eqtl_lane = explained` if at least one cis variant in its GTEx
-allpairs window satisfies both criteria.
+The locus-level "any cis variant matches direction and reproduces in T21"
+rule (script 03's `strongest_supp_variant` logic) is retained as context
+but is **not** the classification rule: `results/tables/
+eqtl_negative_controls.csv` shows it returns 100% "explained" even when
+the observed deviation direction is artificially flipped, so it does not
+discriminate real signal from chance. The classification rule is a
+gene-level permutation test (`scripts/lib/eqtl_fit.R`, run in script 03):
+for each deviating gene, the best-variant test statistic is compared
+against its null distribution under permutation of genotype-to-expression
+assignment, giving `p_gene_perm`; BH-adjusted across deviating genes to
+`q_gene_bh`. `eqtl_lane = explained` when `q_gene_bh < FDR_GENE` (0.05).
 
 ### Constants worth knowing
 
-Defined at the top of scripts 02 and 04; change once, propagates through:
+Defined at the top of scripts 02, 03, and 04; change once, propagates through:
 
-- `ALPHA = 0.01` - paper's padj threshold (Fig. 2B, 3B).
+- `ALPHA_DE = 0.01` - paper's padj threshold (Fig. 2B, 3B).
+- `DEVIATION_LFC = log2(1.5)` - Hunter's FC >= 1.5 cut on the
+  ploidy-corrected scale; the sole classification threshold. The one dial
+  in this analysis - see `docs/REPO_STATE.md` decision log.
 - `ALPHA_REPRO = 0.05` - within-T21 nominal p for a cis variant to count as
-  reproducible.
-- `MAGNITUDE_THRESHOLD = 1.0` - cohort-noise SD threshold for the magnitude
-  filter.
+  reproducible (locus-level context column, not the classification rule).
+- `FDR_GENE = 0.05` - BH threshold on `q_gene_bh` for `explained_perm`.
+- `OUTLIER_FDR = 0.10` - FDR threshold for the chr21-internal outlier
+  annotation (`dev_z`/`q_outlier`); **annotation only, retired from
+  classification** (was `MAGNITUDE_THRESHOLD` in an earlier cohort-SD
+  filter, also retired).
 - `LOW_EXPR_QUANT = 0.20` - baseMean q20 (paper's "second quintile") low-
   expression filter.
 - `GTEX_PVAL_KEEP = 1e-4` - nominal cis-eQTL pval cutoff in allpairs
