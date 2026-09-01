@@ -1,5 +1,4 @@
 library(data.table)
-source(file.path("..", "..", "scripts", "lib", "lane_rules.R"))
 
 ALPHA_T <- 0.01
 DEV_T   <- log2(1.5)   # 0.5849625

@@ -1,4 +1,3 @@
-source(file.path("..", "..", "scripts", "lib", "chr21_threshold.R"))
 
 test_that("chr21_null returns median and scaled MAD", {
   set.seed(1)

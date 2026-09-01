@@ -1,0 +1,61 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+  path_filters:
+    - "!scripts/archive/**"
+    - "!results/**"
+    - "!data/**"
+    - "!figures/**"
+    - "!docs/superpowers/**"
+    - "!**/*.csv"
+    - "!**/*.parquet"
+    - "!**/*.pdf"
+    - "!**/*.png"
+  path_instructions:
+    - path: "scripts/lib/**"
+      instructions: >
+        Shared statistical library behind the analysis (robust thresholds,
+        permutation nulls, composition control, lane classification). Apply
+        strict scrutiny to correctness: joins between ID spaces (RecordID vs
+        subject_id vs LabID have burned this repo before), signed vs
+        magnitude quantities (a column that changed from |x| to signed x
+        silently zeroed downstream tallies), fcase/case_when branch ORDER
+        (a reordering once made three lanes unreachable), permutation nulls
+        that must match the correlation structure of the observed statistic,
+        BH-FDR applied over the correct family, and empirical p-values that
+        must never be exactly 0.
+    - path: "scripts/**"
+      instructions: >
+        Numbered pipeline scripts, run in order 00-07 on ~15 GB of local
+        data that CI cannot see. Favor correctness and reproducibility:
+        fixed seeds, documented inputs/outputs, output-existence checks
+        after writes, and CHANGELOG blocks at the end of each script. Two
+        repo rules to enforce: label-do-not-filter (low_expr/high_repeat
+        flags mark genes; nothing may drop rows from
+        chr21_lane_assignments.csv), and any file named as an input must
+        actually be written by some script (a stale filename in a header
+        caused a real bug here). Do not flag lack of abstraction in these
+        scripts - shared logic belongs in scripts/lib, the rest is expected
+        to be linear.
+    - path: "tests/**"
+      instructions: >
+        Check that tests assert real values or behavior, not just "runs
+        without error", and that fixtures exercise the branch production
+        takes (a test here once keyed on the wrong ID space, matching the
+        bug and hiding it). Flag oracles that reuse the same base function
+        as the implementation, and exact-count assertions on random draws
+        that only hold for a hand-picked seed.
+
+chat:
+  auto_reply: true

@@ -1,4 +1,3 @@
-source(file.path("..", "..", "scripts", "lib", "cohort.R"))
 
 test_that("subject_id_from_labid strips the trailing visit suffix", {
   expect_equal(subject_id_from_labid(c("HTP0001A", "HTP0002B2", "HTP0003")),

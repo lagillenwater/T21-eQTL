@@ -1,4 +1,3 @@
-source(file.path("..", "..", "scripts", "lib", "composition.R"))
 
 # Builds a partner pool in which the first `n_block` genes form a tight
 # co-expression module with the (external) target gene and all shift by

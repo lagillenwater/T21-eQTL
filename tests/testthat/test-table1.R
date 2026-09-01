@@ -1,4 +1,3 @@
-source(file.path("..", "..", "scripts", "lib", "table1.R"))
 
 test_that("summarize_continuous formats median and IQR", {
   expect_equal(summarize_continuous(c(1,2,3,4,5,6,7,8,9,10), digits = 1), "5.5 [3.2-7.8]")

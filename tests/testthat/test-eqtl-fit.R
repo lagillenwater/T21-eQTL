@@ -1,4 +1,3 @@
-source(file.path("..", "..", "scripts", "lib", "eqtl_fit.R"))
 
 test_that("fit_variants matches lm() for a single variant", {
   set.seed(10)
