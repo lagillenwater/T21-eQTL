@@ -19,6 +19,7 @@ lanes <- read.csv(here("results/tables/chr21_lane_assignments.csv"))
 dev   <- lanes %>% filter(sig_lane %in% c("DE_high", "DE_low"))
 
 n_total    <- nrow(lanes)
+bm_cut     <- quantile(lanes$baseMean, 0.20, na.rm = TRUE)  # script 04's low-expression cutoff
 n_expected <- sum(lanes$sig_lane == "Expected_dosage")
 n_repeat   <- sum(lanes$sig_lane == "High_repeats")
 n_lowexpr  <- sum(lanes$sig_lane == "Low_expression")
@@ -50,11 +51,13 @@ its history: `README.md` and `docs/decisions.md`.
 
 Of the **`r n_total`** chr21 protein-coding genes classified:
 **`r n_expected`** are Expected dosage, **`r n_repeat`** are flagged as high repeats and
-**`r n_lowexpr`** low-expression (depth < 30), and
+**`r n_lowexpr`** low-expression (baseMean below the chr21 20th percentile,
+`r round(bm_cut, 1)` here), and
 **`r n_dev`** deviate (**`r n_high`** DE_high, **`r n_low`** DE_low;
-**`r n_tier1`** (padj <.05 and FC >= 1.5), **`r n_tier2`** 
-near-threshold padj < .05 and  1.35 <= FC < 1.5). Of the deviating genes, **`r n_cis`** have a
-detectable GTEX cis-eQTL, **`r n_nocis`** do not have a GTEX eQTL, and **`r n_nogtex`** have no GTEx cis coverage.
+**`r n_tier1`** tier 1 (padj < 0.01 and FC >= 1.5), **`r n_tier2`** tier 2,
+near-threshold (padj < 0.01 and 4/3 <= FC < 1.5)). Of the deviating genes,
+**`r n_cis`** have a detectable GTEx whole-blood cis-eQTL, **`r n_nocis`**
+were tested and have none, and **`r n_nogtex`** have no GTEx cis coverage.
 
 ```{r lane-table}
 lanes %>%
@@ -83,11 +86,11 @@ dev %>%
     residual_lfc = round(residual_lfc, 2)
   ) %>%
   arrange(lane, desc(abs(log2FC))) %>%
-  kable(caption = "Ploidy-corrected stats, gene-level permutation q, and composition-control verdict. 
-  composition = the verdict based on the gene's expression pattern and its relationship to control genes.
-    PROGRAM if p < 0.05 and partner_lfc / gene_lfc >= 0.5;
-   MIXED if p < 0.05; 
-   else GENE-SPECIFIC if p >= 0.05 and partner_lfc / gene_lfc < 0.5.
+  kable(caption = "Ploidy-corrected stats, gene-level permutation q, and composition-control verdict.
+  composition = verdict from the partner-shift test (p = p_partners):
+   PROGRAM if p < 0.05 and partner_lfc / gene_lfc >= 0.5;
+   MIXED if p < 0.05 otherwise;
+   GENE-SPECIFIC for every other case (unconditional fallback).
   residual_lfc = gene log2FC minus the median log2FC of its 20 control-defined co-expression partners.")
 ```
 
@@ -104,27 +107,25 @@ establish compensation):
 
 ## Figures
 
-Linked from `results/figures/` (not tracked; run the pipeline to
-regenerate them locally).
-
-
+Copies of the pipeline figures, tracked under `docs/figures/`. To refresh
+them, re-run scripts 06 and 07 (and re-export the lane flow from
+SankeyMATIC using `results/tables/chr21_lane_sankeymatic_input.txt`), copy
+the PNGs into `docs/figures/`, and re-render this document.
 
 ### chr21 vs baseMean-matched non-chr21 ploidy-corrected log2FC distributions, with the per-lane magnitude scatter (script 06):
 
-```{r fig-dist, out.width="100%"}
+```{r fig-dist, out.width="100%", fig.alt="Three-panel figure. Top left: overlaid density curves of ploidy-corrected log2 fold change for chr21 protein-coding genes and for baseMean-matched non-chr21 genes; the two curves largely coincide and centre on zero. Top right: the corresponding empirical cumulative distributions. Bottom: per-gene absolute robust z against the chr21 median/MAD null for the DE_high and DE_low genes, grouped by eQTL terminal (cis-eQTL detected, eQTL-tested with none detected, no GTEx eQTL data), with dashed reference lines at 1 and 2."}
 include_graphics("./figures/chr21_vs_genome_distribution.png")
 ```
 
-
-
 ### Volcano summary panel, all-genes before/after ploidy correction and chr21-only (script 07):
 
-```{r fig-volcano, out.width="100%"}
+```{r fig-volcano, out.width="100%", fig.alt="Four volcano plots of log2 fold change (T21 vs Control) against minus log10 adjusted p-value. Panel A: all genes uncorrected, with chr21 genes shifted right around the 1.5-fold expectation. Panel B: all genes after ploidy correction, with chr21 genes centred on zero. Panels C and D repeat this for the chr21 protein-coding genes only. Deviating genes are labelled and coloured by direction and eQTL terminal, with tier 1 genes in bold."}
 include_graphics("./figures/Chr21_DEG.png")
 ```
 
-### Sankey plot generated with Sankeymatic
+### Sankey plot generated with SankeyMATIC
 
-```{r}
+```{r fig-sankey, out.width="100%", fig.alt="Sankey diagram of the chr21 protein-coding genes. From the full set, flows split into Expected dosage, Not assessable (which divides into High repeats and Low expression), and Outside dosage expectation. The last divides into DE high and DE low, which then terminate at cis eQTL, no GTEx QTL, or no cis eQTL. Node labels carry the gene counts."}
 include_graphics("./figures/Sankey.png")
 ```

@@ -217,6 +217,8 @@ ggsave("results/figures/chr21_vs_genome_distribution.pdf", panel,
        width = 13, height = 9, bg = "white")
 ggsave("results/figures/chr21_vs_genome_distribution.png", panel,
        width = 13, height = 9, dpi = 150, bg = "white")
+stopifnot(file.exists("results/figures/chr21_vs_genome_distribution.pdf"),
+          file.exists("results/figures/chr21_vs_genome_distribution.png"))
 cat("  Saved chr21_vs_genome_distribution.{pdf,png}\n")
 
 # =============================================================================
@@ -254,3 +256,7 @@ cat("\n=== Distribution panel complete ===\n")
 #             to robust-z units. This script was omitted from the branch's
 #             full-chain check, which is how the break survived review.
 #             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-09-01  ADDED existence checks for both figure files directly after the
+#             ggsave() calls; previously only the session-info file was
+#             verified (CodeRabbit review, PR #3).

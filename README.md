@@ -6,8 +6,11 @@ to the Human Trisome Project (HTP): 304 T21 + 95 Control whole-blood RNA-seq
 samples, 302 of the T21 subjects with paired chr21 genotypes.
 
 **Question.** Of the chromosome 21 protein-coding genes that show ploidy-
-corrected expression deviations in T21 vs Control, how many can be explained
-by common cis-acting allelic variation (eQTLs in GTEx whole blood)?
+corrected expression deviations in T21 vs Control, how many carry a
+detectable common cis-eQTL in GTEx whole blood (gene-level permutation
+test), and how many do not and so remain open as candidates for regulatory
+dosage compensation? A cis-eQTL call is a detection result; it does not by
+itself establish that the eQTL accounts for the deviation.
 
 ## Quick start
 
@@ -27,9 +30,11 @@ Rscript scripts/07_three_panel_figure.R           # volcano summary panel
 ```
 
 Total runtime end-to-end on a laptop: ~30 minutes, dominated by 02 (genotype
-streaming) and 03 (per-variant within-T21 regressions). Script 04 also
-emits the SankeyMATIC text input - paste into https://sankeymatic.com/build/
-to render the lane-flow diagram (instructions in the script's header).
+streaming) and 03 (per-variant within-T21 regressions). Script 05 also
+emits the SankeyMATIC text input
+(`results/tables/chr21_lane_sankeymatic_input.txt`); paste it into
+https://sankeymatic.com/build/
+to render the lane-flow diagram.
 
 ## Installation
 
@@ -45,20 +50,23 @@ Installs CRAN + Bioconductor packages, writes
 ### Method 2: Manual
 
 ```r
-install.packages(c(
-  "tidyverse", "data.table", "ggplot2", "ggrepel",
-  "ggalluvial", "patchwork", "RColorBrewer", "viridis",
-  "here", "arrow"
-))
+pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
+          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "here", "arrow")
+install.packages(pkgs)
 if (!require("BiocManager")) install.packages("BiocManager")
 BiocManager::install("DESeq2")
 ```
 
 ### Verification
 
+Checks every package from the manual block plus DESeq2:
+
 ```r
-for (p in c("tidyverse", "data.table", "DESeq2", "ggalluvial",
-            "patchwork", "arrow")) {
+pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
+          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "here", "arrow", "DESeq2")
+for (p in pkgs) {
   ok <- requireNamespace(p, quietly = TRUE)
   cat(sprintf("%-15s %s\n", p, if (ok) "OK" else "FAILED"))
 }
@@ -69,7 +77,7 @@ ggalluvial 0.12; arrow 17.
 
 ## Repository layout
 
-```
+```text
 T21-eQTL/
   README.md                  # this file (canonical doc)
   install_packages.R
@@ -133,10 +141,24 @@ gene, regardless of significance). Filename:
 Script 02 applies `pval_nominal <= 1e-4` to keep the variant universe
 manageable.
 
-To re-download the chr21 allpairs, run `bash download_gtex.sh` from the
-repo root. It fetches the genome-wide Whole_Blood allpairs file from GTEx
-v10 and uses python + pyarrow to write the chr21-only parquet under the
-filename above.
+GTEx distributes the v10 all-associations results per tissue and per
+chromosome as parquet files in a requester-pays Google Cloud bucket
+(`gs://gtex-resources/GTEx_Analysis_v10_QTLs/GTEx_Analysis_v10_eQTL_all_associations/`;
+see https://gtexportal.org/home/downloads/adult-gtex/qtl). The chr21
+whole-blood file is used exactly as distributed: no conversion step, and
+no python or pyarrow, is involved. To re-download it, run from the repo
+root
+
+```bash
+GCP_BILLING_PROJECT=<your-gcp-project> bash download_gtex.sh
+```
+
+which copies `Whole_Blood.v10.allpairs.chr21.parquet` to the filename
+above with `gcloud storage cp` (or `gsutil cp`), billing the egress to the
+named project, then checks that the file opens with `arrow` and carries
+the columns script 02 reads (`gene_id`, `variant_id`, `pval_nominal`).
+Without the Google Cloud SDK the script prints the object path for a
+manual download and exits non-zero.
 
 ## Pipeline
 

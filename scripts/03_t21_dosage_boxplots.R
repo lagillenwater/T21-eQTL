@@ -330,7 +330,15 @@ plot_df <- merge(plot_df, panel_labels[, .(ensembl_stable, facet_lab)],
 
 make_panel <- function(df, title, out_pdf) {
   if (nrow(df) == 0) {
-    cat(sprintf("  No genes for '%s' - skipping.\n", title))
+    # No panel this run: remove any PDF left at the declared output path by
+    # an earlier run, so a stale figure cannot pass as current output.
+    if (file.exists(out_pdf)) {
+      file.remove(out_pdf)
+      cat(sprintf("  No genes for '%s' - removed stale %s.\n", title, out_pdf))
+    } else {
+      cat(sprintf("  No genes for '%s' - skipping.\n", title))
+    }
+    stopifnot(!file.exists(out_pdf))
     return(invisible())
   }
   ng <- uniqueN(df$Gene_name)
@@ -437,3 +445,8 @@ cat("\n=== Boxplot script complete ===\n")
 #             does not make. The column still means the same thing (gene-
 #             level permutation q_gene_bh < FDR_GENE) under a name that
 #             doesn't overclaim.
+#
+# 2026-09-01  CHANGED make_panel(): an empty gene set now removes any PDF
+#             already at the declared output path instead of returning
+#             silently, so an earlier run's panel cannot survive as a stale
+#             output (CodeRabbit review, PR #3).
