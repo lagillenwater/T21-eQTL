@@ -54,8 +54,10 @@ Of the **`r n_total`** chr21 protein-coding genes classified:
 **`r n_lowexpr`** low-expression (baseMean below the chr21 20th percentile,
 `r round(bm_cut, 1)` here), and
 **`r n_dev`** deviate (**`r n_high`** DE_high, **`r n_low`** DE_low;
-**`r n_tier1`** tier 1 (padj < 0.01 and FC >= 1.5), **`r n_tier2`** tier 2,
-near-threshold (padj < 0.01 and 4/3 <= FC < 1.5)). Of the deviating genes,
+**`r n_tier1`** tier 1 (padj < 0.01 and |corrected log2FC| >= log2(1.5), a
+fold-change magnitude of 1.5 in either direction), **`r n_tier2`** tier 2,
+near-threshold (padj < 0.01 and log2(4/3) <= |corrected log2FC| <
+log2(1.5))). Of the deviating genes,
 **`r n_cis`** have a detectable GTEx whole-blood cis-eQTL, **`r n_nocis`**
 were tested and have none, and **`r n_nogtex`** have no GTEx cis coverage.
 
@@ -114,7 +116,7 @@ the PNGs into `docs/figures/`, and re-render this document.
 
 ### chr21 vs baseMean-matched non-chr21 ploidy-corrected log2FC distributions, with the per-lane magnitude scatter (script 06):
 
-```{r fig-dist, out.width="100%", fig.alt="Three-panel figure. Top left: overlaid density curves of ploidy-corrected log2 fold change for chr21 protein-coding genes and for baseMean-matched non-chr21 genes; the two curves largely coincide and centre on zero. Top right: the corresponding empirical cumulative distributions. Bottom: per-gene absolute robust z against the chr21 median/MAD null for the DE_high and DE_low genes, grouped by eQTL terminal (cis-eQTL detected, eQTL-tested with none detected, no GTEx eQTL data), with dashed reference lines at 1 and 2."}
+```{r fig-dist, out.width="100%", fig.alt="Three-panel figure. Top left: overlaid density curves of ploidy-corrected log2 fold change for chr21 protein-coding genes and for baseMean-matched non-chr21 genes; the two curves largely coincide and centre on zero. Top right: the corresponding empirical cumulative distributions. Bottom: per-gene absolute robust z against the chr21 median/MAD null for the DE_high and DE_low genes, grouped by eQTL terminal (cis-eQTL detected, eQTL-tested with none detected, no GTEx cis-eQTL data), with dashed reference lines at 1 and 2."}
 include_graphics("./figures/chr21_vs_genome_distribution.png")
 ```
 
@@ -126,6 +128,6 @@ include_graphics("./figures/Chr21_DEG.png")
 
 ### Sankey plot generated with SankeyMATIC
 
-```{r fig-sankey, out.width="100%", fig.alt="Sankey diagram of the chr21 protein-coding genes. From the full set, flows split into Expected dosage, Not assessable (which divides into High repeats and Low expression), and Outside dosage expectation. The last divides into DE high and DE low, which then terminate at cis eQTL, no GTEx QTL, or no cis eQTL. Node labels carry the gene counts."}
+```{r fig-sankey, out.width="100%", fig.alt="Sankey diagram of the chr21 protein-coding genes. From the full set, flows split into Expected dosage, Not assessable (which divides into High repeats and Low expression), and Outside dosage expectation. The last divides into DE high and DE low, which then terminate at cis-eQTL detected, no GTEx cis-eQTL data (labelled 'no GTEX QTL' in the figure), or no cis-eQTL detected. Node labels carry the gene counts."}
 include_graphics("./figures/Sankey.png")
 ```

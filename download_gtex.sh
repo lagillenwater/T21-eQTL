@@ -62,11 +62,19 @@ if [ "${size}" -lt "${MIN_BYTES}" ]; then
   rm -f "${tmp}"
   exit 1
 fi
-mv "${tmp}" "${DEST}"
-
-# Confirm the file is what script 02 expects: a parquet carrying the columns it reads.
-if command -v Rscript >/dev/null 2>&1; then
-  Rscript --vanilla -e '
+# Validate before promotion: the file must be a parquet carrying the columns
+# script 02 reads. R and arrow are pipeline dependencies, so their absence is
+# an error here too; in that case the download is kept as ${tmp} so it can be
+# validated and moved into place by hand. A file that fails the check is removed.
+if ! command -v Rscript >/dev/null 2>&1; then
+  echo "Rscript not found; cannot validate the download. Kept at ${tmp}, not promoted to ${DEST}." >&2
+  exit 1
+fi
+if ! Rscript --vanilla -e 'quit(status = as.integer(!requireNamespace("arrow", quietly = TRUE)))'; then
+  echo "R package arrow is not installed (run: Rscript install_packages.R). Download kept at ${tmp}, not promoted." >&2
+  exit 1
+fi
+if ! Rscript --vanilla -e '
     suppressPackageStartupMessages(library(arrow))
     f <- commandArgs(trailingOnly = TRUE)[1]
     d <- read_parquet(f, as_data_frame = FALSE)
@@ -75,9 +83,11 @@ if command -v Rscript >/dev/null 2>&1; then
     if (length(miss) > 0) stop("parquet is missing column(s): ", paste(miss, collapse = ", "))
     cat(sprintf("Parquet check OK: %d rows; columns: %s\n",
                 d$num_rows, paste(names(d), collapse = ", ")))
-  ' "${DEST}"
-else
-  echo "Rscript not found; skipping the parquet column check." >&2
+  ' "${tmp}"; then
+  echo "Downloaded file failed the parquet check; removing ${tmp}." >&2
+  rm -f "${tmp}"
+  exit 1
 fi
 
+mv "${tmp}" "${DEST}"
 echo "Wrote ${DEST} (${size} bytes)"

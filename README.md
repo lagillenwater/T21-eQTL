@@ -153,12 +153,13 @@ root
 GCP_BILLING_PROJECT=<your-gcp-project> bash download_gtex.sh
 ```
 
-which copies `Whole_Blood.v10.allpairs.chr21.parquet` to the filename
-above with `gcloud storage cp` (or `gsutil cp`), billing the egress to the
-named project, then checks that the file opens with `arrow` and carries
-the columns script 02 reads (`gene_id`, `variant_id`, `pval_nominal`).
-Without the Google Cloud SDK the script prints the object path for a
-manual download and exits non-zero.
+which fetches `Whole_Blood.v10.allpairs.chr21.parquet` with `gcloud
+storage cp` (or `gsutil cp`), billing the egress to the named project,
+validates it with `arrow` (a parquet carrying the columns script 02 reads:
+`gene_id`, `variant_id`, `pval_nominal`), and only then moves it to the
+filename above. Without the Google Cloud SDK the script prints the object
+path for a manual download and exits non-zero; without R and `arrow` it
+keeps the unvalidated download as a `.part` file and exits non-zero.
 
 ## Pipeline
 
