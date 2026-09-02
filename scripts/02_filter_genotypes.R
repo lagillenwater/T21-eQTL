@@ -8,18 +8,24 @@
 #              extract), not signif_pairs - so we get full cis-window
 #              coverage per gene. We apply a nominal pval threshold to
 #              keep the variant universe manageable.
-#          (b) gene selection now applies a within-cohort SD magnitude
-#              filter BEFORE eQTL testing. Only chr21 DE genes whose
-#              ploidy-corrected deviation exceeds MAGNITUDE_THRESHOLD
-#              cohort SDs are pulled. Genes with deviations within
-#              typical cohort variation are not eQTL-tested - their
-#              statistical significance is downstream of sample size,
-#              not biological compensation, and asking the eQTL question
-#              for them produces misleading "explained" calls.
+#          (b) gene selection applies Hunter et al. (2023)'s own classification
+#              rule BEFORE eQTL testing: a gene is pulled if it is eligible
+#              (expressed above the q20 baseMean cut, not repeat-flagged) AND
+#              norm_padj < ALPHA_DE AND abs(norm_log2FC) >= DEVIATION_LFC
+#              (= log2(1.5)), on the ploidy-corrected scale. Genes whose
+#              deviation is inside that threshold are not eQTL-tested - their
+#              statistical significance is downstream of sample size, not
+#              biological compensation, and asking the eQTL question for them
+#              produces misleading detection calls.
+#
+#              The chr21-internal FDR-outlier test (OUTLIER_FDR, dev_z,
+#              q_outlier) is retained as an ANNOTATION only. It does not
+#              select genes and does not gate any lane. See the decision log
+#              in docs/REPO_STATE.md and
+#              docs/superpowers/plans/2026-08-31-tight-plan.md.
 #
 # Inputs:
-#   - results/tables/deseq2_chr21_combined.csv
-#   - results/tables/deseq2_all_genes_ploidy_normalized.csv
+#   - results/tables/deseq2_chr21_genes_both_analyses.csv
 #   - data/processed/blacklisted_genes.csv
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
 #   - data/processed/sample_metadata.csv
@@ -50,15 +56,19 @@ cat("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes ===\n\n")
 # =============================================================================
 
 ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
-MAGNITUDE_THRESHOLD <- 1.0   # |norm_log2FC| / cohort_sd >= this to be
-                             # eQTL-tested. 1.0 = above typical cohort
-                             # variation. Raise to 1.5 or 2.0 for stricter.
+# Annotation only. The chr21-internal median/MAD null and its BH-FDR cut on the
+# robust z-score are reported for reference (dev_z, q_outlier); they do not
+# select genes. The selection rule is DEVIATION_LFC + ALPHA_DE below.
+OUTLIER_FDR <- 0.10
+DEVIATION_LFC     <- log2(1.5)   # tier 1: Hunter et al.'s FC >= 1.5 cut
+DEVIATION_LFC_T2  <- log2(4/3)   # Hunter et al.'s FC >= 1.5 cut, applied on
+                                 # the ploidy-corrected log2FC scale
 LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
 GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
                              # (~ matches the effective signif_pairs cutoff)
-RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict both target chr21 set AND
-                                     # the non-chr21 cohort-noise reference
-                                     # to protein-coding genes
+RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict the target chr21 set (and the
+                                     # chr21-internal null) to protein-coding
+                                     # genes
 
 KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
                         "IFNAR1", "IFNAR2", "TPTE", "BAGE", "DAB1")
@@ -69,9 +79,7 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 
 cat("Step 1: Identifying target genes...\n")
 
-chr21    <- fread("results/tables/deseq2_chr21_combined.csv")
-all_lfc  <- fread(
-  "results/tables/deseq2_all_genes_ploidy_normalized.csv")
+chr21    <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
 
 blacklist_path <- "data/processed/blacklisted_genes.csv"
 blacklist_genes <- if (file.exists(blacklist_path)) {
@@ -82,30 +90,39 @@ high_repeat_genes <- unique(c(blacklist_genes, KNOWN_REPEAT_GENES))
 if (RESTRICT_TO_PROTEIN_CODING) {
   n_chr21_before <- nrow(chr21)
   chr21   <- chr21[Gene_type == "protein_coding"]
-  all_lfc <- all_lfc[Gene_type == "protein_coding"]
   cat(sprintf("  Restricted to protein-coding: chr21 %d -> %d\n",
               n_chr21_before, nrow(chr21)))
 }
 
-# Cohort-noise SD from non-chr21 ploidy-normalized log2FC (the empirical
-# null distribution for "deviation from expected ploidy"). Restricted to
-# protein-coding too if RESTRICT_TO_PROTEIN_CODING is TRUE.
-cohort_sd <- sd(
-  all_lfc[Chr != "chr21" & !is.na(log2FoldChange), log2FoldChange])
-cat(sprintf("  Cohort-noise SD (non-chr21%s): %.3f\n",
-            if (RESTRICT_TO_PROTEIN_CODING) ", protein-coding" else "",
-            cohort_sd))
-cat(sprintf("  Magnitude threshold: %.1f cohort SDs (= %.3f log2FC)\n",
-            MAGNITUDE_THRESHOLD, MAGNITUDE_THRESHOLD * cohort_sd))
+source("scripts/lib/chr21_threshold.R")
 
+# Eligibility filters run BEFORE the null is estimated: log2FC variance scales
+# with expression, so near-zero-count genes would otherwise set the scale.
 basemean_threshold <- quantile(chr21$baseMean, LOW_EXPR_QUANT, na.rm = TRUE)
+eligible <- chr21[baseMean >= basemean_threshold &
+                    !(Gene_name %in% high_repeat_genes) &
+                    !is.na(norm_log2FC)]
+cat(sprintf("  Eligible for the null (expressed, non-repeat): %d of %d\n",
+            nrow(eligible), nrow(chr21)))
 
-target_genes <- chr21[
-  !is.na(norm_padj) & norm_padj < ALPHA_DE &
-    !is.na(norm_log2FC) &
-    abs(norm_log2FC) >= MAGNITUDE_THRESHOLD * cohort_sd &
-    baseMean >= basemean_threshold &
-    !(Gene_name %in% high_repeat_genes)]
+null <- chr21_null(eligible$norm_log2FC)
+cat(sprintf("  chr21 null: center %.4f  MAD %.4f  (n = %d)\n",
+            null$center, null$scale, null$n))
+
+eligible[, dev_z := robust_z(norm_log2FC, null)]
+eligible[, q_outlier := outlier_fdr(dev_z)]
+cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (effective k = %.2f)\n",
+            OUTLIER_FDR, sum(eligible$q_outlier < OUTLIER_FDR, na.rm = TRUE),
+            effective_k(eligible$dev_z, eligible$q_outlier, OUTLIER_FDR)))
+
+# Composite rule: real deviation (padj) AND at least 1.5-fold (Hunter et al.'s
+# effect-size cut on the ploidy-corrected scale).
+# Two tiers, both eQTL-tested downstream. Tier 1 is Hunter's rule and is the
+# primary result; tier 2 (>= 4/3-fold, < 1.5-fold) is the labelled secondary
+# tier adopted 2026-09-01 so near-threshold genes are reported, not hidden.
+target_genes <- eligible[!is.na(norm_padj) & norm_padj < ALPHA_DE &
+                           abs(norm_log2FC) >= DEVIATION_LFC_T2]
+target_genes[, tier := fifelse(abs(norm_log2FC) >= DEVIATION_LFC, 1L, 2L)]
 
 target_genes[, gene_set := fifelse(norm_log2FC < 0,
                                    "DE_low_FC", "Sig_high_FC")]
@@ -113,7 +130,7 @@ target_genes[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
 target_genes[, observed_direction := sign(norm_log2FC)]
 target_genes <- target_genes[, .(EnsemblID, Gene_name, raw_log2FC,
                                  norm_log2FC, norm_padj, gene_set,
-                                 ensembl_stable, observed_direction)]
+                                 ensembl_stable, observed_direction, tier)]
 
 n_low  <- sum(target_genes$gene_set == "DE_low_FC")
 n_high <- sum(target_genes$gene_set == "Sig_high_FC")
@@ -335,5 +352,49 @@ cat("(Expect Control max <= 2; T21 max <= 3 on chr21)\n")
 
 writeLines(capture.output(sessionInfo()),
            "data/processed/genotype_filter_session_info.txt")
+stopifnot(file.exists("data/processed/genotype_filter_session_info.txt"))
+
+stopifnot(
+  file.exists("data/processed/eqtl_supported_genes.csv"),
+  file.exists("data/processed/eqtl_target_variants.csv"),
+  file.exists("data/processed/genotypes_filtered.csv")
+)
 
 cat("\n=== Filter complete ===\n")
+
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+# 2026-08-31  REPLACED the cohort-SD magnitude filter
+#             (abs(norm_log2FC) >= MAGNITUDE_THRESHOLD * sd(non-chr21 log2FC),
+#             threshold 1.0) with an FDR-controlled robust outlier test against
+#             a chr21-internal median/MAD null (scripts/lib/chr21_threshold.R,
+#             OUTLIER_FDR = 0.10).
+#             Reason: ploidy normalization does not act on diploid genes
+#             (mean |raw - norm| 0.0048 off chr21 vs 0.583 on it), so their
+#             spread measured a different quantity; and a 1-SD cut selects the
+#             top ~third of any distribution (18.3% of non-chr21 genes cleared
+#             it themselves, vs 20.6% of chr21 - binomial p = 0.26). The null is
+#             now estimated AFTER the expression and repeat filters, because
+#             log2FC variance scales with counts.
+#             Spec: docs/METHODS_SPEC_threshold_and_eqtl_controls.md
+#
+# 2026-08-31  REPLACED the FDR-outlier test in the target-gene rule with
+#             Hunter et al.'s own classification: deviating = padj < 0.01 AND
+#             abs(norm_log2FC) >= log2(1.5) (DEVIATION_LFC). dev_z / q_outlier
+#             are retained as annotation columns on the eligible table but no
+#             longer drive target-gene selection.
+#             Spec: docs/superpowers/plans/2026-08-31-tight-plan.md (Task A)
+#
+# 2026-08-31  REWROTE the header and the OUTLIER_FDR comment, which still
+#             described the FDR-outlier test as the gene-selection rule after
+#             the rule itself had been replaced by Hunter's padj + 1.5-fold
+#             cut. No behaviour change: the code already selected on
+#             ALPHA_DE + DEVIATION_LFC. The FDR-outlier print is now labelled
+#             annotation-only so the two cannot be confused again.
+# 2026-09-01  ADDED tier 2 (DEVIATION_LFC_T2 = log2(4/3)): the target set now
+#             carries both tiers with a `tier` column; tier 1 (log2(1.5),
+#             Hunter) remains the primary result. Adopted after review of the
+#             volcano figure showed genes with crushing padj within 0.02-0.09
+#             of the tier-1 line; reported as a labelled secondary tier rather
+#             than moving the pre-registered primary threshold.

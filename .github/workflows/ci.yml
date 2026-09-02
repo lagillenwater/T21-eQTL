@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - name: Install test dependencies
+        run: Rscript -e 'install.packages(c("data.table", "testthat", "covr", "xml2"))'
+      - name: Parse-check all pipeline scripts
+        # The pipeline itself needs ~15 GB of local data and cannot run in CI;
+        # parsing every script still catches syntax errors and half-applied
+        # renames in code the unit tests do not reach. scripts/archive is
+        # excluded by convention (kept but not expected to run).
+        run: |
+          Rscript -e '
+            files <- c(list.files("scripts", pattern = "[.]R$", full.names = TRUE),
+                       list.files("scripts/lib", pattern = "[.]R$", full.names = TRUE))
+            for (f in files) { message("parse: ", f); parse(f) }
+          '
+      - name: Run unit tests
+        run: Rscript tests/testthat.R
+      - name: Compute coverage of scripts/lib
+        run: |
+          Rscript -e '
+            # covr runs each test file in a bare env: attach the runtime deps
+            # (testthat for test_that itself, data.table for fcase/:= in the
+            # instrumented libs) before instrumenting.
+            library(testthat); library(data.table)
+            cov <- covr::file_coverage(
+              source_files = list.files("scripts/lib", pattern = "[.]R$", full.names = TRUE),
+              test_files   = list.files("tests/testthat", pattern = "^test-.*[.]R$", full.names = TRUE)
+            )
+            print(cov)
+            covr::to_cobertura(cov, "coverage.xml")
+          '
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        continue-on-error: true
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
