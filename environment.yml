@@ -12,7 +12,7 @@ dependencies:
   - r-data.table
   - r-ggplot2
   - r-ggrepel
-  - r-ggalluvial  # Alluvial diagrams (Panel D)
+  - r-patchwork   # Panel composition (script 06)
   - r-arrow       # Reading parquet files (eQTL data)
 
   # Bioconductor packages via conda
