@@ -24,8 +24,8 @@ Rscript scripts/01_deseq2_analysis.R              # trisomy-aware DESeq2
 Rscript scripts/02_filter_genotypes.R             # deviating genes + genotype universe
 Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 fits + permutation test
 Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table
-Rscript scripts/05_alluvial_lane_assignment.R     # alluvial flow figure
-Rscript scripts/06_chr21_distribution_panel.R     # chr21 vs genome distributions
+Rscript scripts/05_sankeymatic_export.R           # SankeyMATIC input for the lane-flow figure
+Rscript scripts/06_chr21_distribution_panel.R     # ploidy-correction effect: chr21 vs chr22
 Rscript scripts/07_three_panel_figure.R           # volcano summary panel
 ```
 
@@ -51,7 +51,7 @@ Installs CRAN + Bioconductor packages, writes
 
 ```r
 pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
-          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "patchwork", "RColorBrewer", "viridis",
           "here", "arrow")
 install.packages(pkgs)
 if (!require("BiocManager")) install.packages("BiocManager")
@@ -64,7 +64,7 @@ Checks every package from the manual block plus DESeq2:
 
 ```r
 pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
-          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "patchwork", "RColorBrewer", "viridis",
           "here", "arrow", "DESeq2")
 for (p in pkgs) {
   ok <- requireNamespace(p, quietly = TRUE)
@@ -73,7 +73,7 @@ for (p in pkgs) {
 ```
 
 Tested versions: R 4.5.2; tidyverse 2.0; data.table 1.16; DESeq2 1.46;
-ggalluvial 0.12; arrow 17.
+arrow 17.
 
 ## Repository layout
 
@@ -97,6 +97,7 @@ T21-eQTL/
   results/
     tables/                  # CSVs from the pipeline (.gitignored)
     figures/                 # PDFs / PNGs (.gitignored)
+    archive/                 # outputs of earlier pipeline versions (.gitignored)
   docs/
     decisions.md             # decision log, legacy notes, gotchas
     package_installation_info.txt
@@ -169,7 +170,7 @@ helpers in `scripts/lib/` (`cohort.R` - analysis-cohort definition;
 `composition.R` - co-expression composition control; `lane_rules.R` -
 the sig_lane classification rule (`assign_sig_lane`); `eqtl_fit.R` -
 vectorized per-variant regressions and the gene-level permutation test;
-`table1.R` - cohort-characteristics table helpers).
+`table1.R` - cohort-characteristics table helpers; `sankey_flow.R` - lane flow and its SankeyMATIC serialisation; `ploidy_distributions.R` - uncorrected vs ploidy-corrected log2FC tables for script 06).
 
 | Script | Purpose | Output |
 |---|---|---|
@@ -178,8 +179,8 @@ vectorized per-variant regressions and the gene-level permutation test;
 | 02_filter_genotypes | Select deviating chr21 genes by Hunter et al.'s rule (`norm_padj < ALPHA_DE` AND `abs(norm_log2FC) >= DEVIATION_LFC`), restrict to protein-coding, compute the chr21-internal outlier annotation (`dev_z`, `q_outlier`), pull GTEx allpairs cis variants, stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
 | 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); negative-control diagnostics | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv`, `eqtl_gene_level_perm.csv`, `eqtl_negative_controls.csv` |
 | **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`, applied by `scripts/lib/lane_rules.R`); deviating genes get a composition control (`scripts/lib/composition.R`) and an `eqtl_lane` terminal from the gene-level permutation test | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
-| 05_alluvial_lane_assignment | Alluvial flow (Classification -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
-| 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
+| 05_sankeymatic_export | Lane flow (Classification -> Sub-category -> eQTL terminal) serialised as SankeyMATIC input (`scripts/lib/sankey_flow.R`); the figure itself is rendered at https://sankeymatic.com/build/ | `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_flow.csv` |
+| 06_chr21_distribution_panel | Density + ECDF of uncorrected vs ploidy-corrected log2FC for chr21 protein-coding genes, with chr22 on both scales as the control that the correction leaves unchanged (`scripts/lib/ploidy_distributions.R`) | `results/figures/ploidy_correction_distributions.{pdf,png}`, `results/tables/ploidy_correction_distribution_stats.csv` |
 | 07_three_panel_figure | 2x2 volcanoes: A/B all genes before/after ploidy correction, C/D chr21 only; labels read from the lane table | `results/figures/Chr21_DEG.{pdf,png}` |
 
 Legacy and supplementary scripts live under `scripts/archive/`; the
@@ -224,7 +225,7 @@ so DESeq2's standard p-value testing applies cleanly.
 - **`chr21_lane_assignments.csv`** - canonical per-gene lane table (read
   this for the headline numbers).
 - `chr21_lane_summary.csv` - lane counts (all chr21 + after paper filters).
-- `chr21_lane_alluvial_flow.csv` - long-format flow data for the alluvial.
+- `chr21_lane_flow.csv` - lane-flow paths (level2 / level3 / level4 counts) behind the SankeyMATIC input.
 - **`chr21_lane_sankeymatic_input.txt`** - SankeyMATIC paste-ready export.
 - `t21_dosage_per_variant.csv` - per-variant within-T21 regression fits.
 
@@ -239,11 +240,12 @@ so DESeq2's standard p-value testing applies cleanly.
 ### Figures
 
 `results/figures/`:
-- **`chr21_lane_alluvial.{pdf,png}`** - main lane-flow visualization
-  (script 05).
-- `chr21_vs_genome_distribution.{pdf,png}` - chr21 vs non-chr21
-  ploidy-corrected log2FC distributions + per-lane magnitude scatter
-  (script 06).
+- Lane-flow Sankey: rendered at https://sankeymatic.com/build/ from
+  `results/tables/chr21_lane_sankeymatic_input.txt` (script 05); the
+  tracked render is `docs/figures/Sankey.png`.
+- `ploidy_correction_distributions.{pdf,png}` - uncorrected vs
+  ploidy-corrected log2FC distributions for chr21, with chr22 as the
+  unchanged control (script 06).
 - `Chr21_DEG.{pdf,png}` - volcano summary panel (script 07).
 
 

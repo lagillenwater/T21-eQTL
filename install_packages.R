@@ -48,13 +48,16 @@ cran_packages <- c(
   # Visualization
   "ggplot2",        # Plotting (included in tidyverse but listed explicitly)
   "ggrepel",        # Label positioning for plots
-  "ggalluvial",     # Alluvial/Sankey diagrams
+  "patchwork",      # Panel composition (script 06)
   "RColorBrewer",   # Color palettes
   "pheatmap",       # Heatmaps
   "viridis",        # Perceptually uniform color scales
+  # ggalluvial is used only by scripts/archive/04_alluvial_plot.R and
+  # 06_alluvial_with_eqtl.R; install it on demand to run those.
 
   # Utilities
-  "here"            # Path management (optional but recommended)
+  "here",           # Path management (optional but recommended)
+  "arrow"           # Reading the GTEx allpairs parquet (script 02)
 )
 
 # Bioconductor packages

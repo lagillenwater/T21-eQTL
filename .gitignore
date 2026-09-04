@@ -21,6 +21,8 @@ renv/staging/
 results/figures/
 results/tables/
 results/*.txt
+# Outputs of earlier pipeline versions, moved out of results/{figures,tables}
+results/archive/
 
 # Ignore everything in data/ by default.
 # Note: cannot use bare `data/` here because git won't allow re-including
@@ -28,10 +30,6 @@ results/*.txt
 data/*
 data/processed/*
 data/raw/*
-
-# Keep small reference inputs (metadata, comorbidity)
-!data/P4C_metadata_021921_Costello.txt
-!data/P4C_Comorbidity_020921.tsv
 
 # Keep directory placeholders (also re-include the subdirs themselves)
 !data/processed/

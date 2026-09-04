@@ -9,13 +9,18 @@
 #   - data/processed/gene_annotations.csv
 #
 # Outputs:
-#   - results/tables/deseq2_results_all_genes.csv
-#   - results/tables/deseq2_chr21_genes.csv
+#   - results/tables/deseq2_all_genes_both_analyses.csv       (raw + ploidy-corrected, one row per gene)
+#   - results/tables/deseq2_all_genes_ploidy_normalized.csv   (ploidy-corrected arm)
+#   - results/tables/deseq2_all_genes_no_ploidy_norm.csv      (uncorrected arm)
+#   - results/tables/deseq2_chr21_genes_both_analyses.csv     (chr21 subset; read by scripts 02 and 04)
+#   - results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv
+#   - results/tables/deseq2_cooks_diagnostics.csv
+#   - results/tables/deseq2_session_info.txt
 #   - results/figures/pca_plot.pdf
 #   - results/figures/dispersion_plot.pdf
 #   - results/figures/ma_plot.pdf
 #
-# Date: 2025-11-11
+# Date: 2025-11-11 (outputs list refreshed 2026-09-04)
 
 # Load required libraries
 library(tidyverse)

@@ -1,9 +1,9 @@
 T21-eQTL results summary
 ================
-2026-09-02
+2026-09-04
 
 Computed from the pipeline outputs in `results/tables/` at commit
-`19310f8`. To refresh after a pipeline run:
+`f183b2b`. To refresh after a pipeline run:
 `Rscript -e 'rmarkdown::render("docs/summary.Rmd")'`. Methodology and
 its history: `README.md` and `docs/decisions.md`.
 
@@ -72,9 +72,9 @@ refresh them, re-run scripts 06 and 07 (and re-export the lane flow from
 SankeyMATIC using `results/tables/chr21_lane_sankeymatic_input.txt`),
 copy the PNGs into `docs/figures/`, and re-render this document.
 
-### chr21 vs baseMean-matched non-chr21 ploidy-corrected log2FC distributions, with the per-lane magnitude scatter (script 06):
+### Effect of ploidy correction on the log2FC distribution: chr21 uncorrected vs corrected, with chr22 as the unchanged control (script 06):
 
-<img src="./figures/chr21_vs_genome_distribution.png" alt="Three-panel figure. Top left: overlaid density curves of ploidy-corrected log2 fold change for chr21 protein-coding genes and for baseMean-matched non-chr21 genes; the two curves largely coincide and centre on zero. Top right: the corresponding empirical cumulative distributions. Bottom: per-gene absolute robust z against the chr21 median/MAD null for the DE_high and DE_low genes, grouped by eQTL terminal (cis-eQTL detected, eQTL-tested with none detected, no GTEx cis-eQTL data), with dashed reference lines at 1 and 2." width="100%" />
+<img src="./figures/ploidy_correction_distributions.png" alt="Two-panel figure. Left: overlaid density curves of log2 fold change (T21 vs Control) for chr21 and chr22 protein-coding genes, each on the uncorrected and the ploidy-corrected scale. The uncorrected chr21 curve is centred near log2(1.5); the ploidy-corrected chr21 curve is shifted left by that amount, centres on zero and overlaps chr22. The two chr22 curves coincide. Right: the corresponding empirical cumulative distributions. Vertical reference lines mark 0 and log2(1.5)." width="100%" />
 
 ### Volcano summary panel, all-genes before/after ploidy correction and chr21-only (script 07):
 

@@ -121,7 +121,7 @@ against the current state:
   level-to-level passes where the source and target name are identical
   (e.g., Expected dosage genes terminate at level 2 and would otherwise
   self-loop at levels 3 and 4). The flow file
-  `chr21_lane_alluvial_flow.csv` keeps them.
+  `chr21_lane_flow.csv` keeps them.
 - **Two T21 expression-only subjects**: 304 T21 in the expression cohort,
   302 in the genotype cohort. The 2 missing-genotype subjects are
   expression-only and are silently dropped from the within-T21 regression
