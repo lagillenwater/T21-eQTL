@@ -97,6 +97,7 @@ T21-eQTL/
   results/
     tables/                  # CSVs from the pipeline (.gitignored)
     figures/                 # PDFs / PNGs (.gitignored)
+    archive/                 # outputs of earlier pipeline versions (.gitignored)
   docs/
     decisions.md             # decision log, legacy notes, gotchas
     package_installation_info.txt

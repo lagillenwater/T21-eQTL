@@ -21,6 +21,8 @@ renv/staging/
 results/figures/
 results/tables/
 results/*.txt
+# Outputs of earlier pipeline versions, moved out of results/{figures,tables}
+results/archive/
 
 # Ignore everything in data/ by default.
 # Note: cannot use bare `data/` here because git won't allow re-including
