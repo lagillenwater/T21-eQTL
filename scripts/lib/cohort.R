@@ -53,3 +53,34 @@ analysis_cohort <- function(meta) {
   keep <- (meta$Karyotype == "T21" & meta$has_wgs) | meta$Karyotype != "T21"
   meta[keep, ]
 }
+
+#' Run-specific cohort with an excluded_reason per row (NA = kept).
+#'
+#' Reasons are applied in order and the first failing one is recorded:
+#' keep rule (genotyped T21 plus all controls), run exclusions
+#' (`run$exclude`, key = metadata column, values to drop), missing run
+#' covariates, and, when the run has a composition source, absence from the
+#' CyTOF table. The full roster is returned so exclusions stay visible.
+build_cohort <- function(meta, run, cytof_ids = NULL) {
+  m <- data.table::as.data.table(meta)
+  if (!"has_wgs" %in% names(m)) stop("metadata needs a has_wgs column; call wgs_subjects() first")
+  reason <- rep(NA_character_, nrow(m))
+  keep <- (m$Karyotype == "T21" & m$has_wgs) | m$Karyotype != "T21"
+  reason[!keep] <- "keep_rule:no_wgs"
+  for (k in names(run$exclude)) {
+    if (!k %in% names(m)) stop("exclusion column not in metadata: ", k)
+    hit <- is.na(reason) & m[[k]] %in% run$exclude[[k]]
+    reason[hit] <- sprintf("exclude:%s=%s", k, m[[k]][hit])
+  }
+  for (cv in run$covariates) {
+    if (!cv %in% names(m)) stop("covariate column not in metadata: ", cv)
+    hit <- is.na(reason) & is.na(m[[cv]])
+    reason[hit] <- paste0("missing:", cv)
+  }
+  if (!is.null(run$composition)) {
+    hit <- is.na(reason) & !(m$LabID %in% cytof_ids)
+    reason[hit] <- "missing:cytof"
+  }
+  m[, excluded_reason := reason]
+  m
+}

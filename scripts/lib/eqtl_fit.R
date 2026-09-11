@@ -66,25 +66,17 @@ gene_level_p <- function(min_p_obs, min_p_perm) {
   (1 + sum(mp <= min_p_obs)) / (length(mp) + 1)
 }
 
-#' Expression vector for one gene, aligned to subject IDs. Counts are keyed by
-#' LabID while genotypes are keyed by subject_id, so this maps through metadata.
-expr_of_gene <- function(gene_name, subject_ids, counts, meta_t21) {
-  row <- counts[Gene_name == gene_name]
-  if (nrow(row) == 0) return(rep(NA_real_, length(subject_ids)))
-  # Key on subject_id, the join key the genotype tables use. RecordID is a
-  # different ID space entirely (INV... vs HTP...) and keying on it returns all
-  # NA for every caller in this pipeline.
-  subj <- if ("subject_id" %in% names(meta_t21)) {
-    as.character(meta_t21$subject_id)
-  } else {
-    sub("(?<=[0-9])[A-Z][0-9]*$", "", as.character(meta_t21$LabID), perl = TRUE)
-  }
-  lab_for_subj <- setNames(as.character(meta_t21$LabID), subj)
+#' Expression for one gene from the run's artifact matrix, aligned to subject ids.
+#'
+#' The artifact (script 01, processed/expression_adjusted.csv) is already on
+#' the log2 scale; nothing is transformed here. Subjects with no matching
+#' LabID column get NA.
+expr_from_matrix <- function(gene_name, subject_ids, E, meta_t21) {
+  if (!gene_name %in% rownames(E)) return(rep(NA_real_, length(subject_ids)))
+  lab_for_subj <- setNames(as.character(meta_t21$LabID), as.character(meta_t21$subject_id))
   labs <- lab_for_subj[as.character(subject_ids)]
-  # Index via a plain named vector rather than row[1, j, with = FALSE]: when
-  # labs contains NA (unmatched subject_id), data.table's `[.data.table`
-  # errors on an NA column index instead of returning NA.
-  row_vals <- suppressWarnings(as.numeric(row[1]))
-  names(row_vals) <- names(row)
-  log2(unname(row_vals[labs]) + 1)
+  row  <- E[match(gene_name, rownames(E)), ]
+  out  <- unname(row[labs])
+  out[is.na(labs) | !(labs %in% colnames(E))] <- NA_real_
+  out
 }

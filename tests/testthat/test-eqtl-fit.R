@@ -69,33 +69,6 @@ test_that("a real eQTL beats its own permutation null", {
   expect_lt(gene_level_p(obs, perm_min_p(G, e, n_perm = 200, seed = 5)), 0.05)
 })
 
-test_that("expr_of_gene aligns counts to subject ids and log-transforms", {
-  counts <- data.table::data.table(Gene_name = "GENEA", HTP0001A = 3, HTP0002B = 7)
-  meta   <- data.table::data.table(RecordID = c("INVAAA", "INVBBB"),
-                                    LabID = c("HTP0001A", "HTP0002B"))
-  expect_equal(expr_of_gene("GENEA", c("HTP0001", "HTP0002"), counts, meta),
-               log2(c(3, 7) + 1))
-  expect_true(all(is.na(expr_of_gene("MISSING", "HTP0001", counts, meta))))
-  # RecordID is a different ID space (INV...) from subject_id (HTP...); passing
-  # RecordID values must NOT accidentally resolve to expression rows.
-  expect_true(all(is.na(expr_of_gene("GENEA", c("INVAAA", "INVBBB"), counts, meta))))
-})
-
-test_that("expr_of_gene prefers an explicit subject_id column over the LabID-derived fallback", {
-  counts <- data.table::data.table(Gene_name = "GENEA", HTP0001A = 3, HTP0002B = 7)
-  # subject_id is deliberately NOT what the LabID regex would derive, so the
-  # two branches disagree and only a genuine "prefer subject_id" implementation
-  # can pass both assertions below.
-  meta <- data.table::data.table(RecordID   = c("INVAAA", "INVBBB"),
-                                  LabID      = c("HTP0001A", "HTP0002B"),
-                                  subject_id = c("SUBJ_X", "SUBJ_Y"))
-  expect_equal(expr_of_gene("GENEA", c("SUBJ_X", "SUBJ_Y"), counts, meta),
-               log2(c(3, 7) + 1))
-  # The LabID-derived ids are no longer the lookup key when subject_id is
-  # present, so they must resolve to NA.
-  expect_true(all(is.na(expr_of_gene("GENEA", c("HTP0001", "HTP0002"), counts, meta))))
-})
-
 test_that("perm_min_p returns NA, not Inf, for a constant expression vector", {
   set.seed(16)
   G <- matrix(rbinom(400, 3, 0.3), ncol = 4)
@@ -103,4 +76,11 @@ test_that("perm_min_p returns NA, not Inf, for a constant expression vector", {
   expect_true(all(is.na(mp)))
   expect_false(any(is.infinite(mp)))
   expect_equal(gene_level_p(0.01, mp), 1)   # empty null -> (1+0)/(0+1)
+})
+
+test_that("expr_from_matrix aligns artifact rows to subject ids without re-logging", {
+  E <- rbind(GENEA = c(1.5, 2.5, 3.5)); colnames(E) <- c("HTP0001A", "HTP0002B2", "HTP0003A")
+  meta <- data.table::data.table(LabID = colnames(E), subject_id = c("HTP0001", "HTP0002", "HTP0003"))
+  expect_equal(expr_from_matrix("GENEA", c("HTP0003", "HTP0001", "HTP0999"), E, meta), c(3.5, 1.5, NA))
+  expect_true(all(is.na(expr_from_matrix("NOPE", "HTP0001", E, meta))))
 })

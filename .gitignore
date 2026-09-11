@@ -70,3 +70,6 @@ __pycache__/
 *.so
 .ipynb_checkpoints
 notebooks/executed/
+
+# Run outputs (see config/runs/); tracked copies of figures live in docs/figures
+results/runs/

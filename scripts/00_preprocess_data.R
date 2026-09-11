@@ -9,7 +9,8 @@
 #
 # Outputs:
 #   - data/processed/count_matrix.csv
-#   - data/processed/sample_metadata.csv
+#   - data/processed/sample_metadata.csv   (gains subject_id, has_wgs, karyotype_subtype)
+#   - data/processed/karyotype_subtype.csv
 #   - data/processed/gene_annotations.csv
 #
 # Date: 2025-11-11
@@ -146,6 +147,17 @@ cat(sprintf("  Subjects with chr21 WGS (from headers): %d\n", length(wgs)))
 metadata_matched <- metadata_matched %>%
   mutate(subject_id = subject_id_from_labid(LabID),
          has_wgs = subject_id %in% wgs)
+
+# Karyotype subtype from the INCLUDE Data Hub export (MONDO codes), joined by
+# HTP subject id. Every T21 sample must map; controls are all D21.
+source("scripts/lib/karyotype_subtype.R")
+subtypes <- karyotype_subtype_table("data/karyotype/simple_which_T21.csv",
+                                    "data/karyotype/personnameswitch.csv")
+fwrite(subtypes, "data/processed/karyotype_subtype.csv")
+metadata_matched <- add_karyotype_subtype(metadata_matched, subtypes)
+cat("  Karyotype subtype (INCLUDE MONDO codes):\n")
+print(table(metadata_matched$Karyotype, metadata_matched$karyotype_subtype, useNA = "ifany"))
+stopifnot(all(!is.na(metadata_matched$karyotype_subtype[metadata_matched$Karyotype == "T21"])))
 
 print(as.data.frame(metadata_matched %>%
   count(Karyotype, name = "rnaseq") %>%
