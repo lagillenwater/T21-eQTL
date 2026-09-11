@@ -2,7 +2,8 @@
 #
 # Purpose: Show what the ploidy correction does at the population level, and
 #          that it acts only where it should. Two panels (density, ECDF) of
-#          the T21-vs-Control log2 fold change for chr21 protein-coding genes
+#          the T21-vs-Control log2 fold change for chr21 genes of the target
+#          biotypes (scripts/lib/biotypes.R)
 #          on both scales - uncorrected, where the extra copy puts the
 #          distribution at log2(1.5), and ploidy-corrected, where a gene that
 #          follows dosage expectation sits at 0 - with chr22 on both scales as
@@ -30,14 +31,15 @@ suppressPackageStartupMessages({
   library(patchwork)
 })
 source("scripts/lib/ploidy_distributions.R")
+source("scripts/lib/run.R"); run <- load_run()
 
-# Match the rest of the pipeline: the chr21 gene set is protein-coding, so
-# the control chromosome is restricted the same way.
-RESTRICT_TO_PROTEIN_CODING <- TRUE
+# Match the rest of the pipeline (scripts 02 and 04): the chr21 gene set is
+# TARGET_BIOTYPES, so the control chromosome is restricted the same way.
+source("scripts/lib/biotypes.R")
 CONTROL_CHR <- "chr22"
 CHROMOSOMES <- c("chr21", CONTROL_CHR)
-LFC_PLOIDY  <- log2(1.5)
-OUT_STEM    <- "results/figures/ploidy_correction_distributions"
+LFC_PLOIDY  <- log2(run$ploidy)
+OUT_STEM <- run$figure("ploidy_correction_distributions")
 
 # Chromosome is colour (the pair passes the colour-vision separation checks,
 # CVD delta E >= 21 for every deficiency type). Scale is line weight: the
@@ -56,9 +58,9 @@ cat("=== T21-eQTL: Ploidy-correction distribution panel ===\n\n")
 # =============================================================================
 
 cat("Step 1: Loading DESeq2 results (both scales)...\n")
-res  <- fread("results/tables/deseq2_all_genes_both_analyses.csv")
+res  <- fread(run$table("deseq2_all_genes_both_analyses.csv"))
 long <- ploidy_distribution_long(res, chromosomes = CHROMOSOMES,
-                                 protein_coding_only = RESTRICT_TO_PROTEIN_CODING)
+                                 biotypes = TARGET_BIOTYPES)
 n_chr <- long[scale == "uncorrected", .N, by = chromosome]
 cat(sprintf("  %s: %d genes with estimates on both scales\n",
             n_chr$chromosome, n_chr$N), sep = "")
@@ -94,9 +96,9 @@ stats_out <- merge(stats,
                    shift[, .(chromosome, median_shift, min_shift, max_shift)],
                    by = "chromosome")
 setorder(stats_out, chromosome, scale)
-fwrite(stats_out, "results/tables/ploidy_correction_distribution_stats.csv")
-stopifnot(file.exists("results/tables/ploidy_correction_distribution_stats.csv"))
-cat("  Wrote results/tables/ploidy_correction_distribution_stats.csv\n")
+fwrite(stats_out, run$table("ploidy_correction_distribution_stats.csv"))
+stopifnot(file.exists(run$table("ploidy_correction_distribution_stats.csv")))
+cat("  Wrote", run$table("ploidy_correction_distribution_stats.csv"), "\n")
 
 # =============================================================================
 # STEP 3: Density + ECDF
@@ -150,7 +152,7 @@ p_ecdf <- style(
 )
 
 subtitle <- sprintf(
-  paste0("Protein-coding genes: chr21 n = %d, %s n = %d. Median per-gene shift ",
+  paste0("Genes (", TARGET_BIOTYPES_LABEL, "): chr21 n = %d, %s n = %d. Median per-gene shift ",
          "from the correction: chr21 %.3f (log2(1.5) = %.3f), %s %.1e. ",
          "KS chr21 vs %s after correction: D = %.3f, p = %.2g"),
   n_chr[chromosome == "chr21", N], CONTROL_CHR, n_chr[chromosome == CONTROL_CHR, N],
@@ -214,3 +216,6 @@ cat("\n=== Distribution panel complete ===\n")
 #
 # 2026-09-01  REPLACED deviation_vs_cohort_sd with abs(dev_z) in the (since
 #             removed) per-lane scatter; ADDED existence checks after ggsave.
+# 2026-09-04  WIDENED the gene set to TARGET_BIOTYPES (scripts/lib/biotypes.R:
+#             protein-coding, lncRNA, pseudogene; passed to
+#             ploidy_distribution_long(biotypes =)) to match scripts 02 and 04.

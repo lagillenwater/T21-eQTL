@@ -7,7 +7,7 @@
 #          A ggalluvial rendering of the same flow was retired on 2026-09-04.
 #
 #          Flow structure (scripts/lib/sankey_flow.R):
-#            Level 1: Chr21 protein-coding
+#            Level 1: Chr21 (protein-coding, lncRNA, pseudogene)
 #            Level 2: Expected dosage / Not assessable / Outside dosage
 #                     expectation. Hunter et al.'s rule on the PLOIDY-
 #                     CORRECTED scale (padj < 0.01 AND |corrected log2FC| >=
@@ -30,6 +30,7 @@
 
 suppressPackageStartupMessages(library(data.table))
 source("scripts/lib/sankey_flow.R")
+source("scripts/lib/run.R"); run <- load_run()
 
 cat("=== T21-eQTL: SankeyMATIC export ===\n\n")
 
@@ -38,7 +39,7 @@ cat("=== T21-eQTL: SankeyMATIC export ===\n\n")
 # =============================================================================
 
 cat("Step 1: Loading lane assignments...\n")
-lanes <- fread("results/tables/chr21_lane_assignments.csv")
+lanes <- fread(run$table("chr21_lane_assignments.csv"))
 cat(sprintf("  chr21 genes: %d\n", nrow(lanes)))
 
 # =============================================================================
@@ -47,9 +48,9 @@ cat(sprintf("  chr21 genes: %d\n", nrow(lanes)))
 
 cat("\nStep 2: Building flow table...\n")
 flow <- lane_flow_table(lanes)
-fwrite(flow, "results/tables/chr21_lane_flow.csv")
-stopifnot(file.exists("results/tables/chr21_lane_flow.csv"))
-cat(sprintf("  Wrote results/tables/chr21_lane_flow.csv (%d paths)\n", nrow(flow)))
+fwrite(flow, run$table("chr21_lane_flow.csv"))
+stopifnot(file.exists(run$table("chr21_lane_flow.csv")))
+cat(sprintf("  Wrote %s (%d paths)\n", run$table("chr21_lane_flow.csv"), nrow(flow)))
 print(flow)
 
 # =============================================================================
@@ -69,7 +70,7 @@ header <- c(
   ""
 )
 
-sm_path <- "results/tables/chr21_lane_sankeymatic_input.txt"
+sm_path <- run$table("chr21_lane_sankeymatic_input.txt")
 writeLines(c(header, sm_lines), sm_path)
 stopifnot(file.exists(sm_path))
 cat(sprintf("  Wrote %s (%d flow lines)\n", sm_path, length(sm_lines)))
@@ -92,8 +93,8 @@ cat("\neQTL terminal counts:\n")
 print(flow[level3 %in% DE_LEVEL3, .(n_genes = sum(n_genes)), by = level4])
 
 writeLines(capture.output(sessionInfo()),
-           "results/tables/chr21_lane_sankeymatic_session_info.txt")
-stopifnot(file.exists("results/tables/chr21_lane_sankeymatic_session_info.txt"))
+           run$table("chr21_lane_sankeymatic_session_info.txt"))
+stopifnot(file.exists(run$table("chr21_lane_sankeymatic_session_info.txt")))
 
 cat("\n=== SankeyMATIC export complete ===\n")
 
