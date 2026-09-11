@@ -10,9 +10,11 @@
 #              keep the variant universe manageable.
 #          (b) gene selection applies Hunter et al. (2023)'s own classification
 #              rule BEFORE eQTL testing: a gene is pulled if it is eligible
-#              (expressed above the q20 baseMean cut, not repeat-flagged) AND
-#              norm_padj < ALPHA_DE AND abs(norm_log2FC) >= DEVIATION_LFC
-#              (= log2(1.5)), on the ploidy-corrected scale. Genes whose
+#              (baseMean >= 30, Hunter et al.'s minimum coverage, not
+#              repeat-flagged) AND
+#              norm_padj < ALPHA_DE AND abs(norm_log2FC) >= DEVIATION_LFC_T2
+#              (= log2(4/3); tier = 1 above DEVIATION_LFC = log2(1.5)), on
+#              the ploidy-corrected scale. Genes whose
 #              deviation is inside that threshold are not eQTL-tested - their
 #              statistical significance is downstream of sample size, not
 #              biological compensation, and asking the eQTL question for them
@@ -48,27 +50,25 @@ suppressPackageStartupMessages({
 })
 
 set.seed(42)
+source("scripts/lib/run.R"); run <- load_run(); th <- run$thresholds
 
-cat("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes ===\n\n")
+cat(sprintf("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes [run: %s] ===\n\n", run$name))
 
 # =============================================================================
 # Constants - tunable filters
 # =============================================================================
 
-ALPHA_DE          <- 0.01    # paper: padj < .01 after ploidy normalization
-# Annotation only. The chr21-internal median/MAD null and its BH-FDR cut on the
-# robust z-score are reported for reference (dev_z, q_outlier); they do not
-# select genes. The selection rule is DEVIATION_LFC + ALPHA_DE below.
-OUTLIER_FDR <- 0.10
-DEVIATION_LFC     <- log2(1.5)   # tier 1: Hunter et al.'s FC >= 1.5 cut
-DEVIATION_LFC_T2  <- log2(4/3)   # Hunter et al.'s FC >= 1.5 cut, applied on
-                                 # the ploidy-corrected log2FC scale
-LOW_EXPR_QUANT    <- 0.20    # paper's 2nd-quintile baseMean filter
-GTEX_PVAL_KEEP    <- 1e-4    # nominal cis-eQTL pval cutoff in GTEx allpairs
-                             # (~ matches the effective signif_pairs cutoff)
-RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict the target chr21 set (and the
-                                     # chr21-internal null) to protein-coding
-                                     # genes
+# Thresholds come from the run config (config/runs/<name>.R); the local names
+# are kept so the rest of the script reads as before.
+ALPHA_DE          <- th$alpha_de          # paper: padj < .01 after ploidy normalization
+OUTLIER_FDR       <- th$outlier_fdr       # annotation only (dev_z, q_outlier)
+DEVIATION_LFC     <- th$deviation_lfc     # tier 1: Hunter et al.'s FC >= 1.5 cut
+DEVIATION_LFC_T2  <- th$deviation_lfc_t2  # tier 2: the cut target selection is made at
+LOW_EXPR_BASEMEAN <- th$low_expr_basemean # Hunter et al.'s minimum coverage
+GTEX_PVAL_KEEP    <- th$gtex_pval_keep    # nominal cis-eQTL pval cutoff in GTEx allpairs
+source("scripts/lib/biotypes.R")   # TARGET_BIOTYPES: the chr21 target set (and
+                                   # the chr21-internal null), the biotypes GTEx
+                                   # whole blood tests
 
 KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
                         "IFNAR1", "IFNAR2", "TPTE", "BAGE", "DAB1")
@@ -79,7 +79,7 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 
 cat("Step 1: Identifying target genes...\n")
 
-chr21    <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
+chr21    <- fread(run$table("deseq2_chr21_genes_both_analyses.csv"))
 
 blacklist_path <- "data/processed/blacklisted_genes.csv"
 blacklist_genes <- if (file.exists(blacklist_path)) {
@@ -87,18 +87,20 @@ blacklist_genes <- if (file.exists(blacklist_path)) {
 } else character(0)
 high_repeat_genes <- unique(c(blacklist_genes, KNOWN_REPEAT_GENES))
 
-if (RESTRICT_TO_PROTEIN_CODING) {
-  n_chr21_before <- nrow(chr21)
-  chr21   <- chr21[Gene_type == "protein_coding"]
-  cat(sprintf("  Restricted to protein-coding: chr21 %d -> %d\n",
-              n_chr21_before, nrow(chr21)))
-}
+n_chr21_before <- nrow(chr21)
+chr21 <- chr21[Gene_type %in% TARGET_BIOTYPES]
+cat(sprintf("  Restricted to %s: chr21 %d -> %d\n",
+            paste(TARGET_BIOTYPES, collapse = " + "),
+            n_chr21_before, nrow(chr21)))
+print(chr21[, .N, by = Gene_type])
 
 source("scripts/lib/chr21_threshold.R")
 
 # Eligibility filters run BEFORE the null is estimated: log2FC variance scales
-# with expression, so near-zero-count genes would otherwise set the scale.
-basemean_threshold <- quantile(chr21$baseMean, LOW_EXPR_QUANT, na.rm = TRUE)
+# with expression, so near-zero-count genes would otherwise set the scale. The
+# cutoff is Hunter et al.'s absolute minimum, not a quantile of the target set,
+# so adding lncRNA (mostly barely expressed in blood) cannot move it.
+basemean_threshold <- LOW_EXPR_BASEMEAN
 eligible <- chr21[baseMean >= basemean_threshold &
                     !(Gene_name %in% high_repeat_genes) &
                     !is.na(norm_log2FC)]
@@ -122,6 +124,7 @@ cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (
 # tier adopted 2026-09-01 so near-threshold genes are reported, not hidden.
 target_genes <- eligible[!is.na(norm_padj) & norm_padj < ALPHA_DE &
                            abs(norm_log2FC) >= DEVIATION_LFC_T2]
+if (nrow(target_genes) == 0) stop("no chr21 gene passes the deviation rule under run ", run$name, "; nothing to test", call. = FALSE)
 target_genes[, tier := fifelse(abs(norm_log2FC) >= DEVIATION_LFC, 1L, 2L)]
 
 target_genes[, gene_set := fifelse(norm_log2FC < 0,
@@ -139,8 +142,6 @@ cat(sprintf("  Sig_high_FC genes passing magnitude filter: %d\n", n_high))
 cat(sprintf("  Total target genes for eQTL testing:        %d\n",
             nrow(target_genes)))
 
-fwrite(target_genes, "data/processed/eqtl_supported_genes.csv")
-
 # =============================================================================
 # STEP 2: Pull GTEx whole-blood ALLPAIRS cis variants for the target genes
 # =============================================================================
@@ -155,6 +156,30 @@ cat(sprintf("  allpairs rows loaded: %d (genes: %d, variants: %d)\n",
             nrow(gtex), uniqueN(gtex$gene_id), uniqueN(gtex$variant_id)))
 
 gtex[, ensembl_stable := sub("\\..*$", "", gene_id)]
+
+# ---- Positive-control genes (standalone control, tested in script 03) -------
+# The strongest GTEx whole-blood eGenes among the expressed, non-repeat chr21
+# genes that do NOT deviate. They get the same variant pull here and the same
+# within-T21 permutation test in script 03 as the deviating genes, under
+# gene_set == "positive_control"; scripts 03 and 04 keep them out of every
+# main-result table. Most should be detected, or the test lacks power at this
+# cohort size.
+source("scripts/lib/eqtl_controls.R")
+N_POSITIVE_CONTROLS <- th$n_positive_controls
+gtex_min_p <- gtex[startsWith(variant_id, "chr21_") & !is.na(pval_nominal),
+                   .(gtex_min_p = min(pval_nominal)), by = ensembl_stable]
+eligible[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
+positive_controls <- select_positive_controls(
+  eligible[, .(ensembl_stable, EnsemblID, Gene_name, raw_log2FC, norm_log2FC, norm_padj)],
+  gtex_min_p, exclude = target_genes$ensembl_stable, n = N_POSITIVE_CONTROLS)
+positive_controls[, `:=`(gene_set = "positive_control",
+                         observed_direction = sign(norm_log2FC),
+                         tier = NA_integer_)]
+cat(sprintf("  Positive-control genes (strongest GTEx eGenes, non-deviating): %d\n",
+            nrow(positive_controls)))
+print(positive_controls[, .(Gene_name, gtex_min_p = signif(gtex_min_p, 2),
+                            norm_log2FC = round(norm_log2FC, 2))])
+target_genes <- rbind(target_genes, positive_controls, fill = TRUE)
 
 target_variants <- gtex[ensembl_stable %in% target_genes$ensembl_stable &
                         startsWith(variant_id, "chr21_") &
@@ -172,6 +197,19 @@ target_variants[, `:=`(
   ALT   = parsed[[4]]
 )]
 
+# TSS per gene (GTEx: tss_distance = POS - TSS), carried on the roster so
+# script 03 can pair each deviating gene with a distant decoy variant set and
+# script 11 can place it on the chr21 map. Taken from every allpairs row of
+# the gene, not only those passing the p cut, so a gene with GTEx rows but no
+# variant at the cut still has a position.
+tss_rows <- gtex[ensembl_stable %in% target_genes$ensembl_stable &
+                   startsWith(variant_id, "chr21_")]
+tss_rows[, POS := as.integer(tstrsplit(variant_id, "_", fixed = TRUE)[[2]])]
+target_genes <- merge(target_genes,
+                      gene_tss(tss_rows[, .(ensembl_stable, POS, tss_distance)]),
+                      by = "ensembl_stable", all.x = TRUE)
+fwrite(target_genes, run$processed("eqtl_supported_genes.csv"))
+
 # Attach gene metadata (some variants may map to multiple genes - keep all)
 target_variants <- merge(
   target_variants,
@@ -187,7 +225,7 @@ cat(sprintf("  Target genes covered by GTEx allpairs: %d / %d\n",
             uniqueN(target_variants$ensembl_stable),
             uniqueN(target_genes$ensembl_stable)))
 
-fwrite(target_variants, "data/processed/eqtl_target_variants.csv")
+fwrite(target_variants, run$processed("eqtl_target_variants.csv"))
 
 target_pos <- sort(unique(target_variants$POS))
 cat(sprintf("  Unique positions to scan in genotype CSVs: %d\n",
@@ -199,7 +237,7 @@ cat(sprintf("  Unique positions to scan in genotype CSVs: %d\n",
 
 cat("\nStep 3: Loading DESeq2 sample roster...\n")
 
-meta <- fread("data/processed/sample_metadata.csv")
+meta <- run$cohort()
 meta[, subject_id := sub("[A-Z][0-9]*$", "", LabID)]   # strip A/A2/B/B2/...
 
 stopifnot(all(meta$Karyotype %in% c("T21", "Control")))
@@ -216,6 +254,17 @@ subject_karyo <- setNames(meta$Karyotype[!duplicated(meta$subject_id)],
 # =============================================================================
 
 cat("\nStep 4: Filtering genotype CSVs (stream via awk)...\n")
+
+geno_out <- run$processed("genotypes_filtered.csv")
+pos_sig  <- run$processed("genotype_target_positions.txt")
+# The cache key covers the target positions AND the cohort subjects, because
+# the stream also column-filters to the run cohort.
+cache_key <- c(as.character(target_pos), "--subjects--", sort(unique(meta$subject_id)))
+if (file.exists(geno_out) && file.exists(pos_sig) &&
+    identical(readLines(pos_sig), cache_key)) {
+  cat("  Genotype extract for these target positions already exists; skipping the stream.\n")
+  out <- fread(geno_out)
+} else {
 
 # Write target positions to a temp file for awk to load into a hash
 pos_tmp <- tempfile(fileext = ".txt")
@@ -321,10 +370,10 @@ out <- geno_long[, .(
 )]
 
 setorder(out, POS, karyotype, subject_id)
-fwrite(out, "data/processed/genotypes_filtered.csv")
-
-cat(sprintf("\n  Wrote data/processed/genotypes_filtered.csv (%d rows)\n",
-            nrow(out)))
+fwrite(out, geno_out)
+writeLines(cache_key, pos_sig)
+cat(sprintf("\n  Wrote %s (%d rows)\n", geno_out, nrow(out)))
+}
 
 # =============================================================================
 # STEP 6: Verification summary
@@ -335,8 +384,9 @@ n_low_fc  <- uniqueN(
   target_genes$ensembl_stable[target_genes$gene_set == "DE_low_FC"])
 n_high_fc <- uniqueN(
   target_genes$ensembl_stable[target_genes$gene_set == "Sig_high_FC"])
-cat(sprintf("Target genes: %d  (DE_low_FC: %d, Sig_high_FC: %d)\n",
-            uniqueN(target_genes$ensembl_stable), n_low_fc, n_high_fc))
+cat(sprintf("Target genes: %d  (DE_low_FC: %d, Sig_high_FC: %d, positive_control: %d)\n",
+            uniqueN(target_genes$ensembl_stable), n_low_fc, n_high_fc,
+            sum(target_genes$gene_set == "positive_control")))
 cat(sprintf("Variants tested in HTP: %d / %d GTEx targets\n",
             uniqueN(out$variant_id), uniqueN(target_variants$variant_id)))
 cat(sprintf("Subjects with genotypes: %d  (T21: %d, Control: %d)\n",
@@ -350,14 +400,13 @@ dosage_range <- out[, .(min = min(alt_dosage, na.rm = TRUE),
 print(dosage_range)
 cat("(Expect Control max <= 2; T21 max <= 3 on chr21)\n")
 
-writeLines(capture.output(sessionInfo()),
-           "data/processed/genotype_filter_session_info.txt")
-stopifnot(file.exists("data/processed/genotype_filter_session_info.txt"))
+writeLines(capture.output(sessionInfo()), run$processed("genotype_filter_session_info.txt"))
 
 stopifnot(
-  file.exists("data/processed/eqtl_supported_genes.csv"),
-  file.exists("data/processed/eqtl_target_variants.csv"),
-  file.exists("data/processed/genotypes_filtered.csv")
+  file.exists(run$processed("genotype_filter_session_info.txt")),
+  file.exists(run$processed("eqtl_supported_genes.csv")),
+  file.exists(run$processed("eqtl_target_variants.csv")),
+  file.exists(geno_out)
 )
 
 cat("\n=== Filter complete ===\n")
@@ -398,3 +447,18 @@ cat("\n=== Filter complete ===\n")
 #             volcano figure showed genes with crushing padj within 0.02-0.09
 #             of the tier-1 line; reported as a labelled secondary tier rather
 #             than moving the pre-registered primary threshold.
+# 2026-09-04  WIDENED the chr21 target set from protein-coding only to
+#             protein-coding, lncRNA and pseudogene biotypes (TARGET_BIOTYPES in
+#             scripts/lib/biotypes.R), the biotypes GTEx whole blood tests. REPLACED the q20 baseMean
+#             low-expression cutoff with Hunter et al.'s absolute minimum
+#             (LOW_EXPR_BASEMEAN = 30): a quantile of the target set would have
+#             dropped from 25.1 to 4.1 once lncRNA joined it, admitting genes
+#             with a handful of counts. On the protein-coding set the absolute
+#             cutoff flags 34 genes against the quantile's 32 (a superset).
+# 2026-09-10  ADDED positive-control genes to the roster (gene_set ==
+#             "positive_control"): the n_positive_controls strongest GTEx
+#             whole-blood eGenes among expressed, non-repeat, non-deviating
+#             chr21 genes (scripts/lib/eqtl_controls.R), pulled through the
+#             same variant and genotype extraction. ADDED gtex_min_p and tss
+#             columns to eqtl_supported_genes.csv; the roster is now written
+#             after the GTEx pull. Deviating-gene selection is unchanged.

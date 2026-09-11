@@ -28,7 +28,8 @@ STRICT <- c("deseq2_all_genes_both_analyses.csv", "deseq2_chr21_genes_both_analy
 LANE_STRICT_COLS <- c("Gene_name", "sig_lane", "tier", "eqtl_lane",
                       "low_expr", "high_repeat")
 REPORTED <- c("t21_dosage_per_variant.csv", "eqtl_gene_level_perm.csv",
-              "eqtl_negative_controls.csv", "t21_representative_variants.csv")
+              "t21_representative_variants.csv", "eqtl_control_negative.csv",
+              "eqtl_control_positive.csv", "eqtl_controls_summary.csv")
 TOL <- 1e-8
 KEYS <- c("Gene_name", "EnsemblID", "variant_id", "sig_lane", "eqtl_lane", "scope",
           "control", "gene_set", "definition", "cluster", "k", "ensembl_stable")
