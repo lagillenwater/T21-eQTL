@@ -3,7 +3,7 @@
 # Data preparation for scripts/06_chr21_distribution_panel.R: the uncorrected
 # and ploidy-corrected log2 fold changes of the same genes, side by side, for
 # chromosome 21 (where the correction acts) and a control chromosome (where
-# it must not). Extracted so the gene bookkeeping - protein-coding
+# it must not). Extracted so the gene bookkeeping - the biotype
 # restriction, the same gene set on both scales, chromosome naming - is
 # unit-tested (tests/testthat/test-ploidy-distributions.R).
 
@@ -13,7 +13,8 @@
 #'   deseq2_all_genes_both_analyses.csv: Chr, Gene_type, raw_log2FC,
 #'   norm_log2FC. EnsemblID and Gene_name are carried through when present.
 #' @param chromosomes Chr values to keep, in display order
-#' @param protein_coding_only restrict to Gene_type == "protein_coding"
+#' @param biotypes Gene_type values to keep; defaults to TARGET_BIOTYPES from
+#'   scripts/lib/biotypes.R (source it first). NULL keeps all
 #' @return data.table(<ids>, chromosome, scale, log2FC). chromosome is a
 #'   factor in the order given; scale is a factor: uncorrected,
 #'   ploidy-corrected. A gene with an NA estimate on either scale is dropped
@@ -23,14 +24,14 @@
 #'   empty control curve.
 ploidy_distribution_long <- function(res,
                                      chromosomes = c("chr21", "chr22"),
-                                     protein_coding_only = TRUE) {
+                                     biotypes = TARGET_BIOTYPES) {
   need <- c("Chr", "Gene_type", "raw_log2FC", "norm_log2FC")
   missing <- setdiff(need, names(res))
   if (length(missing)) {
     stop("res is missing column(s): ", paste(missing, collapse = ", "))
   }
   d <- as.data.table(res)[Chr %in% chromosomes]
-  if (protein_coding_only) d <- d[Gene_type == "protein_coding"]
+  if (!is.null(biotypes)) d <- d[Gene_type %in% biotypes]
   d <- d[!is.na(raw_log2FC) & !is.na(norm_log2FC)]
   absent <- setdiff(chromosomes, unique(d$Chr))
   if (length(absent)) {

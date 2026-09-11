@@ -1,6 +1,6 @@
 # sankey_flow.R
 #
-# The chr21 lane flow (Chr21 protein-coding -> classification -> sub-category
+# The chr21 lane flow (Chr21 target biotypes -> classification -> sub-category
 # -> eQTL terminal) and its SankeyMATIC serialisation, extracted from
 # scripts/05_sankeymatic_export.R so they can be unit-tested. The in-script
 # version broke silently on 2026-09-01: level 3 was relabelled to tier
@@ -12,7 +12,7 @@
 # Node names are the short labels used in that figure. The three eQTL
 # terminals are shared by the DE high and DE low arms.
 
-FLOW_ROOT <- "Chr21 protein-coding"
+FLOW_ROOT <- "Chr21 (protein-coding, lncRNA, pseudogene)"
 
 LEVEL2_ORDER <- c("Outside dosage expectation", "Not assessable",
                   "Expected dosage")

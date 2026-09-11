@@ -13,16 +13,17 @@ lanes_all <- data.table(
                 "not_evaluated")
 )
 
-# The lane composition behind docs/figures/Sankey.png (2026-09-01 run):
-# 104 expected dosage, 12 high-repeat, 29 low-expression, DE high 7
-# (5 cis / 1 no cis / 1 no GTEx), DE low 8 (4 / 3 / 1).
+# The lane composition behind docs/figures/Sankey.png (2026-09-04 run:
+# protein-coding, lncRNA and pseudogene biotypes, baseMean < 30 floor): 130
+# expected dosage, 12 high-repeat, 153 low-expression, DE high 10 (7 cis / 1
+# no cis / 2 no GTEx), DE low 13 (6 / 6 / 1).
 lanes_fig <- data.table(
-  sig_lane  = c(rep("Expected_dosage", 104), rep("High_repeats", 12),
-                rep("Low_expression", 29), rep("DE_high", 7),
-                rep("DE_low", 8)),
-  eqtl_lane = c(rep("not_evaluated", 145),
-                rep("cis_eqtl", 5), "no_cis_eqtl", "no_GTEx_data",
-                rep("cis_eqtl", 4), rep("no_cis_eqtl", 3), "no_GTEx_data")
+  sig_lane  = c(rep("Expected_dosage", 130), rep("High_repeats", 12),
+                rep("Low_expression", 153), rep("DE_high", 10),
+                rep("DE_low", 13)),
+  eqtl_lane = c(rep("not_evaluated", 295),
+                rep("cis_eqtl", 7), "no_cis_eqtl", rep("no_GTEx_data", 2),
+                rep("cis_eqtl", 6), rep("no_cis_eqtl", 6), "no_GTEx_data")
 )
 
 parse_sankey_lines <- function(lines) {
@@ -63,27 +64,27 @@ test_that("gene count is conserved in the flow table and at every SankeyMATIC st
   flow <- lane_flow_table(lanes_fig)
   expect_equal(sum(flow$n_genes), nrow(lanes_fig))
   parsed <- parse_sankey_lines(sankeymatic_lines(flow))
-  expect_equal(sum(parsed[source == "Chr21 protein-coding", n]), 160)
-  expect_equal(sum(parsed[source == "Outside dosage expectation", n]), 15)
-  expect_equal(sum(parsed[source == "Not assessable", n]), 41)
-  expect_equal(sum(parsed[source %in% c("DE high", "DE low"), n]), 15)
+  expect_equal(sum(parsed[source == "Chr21 (protein-coding, lncRNA, pseudogene)", n]), 318)
+  expect_equal(sum(parsed[source == "Outside dosage expectation", n]), 23)
+  expect_equal(sum(parsed[source == "Not assessable", n]), 165)
+  expect_equal(sum(parsed[source %in% c("DE high", "DE low"), n]), 23)
 })
 
 test_that("the export reproduces the flows drawn in docs/figures/Sankey.png", {
   lines <- sankeymatic_lines(lane_flow_table(lanes_fig))
   expected <- c(
-    "Chr21 protein-coding [15] Outside dosage expectation",
-    "Chr21 protein-coding [41] Not assessable",
-    "Chr21 protein-coding [104] Expected dosage",
-    "Outside dosage expectation [7] DE high",
-    "Outside dosage expectation [8] DE low",
+    "Chr21 (protein-coding, lncRNA, pseudogene) [23] Outside dosage expectation",
+    "Chr21 (protein-coding, lncRNA, pseudogene) [165] Not assessable",
+    "Chr21 (protein-coding, lncRNA, pseudogene) [130] Expected dosage",
+    "Outside dosage expectation [10] DE high",
+    "Outside dosage expectation [13] DE low",
     "Not assessable [12] High repeats",
-    "Not assessable [29] Low expression",
-    "DE high [5] cis eQTL",
+    "Not assessable [153] Low expression",
+    "DE high [7] cis eQTL",
     "DE high [1] no cis eQTL",
-    "DE high [1] no GTEx QTL",
-    "DE low [4] cis eQTL",
-    "DE low [3] no cis eQTL",
+    "DE high [2] no GTEx QTL",
+    "DE low [6] cis eQTL",
+    "DE low [6] no cis eQTL",
     "DE low [1] no GTEx QTL"
   )
   expect_setequal(lines, expected)
