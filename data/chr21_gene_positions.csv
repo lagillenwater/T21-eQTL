@@ -1,0 +1,6 @@
+Gene_name,ensembl_stable,tss,strand,source
+ERG,ENSG00000157554,38661963,-1,Ensembl REST lookup/id GRCh38 (gene end on the minus strand) 2026-09-10
+AP001610.2,ENSG00000228318,41445708,-1,Ensembl REST lookup/id GRCh38 (gene end on the minus strand; current display name MX1-AS1) 2026-09-10
+ATP5PF,ENSG00000154723,25735721,-1,Ensembl REST lookup/id GRCh38 (gene end on the minus strand) 2026-09-10
+AP000282.1,ENSG00000227757,33071590,-1,Ensembl REST lookup/id GRCh38 (gene end on the minus strand) 2026-09-10
+RUNX1,ENSG00000159216,36004667,-1,Ensembl REST lookup/id GRCh38 (gene end on the minus strand) 2026-09-10
