@@ -10,13 +10,39 @@ and terminology, the archived script catalog, and practical gotchas.
 
 The classification rule matches Hunter et al.'s own criterion directly:
 `norm_padj < ALPHA_DE` (0.01) AND `abs(norm_log2FC) >= DEVIATION_LFC`
-(`log2(1.5)`), applied on the ploidy-corrected scale. An earlier pipeline
+(`log2(1.5)`), applied on the ploidy-corrected scale; that is tier 1. A
+labelled tier 2 (`DEVIATION_LFC_T2 = log2(4/3)`, adopted 2026-09-01)
+reports near-threshold genes rather than hiding them, and it is the cut
+the `sig_lane` split and the script 02 target selection are actually
+made at; `DEVIATION_LFC` sets only the `tier` column. An earlier pipeline
 instead gated deviations on a cohort-derived noise threshold (1 SD of the
 non-chr21 cohort noise; the constant was then named `MAGNITUDE_THRESHOLD`).
 That filter was retired: ploidy normalization only acts on chr21 genes, so
 a non-chr21 cohort-noise SD is not a valid reference for the chr21 null,
-and retiring the filter removed that mismatch. `DEVIATION_LFC` is the one
-dial in this analysis.
+and retiring the filter removed that mismatch. `DEVIATION_LFC_T2` (with
+`DEVIATION_LFC` labelling the tiers) is the one dial in this analysis.
+
+### Target biotypes: protein-coding, lncRNA, pseudogene; low-expression floor: Hunter's absolute 30
+
+The chr21 target set is protein-coding, lncRNA and pseudogene genes
+(`TARGET_BIOTYPES` in `scripts/lib/biotypes.R`, sourced by scripts 02, 04,
+06, 07), because GTEx whole blood tests all three for cis-eQTLs: of the 223
+chr21 genes in the GTEx v10 allpairs file, 137 are protein-coding, 61 lncRNA
+and 13 pseudogenes in the HTP annotation. An earlier run
+restricted to protein-coding (`RESTRICT_TO_PROTEIN_CODING`, now removed),
+which left the eQTL-testable lncRNAs and pseudogenes out of the question. Widening the set
+is method application, not a new method: the same rules run on more genes.
+
+Widening exposed a dependency in the low-expression flag. It had been the
+20th percentile of baseMean within the target set (`LOW_EXPR_QUANT`), which
+sat at 25.1 for protein-coding genes but would drop to 4.1 with lncRNA in
+the set (chr21 lncRNA median baseMean is 8 against 482 for protein-coding),
+admitting genes with a handful of counts. It is now Hunter et al.'s own
+absolute coverage floor, `LOW_EXPR_BASEMEAN = 30`, applied identically in
+scripts 02 and 04. On the protein-coding set the absolute floor flags 34
+genes against the quantile's 32, a strict superset: TFF3 (baseMean 27.5)
+and C21orf59-TCP10L (25.2) move from Expected dosage to Low expression, and
+no DE call changes.
 
 ### chr21-internal outlier test: annotation only
 
@@ -32,9 +58,11 @@ It does not gate classification - only Hunter's rule does.
 The locus-level "any cis variant matches direction and reproduces in T21"
 rule (script 03's `strongest_supp_variant` logic) is retained as context
 columns (`n_cis_total`, `n_dir_match`, `n_supp_with_repro`) but is **not**
-the classification rule: `results/tables/eqtl_negative_controls.csv` shows
-it returns 100% "explained" even when the observed deviation direction is
-artificially flipped, so it does not discriminate real signal from chance.
+the classification rule: checked on 2026-08-31 (then
+`eqtl_negative_controls.csv`, since replaced by the standalone controls
+below), it called 15 of 20 genes "explained" as observed, 18 of 20 with
+the deviation direction flipped, and 20% with genotypes shuffled, so it
+does not discriminate real signal from chance.
 The classification rule is the gene-level permutation test
 (`scripts/lib/eqtl_fit.R`, run in script 03): for each deviating gene, the
 best-variant test statistic is compared against its null distribution
@@ -42,15 +70,168 @@ under permutation of genotype-to-expression assignment, giving
 `p_gene_perm`; BH-adjusted across deviating genes to `q_gene_bh`, with
 `eqtl_lane = cis_eqtl` when `q_gene_bh < FDR_GENE` (0.05).
 
+### Standalone controls for the eQTL test (2026-09-10)
+
+The permutation null inside the gene-level test shuffles expression across
+subjects, which is a negative-control operation, but it is the machinery
+that produces the p-value rather than a check reported beside it. The
+user asked for distinct, standalone positive and negative controls. Both
+go through the same runner as the observed set
+(`scripts/lib/eqtl_controls.R::gene_level_tests`, script 03), so the
+three sets are tested identically:
+
+- **Negative, unlinked variant sets.** Each deviating gene's expression is
+  paired with the cis variant set of another tested gene with a TSS at
+  least `decoy_min_distance` (5 Mb) away, beyond any LD with its own
+  locus; among those the gene with the closest variant count is chosen so
+  the decoy carries the same multiplicity (a first version took the
+  farthest gene, which handed 16 of 20 genes the same one-variant decoy).
+  Real genotypes, the same subjects, the same test; detections should sit
+  near the FDR level. `eqtl_control_negative.csv`.
+- **Positive, strong GTEx eGenes.** Script 02 selects the
+  `n_positive_controls` (10) chr21 genes with the smallest GTEx
+  whole-blood nominal p among expressed, non-repeat, non-deviating genes
+  and pulls their cis variants alongside the deviating genes
+  (`gene_set == "positive_control"`); script 03 tests them on their own
+  variants. Most should be detected, or the test lacks power at this
+  cohort size. `eqtl_control_positive.csv`.
+
+The old direction-flip and genotype-shuffle checks of the retired
+any-variant rule (`eqtl_negative_controls.csv`) were removed; their
+numbers are recorded above. Positive-control genes are excluded from
+`t21_dosage_per_variant.csv`, `eqtl_gene_level_perm.csv` and the
+representative-variant table, so script 04 and the lane table are
+unaffected. The observed test itself did not change: same variants, seeds
+and BH, now called through the shared runner.
+
+### Figures split by question (2026-09-10)
+
+The 2x2 `Chr21_DEG` volcano coloured deviating genes by direction and eQTL
+outcome at once, and the per-gene dosage boxplots lived in script 03. Both
+were replaced: script 07 now writes `volcano_all_genes` (chr21 highlighted,
+no labels: the ploidy-correction shift) and `volcano_chr21` (deviating genes
+labelled, coloured by direction only), and the new script 11 draws the
+eQTL stage from existing tables: `eqtl_dosage_panels` (best variant of the
+permutation test per gene, with the positive and negative controls in their
+own groups), `eqtl_effect_sizes` (a scatter of the within-T21 slope at each
+gene's best variant against -log10 of its gene-level permutation q, for
+the deviating genes, their decoy sets and the positive controls; earlier
+versions plotted q alone, then absolute slopes as a faceted and then a
+single forest plot, and were revised at the user's request) and `chr21_deviating_map` (bands at each deviating
+gene's TSS coloured by eQTL outcome, labels by direction). Positions come
+from the roster TSS, with `data/chr21_gene_positions.csv` (Ensembl GRCh38)
+covering deviating genes GTEx does not carry. Nothing statistical moved.
+
 ### `eqtl_lane` is a detection result, not an "explained by eQTL" claim
 
 `cis_eqtl` means a cis-eQTL is detectable for the gene at
 `q_gene_bh < 0.05` in the within-T21 data - not that the eQTL
 quantitatively accounts for the observed deviation.
 
-### Composition-control null: correlation-matched, not independent
+### Descriptive framing: the annotations describe deviations, they do not explain them
 
-The composition-control null must be matched, not independent.
+Every chr21 gene is placed by its deviation from the trisomy expectation
+(ploidy-corrected log2FC against 0). Deviating genes then carry the
+cis-eQTL annotation, which is observed rather than inferred and is not a
+cause.
+
+The cis-eQTL call has that status for a structural reason. A cis-eQTL
+describes between-individual variance at a locus; a lane assignment is a
+difference in group means, and common-variant genotype frequencies do not
+differ between T21 and control subjects drawn from the same population. A
+cis-eQTL therefore cannot produce a mean deviation from 1.5x. "cis-eQTL
+detected" says the gene's expression in T21 blood tracks common cis
+variation (a property of the gene), not that the variant accounts for the
+lane. Hunter et al. could invoke eQTLs because their single T21 individual
+had a single genotype; with 302 genotyped subjects that argument does not
+carry over.
+
+### Co-expression neighborhood check retired (2026-09-10)
+
+From 2026-08 to 2026-09-10 every deviating gene also carried a
+co-expression neighborhood check: its 20 most correlated non-chr21 genes
+were chosen in controls, their median T21-vs-Control log2FC was compared
+with a correlation-matched null of 300 random modules, and the gene was
+labelled by whether its neighbors shifted with it (`neighborhood`,
+`partner_z`, `gene_minus_partner_lfc`; script 04 Step 3b,
+`scripts/lib/neighborhood.R`, `chr21_neighborhood_shift.csv`). Scripts 08
+and 09 then reported the within-T21 R-squared of each deviating gene on its
+neighborhood score, beside its best cis variant and against background
+genes and controls. The labels were renamed twice (PROGRAM / MIXED /
+GENE-SPECIFIC, then SHARED / PARTLY-SHARED / NOT-SHARED, then
+neighbors_shift / neighbors_shift_less / neighbors_no_shift) because each
+earlier name claimed a cause the test does not observe.
+
+The check, and scripts 08 and 09 with it, were retired on 2026-09-10. In
+whole blood a gene's co-expression partners are largely a cell-type
+signature, so the check was a proxy for composition, and the adjusted run
+now uses measured CyTOF cell fractions directly as covariates
+(`config/runs/adjusted.R`, `S1_covariate_evidence.R`). What the proxy
+could add was hard to read: a high neighborhood R-squared is the default
+for any expressed whole-blood gene (median 0.63 across 1000 random
+non-chr21 genes), a low one could mean decoupling in T21 or a poorly chosen
+partner set, and on the adjusted artifact, with the cell fractions already
+removed, the composition reading no longer applied. Lane classification,
+`eqtl_lane` and every DESeq2 table are unchanged by the removal; the
+archived 2026-09-04 outputs keep the neighborhood tables for the record.
+The matched-null design is described below for that record.
+
+### Named runs, covariate adjustment as one artifact, mosaic exclusion (2026-09-10)
+
+The pipeline had no configuration surface: every path was a literal, the
+DESeq2 design was fixed to `~ karyotype`, and thresholds were repeated in
+three scripts. Three findings on 2026-09-10 required a covariate-adjusted
+run: age, BMI and sample source differ by karyotype (BMI median 27.2 vs
+24.3; NDSC2018 source 92 T21 vs 7 control; Event_name also imbalanced),
+CyTOF cell composition differs by karyotype and associates with thousands
+of genes, and 9 of 302 T21 subjects are mosaic (INCLUDE MONDO codes), with
+a chr21 expression index near 1.07 against 1.35 for full trisomy. Decisions:
+
+1. **Runs are named and configured** (`config/runs/<name>.R`, `scripts/lib/run.R`).
+   Outputs go to `results/runs/<name>/`. Baseline (Hunter-style, no
+   covariates) is regenerated through the mechanism and audited against the
+   archived 2026-09-04 outputs (`scripts/audit_baseline_drift.R`).
+2. **Adjusted data reaches the eQTL stage as one artifact.** Script 01
+   writes log2-CPM (chr21-excluded library size) with the run's covariate
+   effects removed and karyotype kept; script 03 reads it. The alternative, covariates inside every stage's own
+   model, was rejected as harder to audit.
+3. **The adjusted run's covariates are age, sex, BMI, sample source and 19
+   CyTOF cell fractions** (20 minus the reference cluster, classical
+   monocytes and M-MDSCs), used directly rather than as principal
+   components so the adjustment can be attributed to named cell types
+   (`S1_attribution.csv`). Age, sex and sample source are the covariate set
+   the HTP group's own whole-blood analyses use (Waugh 2023; Galbraith 2023
+   used surrogate variables). BMI and composition are plausibly downstream
+   of trisomy, so the adjusted run estimates the deviation net of those
+   pathways and is reported beside, not instead of, the baseline.
+4. **Mosaic T21 subjects are excluded from the adjusted run** by a cohort
+   rule; translocation and unspecified (DS_T21) subjects are kept and
+   flagged. Ploidy 1.5 does not hold for mosaics, and S1 panel C shows them
+   apart genome-wide (9 chr21 and 58 non-chr21 genes at 5% FDR against
+   full trisomy, n = 9).
+5. **One intentional change to baseline:** the within-T21 eQTL fits moved
+   from log2(raw count + 1) to the log2-CPM artifact so one expression scale
+   runs through the pipeline. The drift audit shows every DESeq2 table and
+   lane classification identical, and one eQTL call flips: CYYR1, from
+   no_cis_eqtl (q 0.142) to cis_eqtl (q 0.041), because library-size
+   normalization sharpens its best variant (min p 2.4e-3 to 5.9e-4). The
+   baseline headline is therefore 8 DE_high cis-eQTL genes rather than 7,
+   and CYYR1 leaves the set of gene-specific deviations without a detected
+   cis-eQTL. This flip is recorded here for the user's review.
+6. **Script 10 (log-CPM composition adjustment) is retired** to
+   `scripts/archive/`; `10_compare_runs.R` compares the two full DESeq2
+   runs instead.
+
+A drift-audit lesson: the first regenerated baseline shifted four labels
+of the since-retired neighborhood check because its expressed-gene pool had
+been computed over all 399 count-matrix columns instead of the 397 cohort
+samples. The pool (`run$partner_pool(counts, lab_ids)`, now used only by
+S1) is cohort-restricted.
+
+
+### Neighborhood-check null: correlation-matched, not independent (retired 2026-09-10)
+
+Kept for the record of the retired check. The null had to be matched, not independent.
 `partner_null(L_ctrl, lfc, n_partners = 20, n_draw = 300, seed = 1)` draws
 `n_draw` random seed genes from the same non-chr21 expressed pool and, for
 each seed, takes the median log2FC of *its own* top-`n_partners`
