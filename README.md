@@ -29,6 +29,7 @@ Rscript scripts/06_chr21_distribution_panel.R --run baseline    # ploidy-correct
 Rscript scripts/07_three_panel_figure.R --run baseline          # volcano figures: all genes, chr21 only
 Rscript scripts/11_eqtl_figures.R --run baseline                # eQTL dosage panels, effect sizes, chr21 map
 Rscript scripts/13_af_deviation_bound.R --run baseline         # can the cis-eQTLs move the group ratio? (AF bound)
+Rscript scripts/14_t21_vs_gtex_allelic_effect.R --run baseline # same allelic effect in T21 as in GTEx? (aFC, ploidy 3)
 Rscript scripts/S1_covariate_evidence.R --run baseline          # supplement: evidence for covariates and exclusions
 
 # Covariate- and composition-adjusted run: same scripts with --run adjusted, then
