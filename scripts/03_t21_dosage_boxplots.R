@@ -269,37 +269,60 @@ cat("  Wrote", run$table("eqtl_gene_level_perm.csv"), "\n")
 # =============================================================================
 # STANDALONE CONTROLS for the gene-level test
 # =============================================================================
-# Negative: each deviating gene's expression against the cis variant set of
-# another tested gene at least DECOY_MIN_DISTANCE away (no LD with its own
-# locus), choosing the candidate with the closest variant count so the decoy
-# test carries the same multiplicity. Real genotypes, the same subjects, the
-# same test; detections should sit near the FDR level.
-# Positive: the strongest GTEx whole-blood eGenes among expressed, non-repeat,
-# non-deviating chr21 genes (script 02, gene_set == "positive_control"),
-# tested on their own cis variants. Most should be detected; if not, the test
-# lacks power here and "tested, not detected" carries no weight.
+# Negative: each deviating gene's expression against several cis variant sets
+# of other tested genes at least DECOY_MIN_DISTANCE away (no LD with its own
+# locus), closest variant counts first, common variants only. Real genotypes,
+# the same subjects, the same test; the detection rate over all decoy tests
+# is the null rate of the best-variant search.
+# Positive: GTEx whole-blood eGenes matched to the deviating genes on allelic
+# fold change and expression, one per locus, non-deviating, outside GRCh38
+# false duplications (script 02, gene_set == "positive_control"), tested on
+# their own cis variants. Most should be detected; if not, the test lacks
+# power for effects of this size and "tested, not detected" carries no weight.
 
 cat("\n=== Standalone controls ===\n")
 
-tss_vec  <- genes[Gene_name %in% de_genes & !is.na(tss), setNames(tss, Gene_name)]
-nvar_vec <- vapply(variants_of[names(tss_vec)], length, integer(1))
-decoys   <- assign_decoys(tss_vec, nvar_vec, DECOY_MIN_DISTANCE)
-neg_genes      <- decoys[!is.na(decoy_gene), Gene_name]
-decoy_variants <- setNames(lapply(neg_genes, function(g)
-  variants_of[[decoys[Gene_name == g, decoy_gene]]]), neg_genes)
-neg_res <- gene_level_tests(neg_genes, decoy_variants, G_all, expr_of,
-                            n_perm = N_PERM, seed_base = 3026L, fdr = FDR_GENE)
-neg_res <- merge(decoys, neg_res, by = "Gene_name", all.x = TRUE)
-neg_res[is.na(detected), detected := FALSE]
-setorder(neg_res, p_gene_perm, na.last = TRUE)
-fwrite(neg_res, run$table("eqtl_control_negative.csv"))
-cat(sprintf("  Negative (unlinked decoy variants): %d of %d detected at q < %.2f\n",
-            sum(neg_res$detected), sum(!is.na(neg_res$p_gene_perm)), FDR_GENE))
-print(as.data.frame(neg_res[, .(Gene_name, decoy_gene, distance_mb = round(distance / 1e6, 1),
-                                n_variants, p_gene_perm, q_gene_bh, detected)]))
+# Controls v2: n_decoy_sets decoy sets per deviating gene rather than one,
+# drawn from every tested gene's cis variant set (deviating genes and
+# positive controls alike) at least DECOY_MIN_DISTANCE away, closest variant
+# count first. Decoy variants below decoy_min_maf (GTEx MAF) are dropped, so
+# a decoy "effect" cannot come from a handful of carriers. With k sets per
+# gene the decoys estimate the null detection rate of the best-variant search
+# rather than only illustrating it. Script 11 draws the rank-1 decoy.
+N_DECOY_SETS  <- run$thresholds$n_decoy_sets
+DECOY_MIN_MAF <- run$thresholds$decoy_min_maf
+pos_genes     <- genes[gene_set == "positive_control", Gene_name]
+pos_variants  <- split(fit_pos$variant_id, fit_pos$Gene_name)
+maf_of <- unique(rbind(fit_table[, .(variant_id, gtex_maf)], fit_pos[, .(variant_id, gtex_maf)]), by = "variant_id")
+maf_of <- setNames(maf_of$gtex_maf, maf_of$variant_id)
+common_only <- function(v) v[!is.na(maf_of[v]) & maf_of[v] >= DECOY_MIN_MAF]
+donor_variants <- lapply(c(variants_of, pos_variants), common_only)
+donor_variants <- donor_variants[lengths(donor_variants) > 0]   # a set with no common variant cannot serve
 
-pos_genes    <- genes[gene_set == "positive_control", Gene_name]
-pos_variants <- split(fit_pos$variant_id, fit_pos$Gene_name)
+tss_vec   <- genes[Gene_name %in% de_genes & !is.na(tss), setNames(tss, Gene_name)]
+nvar_vec  <- vapply(variants_of[names(tss_vec)], length, integer(1))
+donor_tss <- genes[Gene_name %in% names(donor_variants) & !is.na(tss), setNames(tss, Gene_name)]
+donor_nv  <- vapply(donor_variants[names(donor_tss)], length, integer(1))
+decoys <- assign_decoy_sets(tss_vec, nvar_vec, donor_tss, donor_nv, DECOY_MIN_DISTANCE, N_DECOY_SETS)
+decoys[, key := paste(Gene_name, decoy_gene, sep = "|")]
+decoy_variants <- setNames(lapply(decoys$decoy_gene, function(d) donor_variants[[d]]), decoys$key)
+expr_of_key <- function(k) expr_of(sub("\\|.*$", "", k))
+neg_res <- gene_level_tests(decoys$key, decoy_variants, G_all, expr_of_key,
+                            n_perm = N_PERM, seed_base = 3026L, fdr = FDR_GENE)
+setnames(neg_res, "Gene_name", "key")
+neg_res <- merge(decoys[, .(key, Gene_name, decoy_gene, decoy_rank, distance)], neg_res, by = "key", all.x = TRUE)
+neg_res[is.na(detected), detected := FALSE]
+neg_res[, key := NULL]
+setorder(neg_res, Gene_name, decoy_rank)
+fwrite(neg_res, run$table("eqtl_control_negative.csv"))
+cat(sprintf("  Negative (unlinked decoy variants, %d sets per gene, MAF >= %.2f): %d of %d detected at q < %.2f; %d of %d at nominal permutation p < 0.05\n",
+            N_DECOY_SETS, DECOY_MIN_MAF, sum(neg_res$detected), sum(!is.na(neg_res$p_gene_perm)), FDR_GENE,
+            sum(neg_res$p_gene_perm < 0.05, na.rm = TRUE), sum(!is.na(neg_res$p_gene_perm))))
+print(as.data.frame(neg_res[, .(n_sets = .N, n_variants = paste(range(n_variants), collapse = "-"),
+                                min_p_perm = min(p_gene_perm, na.rm = TRUE),
+                                n_nominal_p05 = sum(p_gene_perm < 0.05, na.rm = TRUE),
+                                n_detected = sum(detected)), by = Gene_name]))
+
 pos_res <- gene_level_tests(pos_genes, pos_variants, G_all, expr_of,
                             n_perm = N_PERM, seed_base = 4026L, fdr = FDR_GENE)
 pos_res <- merge(genes[gene_set == "positive_control",
@@ -307,7 +330,7 @@ pos_res <- merge(genes[gene_set == "positive_control",
                  pos_res, by = "Gene_name")
 setorder(pos_res, gtex_min_p)
 fwrite(pos_res, run$table("eqtl_control_positive.csv"))
-cat(sprintf("  Positive (strong GTEx eGenes): %d of %d detected at q < %.2f\n",
+cat(sprintf("  Positive (matched GTEx eGenes, one per locus): %d of %d detected at q < %.2f\n",
             sum(pos_res$detected), sum(!is.na(pos_res$p_gene_perm)), FDR_GENE))
 print(as.data.frame(pos_res[, .(Gene_name, gtex_min_p = signif(gtex_min_p, 2),
                                 n_variants, p_gene_perm, q_gene_bh, detected)]))
@@ -319,6 +342,9 @@ ctrl_summary <- data.table(
   n_detected  = c(sum(perm_res$cis_eqtl_detected), sum(neg_res$detected), sum(pos_res$detected)),
   expectation = c("the result", sprintf("about %.0f%% (the FDR level)", 100 * FDR_GENE),
                   "most detected"))
+ctrl_summary[, n_nominal_p05 := c(sum(perm_res$p_gene_perm < 0.05, na.rm = TRUE),
+                                  sum(neg_res$p_gene_perm < 0.05, na.rm = TRUE),
+                                  sum(pos_res$p_gene_perm < 0.05, na.rm = TRUE))]
 ctrl_summary[, pct_detected := round(100 * n_detected / n_tested, 1)]
 fwrite(ctrl_summary, run$table("eqtl_controls_summary.csv"))
 stopifnot(file.exists(run$table("eqtl_control_negative.csv")),

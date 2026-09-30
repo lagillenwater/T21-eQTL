@@ -351,6 +351,91 @@ independent), and an independent null called almost any partner shift
 significant. `partner_p()` reports the one-sided empirical p as
 `(1 + k) / (n_draw + 1)`, so it is never exactly 0.
 
+### eQTL controls v2: matched positive controls, several decoy sets per gene (2026-09-30)
+
+Both standalone controls of the gene-level test were rebuilt after a
+review of what the first versions showed.
+
+**Positive controls.** The first version took the 10 chr21 genes with the
+smallest GTEx whole-blood p among expressed, non-deviating genes. Those
+were the largest eQTLs on the chromosome (aFC up to 5.8), nine of them in
+the distal 3 Mb, several sharing a locus (GATD3A and PWP2 on one variant;
+DIP2A and S100B 800 bp apart), two inside a GRCh38 false duplication
+(GATD3A; KCNE1 is a deviating gene in the same list). All 10 hit the
+permutation floor, which showed that the test finds very strong eQTLs and
+nothing about its power for effects of the size the deviating genes carry
+(GTEx aFC 0.3 to 1.4). Script 02 now picks one control per tested
+deviating gene (`match_positive_controls`): among GTEx eGenes (q < 0.05,
+`positive_egene_qval`) that are expressed, non-repeat and non-deviating,
+the nearest in standardised (log2 |aFC|, log10 baseMean), greedily by
+decreasing target |aFC|, with TSS at least 1 Mb from every other control
+(`positive_min_separation`) and 100 kb from any deviating gene
+(`positive_dev_separation`; a 1 Mb exclusion cut the pool from 103 to 40
+and left poorer matches), never a gene in
+`data/grch38_false_duplication_genes_chr21.csv`. Adjusted run: 7 of 10
+matched controls detected, the same rate as the deviating genes (7 of 10).
+The three missed (MRPL39, NRIP1, AF165147.1) have GTEx |aFC| 0.25 to 0.50
+and, for AF165147.1, baseMean 38: the test loses power below about 0.3
+log2 aFC and at low expression. AP000692.1 (CBR3's match) is detected
+on a single retained variant with the opposite sign to GTEx; a weak
+lncRNA eGene, kept as the match but not to be leaned on.
+
+**Negative controls.** The first version paired each deviating gene with
+one decoy set; 10 tests reused 5 sets, two landed on MAF 0.02 variants
+(useless intervals), and 4 of 10 had permutation p < 0.08, which 10
+correlated tests cannot interpret. Script 03 now tests each deviating
+gene against `n_decoy_sets` (5) sets from all tested genes' cis variants
+(deviating genes and positive controls as donors) at least 5 Mb away,
+closest variant count first, common variants only (`decoy_min_maf`, GTEx
+MAF 0.05), and writes one row per (gene, set) with `decoy_rank`; scripts
+11 and 14 draw the rank-1 set. Adjusted run: 0 of 50 detected at FDR
+0.05; 6 of 50 (12%) at nominal permutation p < 0.05 against 5% expected
+(binomial p = 0.04). Three of the six are ABCC13 against decoy sets at
+36, 45.9 and 46.1 Mb, so ABCC13 expression carries some chr21-wide
+genotype structure; the model has no ancestry covariates (only chr21 is
+genotyped, so genotype PCs would have to come from the WGS producers).
+The nominal rate is a mild excess, not evidence that the FDR calls are
+inflated.
+
+**What the negatives calibrate.** A decoy best variant reaches |z| about
+2.3 (median) and up to 3.4 by selection alone. Effect sizes at the best
+variant are therefore not comparable across sets without the permutation
+q; report the q for detection and effect sizes at the GTEx lead variant
+(script 14's sensitivity table) where T21 has no winner's curse.
+
+### Power by spike-in and the base rate on Expected-dosage genes (2026-09-30)
+
+Two more controls added on the same branch, after the matched positive
+controls (above) were tightened to strong eGenes (`positive_egene_qval`
+1e-4, `positive_min_variants` 10 at the pval cut): the first matching let
+in AP000692.1, a lncRNA eGene at GTEx q 0.03 with one retained variant,
+"detected" in T21 with the opposite sign. Adjusted run after tightening:
+8 of 10 matched positives detected (MRPL39 and NRIP1 missed; GTEx aFC
+0.29 and 0.25).
+
+**Spike-in power (script 15).** Real matched genes cannot share a gene's
+own variant set, LD, allele frequencies or noise, so the power question
+for a gene that was "tested, not detected" is answered by spiking its
+GTEx aFC into its own permuted expression at its GTEx lead variant, on
+its own T21 genotypes, and scoring the best-variant search against its
+own permutation null. Adjusted run, 200 simulations per point: power at
+the GTEx aFC is 1.00 for BACE2 and OLIG2 and 0.81 for ABCC13 (lead
+variant MAF 0.05, so ABCC13 needs aFC 1.4 for 80%); 0.80 to 1.00 for the
+seven detected genes. The aFC for 80% power is 0.27 to 0.45 for every
+gene but ABCC13. So BACE2 and OLIG2 are not missed for want of power:
+their GTEx eQTLs, if acting in T21 at GTEx strength, would have been
+found. The spike uses the observed expression permuted, which keeps any
+real eQTL variance in the noise, so the power is if anything understated.
+
+**Base rate (script 16).** The identical test on every Expected-dosage
+gene with GTEx cis variants at the cut (99 of 129 testable after the
+expression join; 500 permutations): 56 of 99 detected (57%), against 7 of
+10 deviating genes (70%), Fisher p = 0.51; 33 of 59 (56%) among
+Expected-dosage genes in the deviating genes' baseMean range. Having a
+detectable cis-eQTL is the norm for an expressed chr21 gene in this
+cohort and does not distinguish the deviating genes. This is the control
+the manuscript's "7 of 10" needs beside it.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing

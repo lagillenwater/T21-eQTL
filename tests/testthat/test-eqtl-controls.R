@@ -106,3 +106,45 @@ test_that("gene_level_tests is reproducible for a fixed seed_base", {
                         n_perm = 100, seed_base = 7L, fdr = 0.05)
   expect_equal(a$p_gene_perm, b$p_gene_perm)
 })
+
+# --- match_positive_controls (controls v2) ------------------------------------
+
+test_that("match_positive_controls picks the nearest candidate in effect-size and expression", {
+  targets <- data.table(Gene_name = c("T1", "T2"), abs_afc = c(1.0, 0.3), baseMean = c(100, 2000))
+  candidates <- data.table(ensembl_stable = c("a", "b", "c", "d"), Gene_name = c("A", "B", "C", "D"),
+                           abs_afc = c(1.1, 0.3, 4, 0.9), baseMean = c(120, 2100, 100, 5000),
+                           tss = c(1e6, 10e6, 20e6, 30e6))
+  got <- match_positive_controls(targets, candidates, min_separation = 1e6)
+  expect_equal(got$target_gene, c("T1", "T2"))
+  expect_equal(got$Gene_name, c("A", "B"))
+})
+
+test_that("match_positive_controls uses one locus once and skips NA targets", {
+  targets <- data.table(Gene_name = c("T1", "T2", "T3"), abs_afc = c(1, 1, NA), baseMean = c(100, 100, 100))
+  candidates <- data.table(ensembl_stable = c("a", "b", "c"), Gene_name = c("A", "B", "C"),
+                           abs_afc = c(1, 1, 0.5), baseMean = c(100, 100, 100),
+                           tss = c(5e6, 5.4e6, 20e6))   # A and B share a locus
+  got <- match_positive_controls(targets, candidates, min_separation = 1e6)
+  expect_equal(nrow(got), 2)
+  expect_setequal(got$Gene_name, c("A", "C"))          # B is within 1 Mb of A
+})
+
+# --- assign_decoy_sets --------------------------------------------------------
+
+test_that("assign_decoy_sets returns k distant donors per gene, closest variant count first", {
+  tss <- c(G1 = 10e6, G2 = 40e6); nv <- c(G1 = 100, G2 = 50)
+  dtss <- c(G1 = 10e6, G2 = 40e6, P1 = 12e6, P2 = 30e6, P3 = 45e6, P4 = 20e6)
+  dnv  <- c(G1 = 100, G2 = 50, P1 = 100, P2 = 90, P3 = 55, P4 = 100)
+  got <- assign_decoy_sets(tss, nv, dtss, dnv, min_distance = 5e6, k = 2)
+  expect_equal(got[Gene_name == "G1", decoy_gene], c("P4", "P2"))   # P1 too close, G1 itself excluded
+  expect_equal(got[Gene_name == "G2", decoy_gene], c("P3", "P2"))
+  expect_equal(got[Gene_name == "G1", decoy_rank], 1:2)
+  expect_true(all(got$distance >= 5e6))
+})
+
+test_that("assign_decoy_sets returns fewer than k when few donors are far enough", {
+  tss <- c(G1 = 10e6); nv <- c(G1 = 10)
+  got <- assign_decoy_sets(tss, nv, c(G1 = 10e6, P1 = 12e6, P2 = 30e6), c(G1 = 10, P1 = 10, P2 = 10),
+                           min_distance = 5e6, k = 3)
+  expect_equal(got$decoy_gene, "P2")
+})

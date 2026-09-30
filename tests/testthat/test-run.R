@@ -4,10 +4,10 @@ base_cfg <- function() list(
   thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5),
                     deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30,
                     fdr_gene = 0.05, gtex_pval_keep = 1e-4,
-                    outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6))
+                    outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6, positive_egene_qval = 0.05, positive_min_separation = 1e6, positive_dev_separation = 1e5, positive_min_variants = 10, n_decoy_sets = 5, decoy_min_maf = 0.05))
 
 cfg_text <- function(name) sprintf(
-  'list(name = "%s", covariates = character(0), composition = NULL, exclude = list(), ploidy = 1.5, thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5), deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30, fdr_gene = 0.05, gtex_pval_keep = 1e-4, outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6))',
+  'list(name = "%s", covariates = character(0), composition = NULL, exclude = list(), ploidy = 1.5, thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5), deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30, fdr_gene = 0.05, gtex_pval_keep = 1e-4, outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6, positive_egene_qval = 0.05, positive_min_separation = 1e6, positive_dev_separation = 1e5, positive_min_variants = 10, n_decoy_sets = 5, decoy_min_maf = 0.05))',
   name)
 
 make_root <- function(names) {

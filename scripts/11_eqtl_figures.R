@@ -19,7 +19,7 @@
 #                        trend line coloured by that agreement is drawn on
 #                        every panel.
 #   eqtl_dosage_controls Supplement to the above, same layout: panel A =
-#                        positive controls (strong GTEx eGenes on their own
+#                        positive controls (matched GTEx eGenes on their own
 #                        best variant), panel B = negative controls (each
 #                        deviating gene against the best variant of its
 #                        decoy set). Neither has a deviation to match, so both
@@ -85,7 +85,7 @@ COL_AGREE <- setNames(c("#1B7837", "#E08214", "grey55"), LAB_AGREE)
 BLOCK_TITLE <- c(
   "DE high" = "DE high - expressed higher than the trisomy expectation",
   "DE low"  = "DE low - expressed lower than the trisomy expectation",
-  "Positive control (GTEx eGenes)"    = "Positive control (strong GTEx eGenes)",
+  "Positive control (GTEx eGenes)"    = "Positive control (matched GTEx eGenes)",
   "Negative control (decoy variants)" = "Negative control (decoy variants)")
 BLOCK_XLAB <- c(
   "DE high" = paste("Dosage of the expression-raising allele in T21 (0-3)",
@@ -108,6 +108,8 @@ cat(sprintf("=== T21-eQTL: eQTL figures [run: %s] ===\n\n", run$name))
 lanes  <- fread(run$table("chr21_lane_assignments.csv"))
 perm   <- fread(run$table("eqtl_gene_level_perm.csv"))
 neg    <- fread(run$table("eqtl_control_negative.csv"))
+# controls v2 writes several decoy sets per gene; the figures show the rank-1 set
+if ("decoy_rank" %in% names(neg)) neg <- neg[decoy_rank == 1]
 pos    <- fread(run$table("eqtl_control_positive.csv"))
 roster <- fread(run$processed("eqtl_supported_genes.csv"))
 extra  <- fread("data/chr21_gene_positions.csv")
@@ -344,7 +346,7 @@ print(es[, .(Gene_name, block, detected_own, own = round(own_slope, 3), own_se =
 # floor near 1/1001, so the strongest genes share the top row and spread only
 # along x. Genes with no GTEx variants have neither value; the subtitle names them.
 LAB_SET <- c(up = "Higher than expected (DE_high)", down = "Lower than expected (DE_low)",
-             pos = "Positive control (strong GTEx eGene)", decoy = "Decoy variant set (negative control)")
+             pos = "Positive control (matched GTEx eGene)", decoy = "Decoy variant set (negative control)")
 COL_SET <- setNames(c(COL_DIR[["up"]], COL_DIR[["down"]], "#1B7837", "grey55"), LAB_SET)
 SHP_SET <- setNames(c(16, 16, 17, 18), LAB_SET)
 untested <- sort(es[is.na(own_slope) & block != "Positive control", Gene_name])

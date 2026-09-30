@@ -15,7 +15,9 @@ RUN_COVARIATES <- c("Age_at_visit", "Sex", "BMI", "Sample_source")
 RUN_THRESHOLDS <- c("alpha_de", "deviation_lfc", "deviation_lfc_t2",
                     "low_expr_basemean", "fdr_gene", "gtex_pval_keep",
                     "outlier_fdr", "alpha_repro",
-                    "n_positive_controls", "decoy_min_distance")
+                    "n_positive_controls", "decoy_min_distance",
+                    "positive_egene_qval", "positive_min_separation", "positive_dev_separation", "positive_min_variants",
+                    "n_decoy_sets", "decoy_min_maf")
 
 #' Validate a run config against the fixed schema; returns it or stops.
 validate_run_config <- function(cfg) {

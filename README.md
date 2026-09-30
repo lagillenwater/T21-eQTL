@@ -30,6 +30,8 @@ Rscript scripts/07_three_panel_figure.R --run baseline          # volcano figure
 Rscript scripts/11_eqtl_figures.R --run baseline                # eQTL dosage panels, effect sizes, chr21 map
 Rscript scripts/13_af_deviation_bound.R --run baseline         # can the cis-eQTLs move the group ratio? (AF bound)
 Rscript scripts/14_t21_vs_gtex_allelic_effect.R --run baseline # same allelic effect in T21 as in GTEx? (aFC, ploidy 3)
+Rscript scripts/15_spike_in_power.R --run baseline             # power per deviating gene by spike-in at its GTEx aFC
+Rscript scripts/16_base_rate_expected_dosage.R --run baseline  # the same eQTL test on every Expected-dosage gene (base rate)
 Rscript scripts/S1_covariate_evidence.R --run baseline          # supplement: evidence for covariates and exclusions
 
 # Covariate- and composition-adjusted run: same scripts with --run adjusted, then

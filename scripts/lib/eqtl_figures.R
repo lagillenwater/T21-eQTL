@@ -43,7 +43,10 @@ panel_variants <- function(perm, lanes, neg, pos) {
   p <- data.table::as.data.table(pos)[!is.na(best_variant),
          .(Gene_name, panel_group = PANEL_GROUPS[3], variant_id = best_variant,
            q_gene_bh, detected, decoy_gene = NA_character_)]
-  n <- data.table::as.data.table(neg)[!is.na(best_variant),
+  neg <- data.table::as.data.table(neg)
+  # controls v2 writes several decoy sets per gene; the panel shows the rank-1 set
+  if ("decoy_rank" %in% names(neg)) neg <- neg[decoy_rank == 1]
+  n <- neg[!is.na(best_variant),
          .(Gene_name, panel_group = PANEL_GROUPS[4], variant_id = best_variant,
            q_gene_bh, detected, decoy_gene)]
   out <- data.table::rbindlist(list(own, p, n))
