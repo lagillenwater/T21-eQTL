@@ -122,6 +122,113 @@ gene's TSS coloured by eQTL outcome, labels by direction). Positions come
 from the roster TSS, with `data/chr21_gene_positions.csv` (Ensembl GRCh38)
 covering deviating genes GTEx does not carry. Nothing statistical moved.
 
+### Dosage panels split from their controls (2026-09-11)
+
+`eqtl_dosage_panels` originally stacked all four groups (DE high, DE low,
+positive controls, negative controls) into one figure. At the user's
+request it now writes two: `eqtl_dosage_panels` (DE high as panel A, DE
+low as panel B) for the main text, and a new `eqtl_dosage_controls`
+supplement (positive controls as panel A, negative controls as panel B),
+both lettered with `patchwork::plot_annotation(tag_levels = "A")`. Same
+underlying data (`panel_variants()` in `scripts/lib/eqtl_figures.R` is
+unchanged) and the same per-gene panels; only which groups share a figure
+changed.
+
+### eQTL direction stated per minor allele (2026-09-22)
+
+Manuscript issue #3 (greenelab/T21-cis-eqtl-Chr21-regulation-manuscript):
+"Align common eQTL minor or major allele with direction in the typical
+population." The pipeline codes genotype as ALT-allele dosage (script 02
+`alt_dosage`) and GTEx's `slope` is ALT-referenced too, so the two were
+internally consistent - but ALT is whichever base differs from the
+reference assembly, not the rarer allele. In the baseline cis-variant
+universe 19.2% of the retained (variant, gene) pairs have ALT as the
+MAJOR allele, and 13 of the 47 variants the dosage panels are drawn on.
+A slope "per alt allele" therefore pointed one way for some variants and
+the other way for others and could not be compared with a published eQTL
+direction.
+
+Every reported direction is now stated per copy of the MINOR allele
+(`scripts/lib/alleles.R`). The genotype coding is unchanged; the
+alignment is a reflection of the regressor, which flips a slope's sign
+and leaves |t|, p, SE and R-squared alone. So `p_gene_perm`, `q_gene_bh`,
+`cis_eqtl_detected` and every lane are invariant, and the re-run
+reproduced the lane table exactly: 8 DE_high cis_eqtl / 2 no_GTEx_data,
+6 DE_low cis_eqtl / 6 no_cis_eqtl / 1 no_GTEx_data, 130 Expected dosage,
+12 High repeats, 153 Low expression. Script 11's refit-p check still
+matches the stored best-variant p for all 50 panels, on the reflected
+dosage.
+
+Which allele is minor is read from two reference populations, both
+carried per variant:
+
+- **GTEx whole blood `af`** (the allpairs column), primary: the
+  population the cis-eQTL itself was called in.
+- **gnomAD v4.1 genomes** (`AF` global and `AF_nfe`), the independent
+  check (`scripts/lib/gnomad.R`, `scripts/fetch_gnomad_af.R`). The 7.8 GB
+  sites VCF is never downloaded; `Rsamtools::scanTabix` pulls only the
+  blocks covering the cis positions over https and the result is cached
+  under `data/gnomad/`.
+- The HTP T21 cohort's own ALT frequency (alt copies out of three) rides
+  along as a third column, so a cohort that does not match either
+  reference would be visible.
+
+Over the 5,700 tested baseline variants: gnomAD agrees with GTEx on the
+minor allele for 97.3% and the HTP cohort for 98.7%. Every one of the 156
+gnomAD disagreements sits at GTEx MAF 0.425 to 0.499 (126 of them above
+0.45) - variants where the two alleles are near-equally common and
+"minor" is close to a coin flip, so the sign of the reported direction
+depends on the population chosen. `eqtl_allele_alignment.csv` carries the
+per-variant flags (`minor_concordant`, `htp_concordant`, `maf_tie`) so
+those cases are visible rather than buried. One deviating gene's best
+variant is affected: BACE2 (GTEx MAF 0.484, ALT minor; gnomAD calls ALT
+major).
+
+**Dosage panels are oriented to the deviation-matching allele
+(2026-09-22).** Once every direction was stated per minor allele, the
+dosage panels became hard to read: inside the DE high block four panels
+trended up and four down, because the minor allele's effect direction is
+a property of the variant and has no reason to follow the gene's
+deviation. Script 11's panels are now drawn on the DEVIATION-MATCHING
+allele - the allele whose GTEx effect runs the same way the gene deviates
+- so a DE high panel trends up and a DE low panel trends down wherever
+the within-T21 fit reproduces GTEx, and a panel that fails to reproduce
+it is the one running the wrong way. The orientation is taken from GTEx,
+never from the within-T21 slope being plotted; orienting on the data
+would force the right trend by construction and show nothing.
+
+The minor allele is plotted exactly when it is itself the deviation-
+matching one, so `plot_allele_role` doubles as the with/against-the-
+deviation badge (`orient_panels()` in `scripts/lib/eqtl_figures.R`). In
+baseline that is 8 of 20 panels, leaving 12 drawn on major-allele dosage
+(adjusted: 3 of 10). Every strip still names the minor allele, its MAF
+and the canonical GTEx direction, and carries a trend line coloured by
+whether the within-T21 fit reproduces that direction - 20 of 20 panels do,
+in both runs. Control panels have no deviation to match and stay on
+minor-allele dosage; a decoy variant is an eQTL of the decoy gene rather
+than of the gene plotted, so it gets no canonical direction. The
+effect-size scatter keeps the minor allele as its common cross-gene
+reference: orienting it per gene would make the sign of x a restatement
+of the block and of the GTEx agreement.
+
+Layout: one row per category, so a block's panels sit side by side and the
+figure grows sideways rather than wrapping (at the user's request,
+2026-09-22). Width is 3.1 in per panel, the space the four-line strip needs
+without clipping, so the adjusted run's 5 + 5 deviating-gene panels give a
+16 in figure and baseline's 8 + 12 give 38 in; the controls supplement, with
+20 decoy panels in its widest block, reaches 63 in.
+
+The with/against badge is descriptive. T21 subjects carry no excess of
+these alleles, so it records a coincidence of direction, not an account
+of the deviation - the same framing as `eqtl_lane`.
+
+ALT-referenced columns are kept beside the aligned ones rather than
+replaced, so nothing downstream changes meaning silently:
+`gtex_slope`/`t21_slope` and `dir_match` stay ALT-referenced, and
+`gtex_slope_minor`/`t21_slope_minor` and `dir_match_minor` are the
+minor-allele statements. `supportive` compares two ALT-referenced slopes
+and is unaffected either way - flipping both signs preserves their match.
+
 ### `eqtl_lane` is a detection result, not an "explained by eQTL" claim
 
 `cis_eqtl` means a cis-eQTL is detectable for the gene at

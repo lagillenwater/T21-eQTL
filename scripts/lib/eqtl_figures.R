@@ -6,7 +6,11 @@
 #   panel_variants  which variant each per-gene dosage panel shows, by group
 #   overview_rows   one row per gene: own-variant q, decoy q, outcome, block
 #   map_bands       TSS, direction and eQTL outcome per deviating gene
+#   orient_panels   which allele each panel's x-axis carries, and how it
+#                   relates to the canonical GTEx direction
+#   panel_dosage    dosage of that allele, from ALT dosage
 #   best_variant_effects  within-T21 slope, SE and p at each panel's variant
+#                         (on whichever dosage coding the caller passes)
 #   attach_effects  own-variant and decoy effects onto the overview rows
 #
 # Inputs are the tables scripts 03 and 04 already write (eqtl_gene_level_perm,
@@ -98,20 +102,85 @@ map_bands <- function(lanes, roster, extra) {
   out[]
 }
 
+#' Which allele each panel puts on its x-axis, and how the panel relates to
+#' the canonical GTEx direction.
+#'
+#' A deviating-gene panel is oriented to the DEVIATION-MATCHING allele: the
+#' allele whose GTEx effect has the same sign as the gene's own deviation. A
+#' DE high panel then trends up and a DE low panel trends down whenever the
+#' within-T21 fit reproduces GTEx, so the trend direction reads against the
+#' block label instead of looking arbitrary. The orientation is taken from
+#' GTEx, never from the within-T21 slope - orienting on the data being
+#' plotted would force every panel to trend the right way by construction and
+#' show nothing.
+#'
+#' The minor allele is plotted exactly when it is itself the deviation-
+#' matching one, so `plot_allele_role` doubles as the with/against-the-
+#' deviation badge. Control panels (positive controls, decoy variants) have no
+#' deviation to match and stay on minor-allele dosage.
+#'
+#' @param panels  output of panel_variants()
+#' @param variants variant-level alleles: variant_id, minor_allele,
+#'   major_allele, alt_is_minor, gtex_maf
+#' @param gtex gene-specific GTEx slope per minor allele: variant_id,
+#'   Gene_name, gtex_slope_minor. A decoy panel has no row here, because the
+#'   variant is an eQTL of the decoy gene and not of the gene plotted.
+#' @param gene_dir Gene_name, deviation_sign (+1 / -1) for deviating genes
+orient_panels <- function(panels, variants, gtex, gene_dir) {
+  out <- data.table::as.data.table(panels)
+  out <- merge(out, unique(data.table::as.data.table(variants), by = "variant_id"),
+               by = "variant_id", all.x = TRUE, sort = FALSE)
+  out <- merge(out, data.table::as.data.table(gtex), by = c("variant_id", "Gene_name"),
+               all.x = TRUE, sort = FALSE)
+  out <- merge(out, data.table::as.data.table(gene_dir), by = "Gene_name",
+               all.x = TRUE, sort = FALSE)
+  out[, canonical_dir := data.table::fcase(is.na(gtex_slope_minor), NA_character_,
+                                           gtex_slope_minor > 0, "raises",
+                                           default = "lowers")]
+  # Does the MINOR allele's GTEx effect run the same way as the gene deviates?
+  out[, with_deviation := !is.na(gtex_slope_minor) & !is.na(deviation_sign) &
+                          sign(gtex_slope_minor) == deviation_sign]
+  # Plot the minor allele when it is the deviation-matching one, the major
+  # allele when it is not, and the minor allele wherever there is nothing to
+  # match (controls, or a gene with no GTEx slope).
+  out[, plot_minor := is.na(deviation_sign) | is.na(gtex_slope_minor) | with_deviation]
+  out[, plot_allele := data.table::fifelse(plot_minor, minor_allele, major_allele)]
+  out[, plot_allele_role := data.table::fifelse(plot_minor, "minor", "major")]
+  out[is.na(deviation_sign) | is.na(gtex_slope_minor), with_deviation := NA]
+  data.table::setorder(out, panel_group, q_gene_bh, Gene_name)
+  out[]
+}
+
+#' Dosage of the allele a panel is oriented to, from ALT dosage.
+#' `plot_minor` FALSE reflects the minor-allele dosage once more, which is the
+#' major-allele count.
+panel_dosage <- function(alt_dosage, alt_is_minor, plot_minor, ploidy) {
+  d <- minor_dosage(alt_dosage, alt_is_minor, ploidy)
+  v <- recycle_common(d, plot_minor)
+  ifelse(is.na(v[[2]]) | is.na(v[[1]]), NA_real_, ifelse(v[[2]], v[[1]], ploidy - v[[1]]))
+}
+
 #' Within-T21 effect size at each panel's variant: slope, SE and p of
-#' expression on alt-allele dosage (fit_variants, the fit script 03 uses), one
-#' row per (Gene_name, panel_group, variant_id). NA when the variant is
-#' monomorphic or fewer than 3 subjects remain.
-#' @param long data.table with Gene_name, panel_group, variant_id, alt_dosage, expr
-best_variant_effects <- function(long) {
-  stopifnot(all(c("Gene_name", "panel_group", "variant_id", "alt_dosage", "expr")
+#' expression on dosage (fit_variants, the fit script 03 uses), one row per
+#' (Gene_name, panel_group, variant_id). NA when the variant is monomorphic or
+#' fewer than 3 subjects remain.
+#'
+#' `dosage_col` names the regressor. Script 11 passes minor-allele dosage so
+#' the plotted slope is per copy of the minor allele; p, and so the check
+#' against the stored test p, is the same either way, since reflecting the
+#' regressor only flips the slope's sign.
+#' @param long data.table with Gene_name, panel_group, variant_id, expr and `dosage_col`
+best_variant_effects <- function(long, dosage_col = "alt_dosage") {
+  stopifnot(all(c("Gene_name", "panel_group", "variant_id", dosage_col, "expr")
                 %in% names(long)))
-  d <- data.table::as.data.table(long)[!is.na(alt_dosage) & !is.na(expr)]
+  d <- data.table::copy(data.table::as.data.table(long))
+  data.table::setnames(d, dosage_col, ".dosage")
+  d <- d[!is.na(.dosage) & !is.na(expr)]
   d[, {
-    if (.N < 3 || stats::var(alt_dosage) == 0) {
+    if (.N < 3 || stats::var(.dosage) == 0) {
       list(n = .N, slope = NA_real_, se = NA_real_, p = NA_real_)
     } else {
-      f <- fit_variants(matrix(alt_dosage, ncol = 1), expr)
+      f <- fit_variants(matrix(.dosage, ncol = 1), expr)
       list(n = .N, slope = f$slope[1], se = f$se[1], p = f$p[1])
     }
   }, by = .(Gene_name, panel_group = as.character(panel_group), variant_id)]

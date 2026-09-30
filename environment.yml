@@ -17,4 +17,5 @@ dependencies:
 
   # Bioconductor packages via conda
   - bioconductor-deseq2
-  - bioconductor-genomicranges  # Blacklist processing
+  - bioconductor-genomicranges  # Blacklist processing; gnomAD range queries
+  - bioconductor-rsamtools      # Remote tabix reads of the gnomAD sites VCF

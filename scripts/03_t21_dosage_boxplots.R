@@ -1,7 +1,9 @@
 # 11_t21_dosage_boxplots.R
 #
 # Purpose: Within-T21 cis-eQTL test. For each target gene, regress expression
-#          on alt-allele dosage in T21 subjects only (per variant), run the
+#          on alt-allele dosage in T21 subjects only (per variant), re-express
+#          every slope per copy of the minor allele in the reference
+#          population (scripts/lib/alleles.R), run the
 #          gene-level permutation test that classifies the gene, and run the
 #          standalone negative and positive controls of that test. The
 #          representative supportive variant per gene is kept as a legacy
@@ -15,7 +17,10 @@
 #   - data/processed/sample_metadata.csv
 #
 # Outputs:
-#   - results/tables/t21_dosage_per_variant.csv       (deviating genes only)
+#   - results/tables/t21_dosage_per_variant.csv       (deviating genes only;
+#                                                      slopes also per minor allele)
+#   - results/tables/eqtl_allele_alignment.csv         (minor-allele reference
+#                                                      per variant, three populations)
 #   - results/tables/eqtl_gene_level_perm.csv          (the classification test)
 #   - results/tables/eqtl_control_negative.csv         (unlinked-variant decoys)
 #   - results/tables/eqtl_control_positive.csv         (strong GTEx eGenes)
@@ -34,6 +39,7 @@ suppressPackageStartupMessages({
 
 source("scripts/lib/eqtl_fit.R")
 source("scripts/lib/eqtl_controls.R")
+source("scripts/lib/alleles.R")   # minor-allele referencing of slopes and dosage
 source("scripts/lib/run.R"); run <- load_run()
 
 set.seed(42)
@@ -157,6 +163,36 @@ fit_table <- geno_expr[, {
 fit_table[, supportive := !is.na(t21_slope) &
                           sign(t21_slope) == sign(gtex_slope) &
                           sign(t21_slope) != 0]
+# supportive compares two ALT-referenced slopes, so it is unchanged by the
+# minor-allele referencing below: flipping both signs preserves their match.
+
+# ---- Re-express the slopes per minor allele --------------------------------
+# The fit above regresses on ALT dosage, and ALT is the major allele at about
+# a quarter of the retained variants, so "per alt allele" does not mean the
+# same thing across variants. The aligned columns state every direction per
+# copy of the MINOR allele in the reference population (GTEx whole blood,
+# with gnomAD v4.1 carried alongside as the independent check). The fit is
+# untouched: t21_p, and so the gene-level test below, is invariant to the
+# sign of the regressor.
+allele_cols <- unique(targets[, .(variant_id, POS, REF, ALT,
+                                  minor_allele, major_allele, alt_is_minor,
+                                  gtex_af = af, gtex_maf, maf_tie,
+                                  gnomad_af, gnomad_af_nfe, gnomad_maf,
+                                  gnomad_alt_is_minor, gnomad_filter,
+                                  minor_concordant)])
+stopifnot(!anyDuplicated(allele_cols$variant_id))
+fit_table <- merge(fit_table, allele_cols, by = "variant_id", all.x = TRUE)
+fit_table[, `:=`(gtex_slope_minor = align_slope_to_minor(gtex_slope, alt_is_minor),
+                 t21_slope_minor  = align_slope_to_minor(t21_slope,  alt_is_minor))]
+
+# ALT frequency as the HTP T21 subjects themselves carry it (alt copies out of
+# the three chr21 copies): a third reference, and the one that says whether
+# this cohort matches the populations the minor allele was called in.
+htp_af <- geno_t21[, .(htp_alt_af = alt_af_from_dosage(alt_dosage, T21_CHR21_PLOIDY)),
+                   by = variant_id]
+htp_af[, `:=`(htp_maf = maf_from_af(htp_alt_af), htp_alt_is_minor = alt_is_minor(htp_alt_af))]
+fit_table <- merge(fit_table, htp_af, by = "variant_id", all.x = TRUE)
+fit_table[, htp_concordant := minor_allele_agrees(gtex_af, htp_alt_af)]
 
 # Positive-control genes (script 02) ride along in the fits for the control
 # test below but stay out of every main-result table: script 04 reads
@@ -169,6 +205,31 @@ cat(sprintf("  Variants tested: %d  Supportive: %d\n",
 
 fwrite(fit_table, run$table("t21_dosage_per_variant.csv"))
 stopifnot(file.exists(run$table("t21_dosage_per_variant.csv")))
+
+# ---- Allele-alignment QC ---------------------------------------------------
+# One row per tested variant: the three ALT frequencies (GTEx whole blood,
+# gnomAD v4.1 global and non-Finnish European, this T21 cohort) and whether
+# they name the same minor allele. A disagreement is a variant whose ALT
+# frequency sits near 0.5 in one population and across it in another, so the
+# reported direction depends on which population is used; the flags make that
+# visible instead of leaving it inside one column.
+align_qc <- unique(rbind(fit_table, fit_pos)[
+  , .(variant_id, POS, REF, ALT, minor_allele, major_allele, alt_is_minor, maf_tie,
+      gtex_af, gtex_maf, gnomad_af, gnomad_af_nfe, gnomad_maf, gnomad_alt_is_minor,
+      gnomad_filter, htp_alt_af, htp_maf, htp_alt_is_minor,
+      minor_concordant, htp_concordant)],
+  by = "variant_id")
+setorder(align_qc, POS)
+fwrite(align_qc, run$table("eqtl_allele_alignment.csv"))
+stopifnot(file.exists(run$table("eqtl_allele_alignment.csv")))
+
+pct <- function(x) sprintf("%d / %d (%.1f%%)", sum(x, na.rm = TRUE),
+                           sum(!is.na(x)), 100 * mean(x, na.rm = TRUE))
+cat(sprintf("  Minor-allele reference over %d tested variants:\n", nrow(align_qc)))
+cat(sprintf("    ALT is the minor allele (GTEx whole blood): %s\n", pct(align_qc$alt_is_minor)))
+cat(sprintf("    gnomAD v4.1 agrees on the minor allele:     %s\n", pct(align_qc$minor_concordant)))
+cat(sprintf("    this T21 cohort agrees:                     %s\n", pct(align_qc$htp_concordant)))
+cat("  Wrote", run$table("eqtl_allele_alignment.csv"), "\n")
 
 # =============================================================================
 # GENE-LEVEL PERMUTATION SIGNIFICANCE (GTEx / FastQTL eGene procedure)

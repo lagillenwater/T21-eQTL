@@ -36,7 +36,9 @@
 #
 # Outputs:
 #   - data/processed/eqtl_supported_genes.csv      (target gene roster)
-#   - data/processed/eqtl_target_variants.csv      (cis variants per gene)
+#   - data/processed/eqtl_target_variants.csv      (cis variants per gene, with
+#                                                   the minor-allele reference:
+#                                                   GTEx af and gnomAD v4.1 AF)
 #   - data/processed/genotypes_filtered.csv        (HTP genotypes at those
 #                                                   variants, T21+Control)
 #   - data/processed/genotype_filter_session_info.txt
@@ -51,6 +53,8 @@ suppressPackageStartupMessages({
 
 set.seed(42)
 source("scripts/lib/run.R"); run <- load_run(); th <- run$thresholds
+source("scripts/lib/alleles.R")   # minor-allele referencing of the cis variants
+source("scripts/lib/gnomad.R")    # gnomAD v4.1 ALT frequencies (cached tabix pulls)
 
 cat(sprintf("=== T21-eQTL: Filter Genotypes for eQTL-Supported Genes [run: %s] ===\n\n", run$name))
 
@@ -224,6 +228,53 @@ cat(sprintf("  Unique target variants (POS,REF,ALT): %d\n",
 cat(sprintf("  Target genes covered by GTEx allpairs: %d / %d\n",
             uniqueN(target_variants$ensembl_stable),
             uniqueN(target_genes$ensembl_stable)))
+
+# ---- Minor-allele reference for every cis variant --------------------------
+# Which of REF/ALT is the rarer allele in the typical population. Genotype
+# stays ALT-coded downstream; these columns are what lets scripts 03, 04 and
+# 11 report a direction per MINOR allele, the allele eQTL effects are normally
+# reported against (scripts/lib/alleles.R). GTEx's own `af` is primary - it is
+# the population the cis-eQTL was called in - and gnomAD v4.1 genomes is the
+# independent check on the same call.
+
+target_variants[, c("gtex_maf", "alt_is_minor", "minor_allele",
+                    "major_allele", "maf_tie") :=
+                  minor_call(REF, ALT, af)]
+stopifnot(!anyNA(target_variants$alt_is_minor))   # every allpairs row carries af
+
+gnomad <- ensure_gnomad_af(target_variants$POS)
+gnomad_status <- attr(gnomad, "gnomad_status")
+if (!identical(gnomad_status, "ok"))
+  warning("gnomAD frequencies incomplete (", gnomad_status,
+          "); the gnomad_* columns are NA where they could not be fetched. ",
+          "Re-run scripts/fetch_gnomad_af.R once the network is available.",
+          call. = FALSE)
+
+if (nrow(gnomad)) {
+  setnames(gnomad, c("AF", "AF_nfe", "filter"),
+           c("gnomad_af", "gnomad_af_nfe", "gnomad_filter"))
+  target_variants <- merge(target_variants, gnomad, by = c("POS", "REF", "ALT"), all.x = TRUE)
+} else {
+  target_variants[, c("gnomad_af", "gnomad_af_nfe", "gnomad_filter") :=
+                    .(NA_real_, NA_real_, NA_character_)]
+}
+target_variants[, `:=`(
+  gnomad_maf            = maf_from_af(gnomad_af),
+  gnomad_alt_is_minor   = alt_is_minor(gnomad_af),
+  minor_concordant      = minor_allele_agrees(af, gnomad_af),
+  minor_concordant_nfe  = minor_allele_agrees(af, gnomad_af_nfe))]
+
+n_var <- nrow(target_variants)
+cat(sprintf("  ALT is the minor allele in GTEx whole blood: %d / %d (%.1f%%)\n",
+            sum(target_variants$alt_is_minor), n_var,
+            100 * mean(target_variants$alt_is_minor)))
+cat(sprintf("  gnomAD v4.1 frequency found:                %d / %d (%.1f%%)\n",
+            sum(!is.na(target_variants$gnomad_af)), n_var,
+            100 * mean(!is.na(target_variants$gnomad_af))))
+cat(sprintf("  GTEx and gnomAD agree on the minor allele:  %d / %d matched (%.1f%%)\n",
+            sum(target_variants$minor_concordant, na.rm = TRUE),
+            sum(!is.na(target_variants$minor_concordant)),
+            100 * mean(target_variants$minor_concordant, na.rm = TRUE)))
 
 fwrite(target_variants, run$processed("eqtl_target_variants.csv"))
 

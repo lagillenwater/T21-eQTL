@@ -135,3 +135,91 @@ test_that("attach_effects puts the own-variant and decoy effects on each gene's 
   expect_true(is.na(got[Gene_name == "DN2", own_slope]))
   expect_equal(nrow(got), nrow(rows))
 })
+
+# --- orient_panels -------------------------------------------------------------
+# A deviating-gene panel is drawn on the allele whose GTEx effect runs the same
+# way as the gene's deviation, so the panel trends with its block label. That
+# allele is the minor one exactly when the minor allele runs with the
+# deviation, which is what makes plot_allele_role double as the badge.
+
+variant_tbl <- function() data.table(
+  variant_id   = c("v_up1", "v_dn1", "v_pos1"),
+  minor_allele = c("T", "A", "G"),
+  major_allele = c("C", "G", "A"),
+  alt_is_minor = c(TRUE, FALSE, TRUE),
+  gtex_maf     = c(0.29, 0.13, 0.24))
+
+gtex_tbl <- function() data.table(
+  variant_id       = c("v_up1", "v_dn1", "v_pos1"),
+  Gene_name        = c("UP1", "DN1", "POS1"),
+  gtex_slope_minor = c(0.3, 0.25, -0.5))
+
+gene_dir_tbl <- function() data.table(
+  Gene_name = c("UP1", "DN1", "DN2"), deviation_sign = c(1, -1, -1))
+
+oriented <- function() orient_panels(panel_variants(perm_tbl(), lane_tbl(), neg_tbl(), pos_tbl()),
+                                     variant_tbl(), gtex_tbl(), gene_dir_tbl())
+
+test_that("a DE high gene whose minor allele raises expression is drawn on the minor allele", {
+  got <- oriented()[Gene_name == "UP1" & panel_group == "DE high"]
+  expect_true(got$with_deviation)
+  expect_true(got$plot_minor)
+  expect_equal(got$plot_allele, "T")
+  expect_equal(got$plot_allele_role, "minor")
+  expect_equal(got$canonical_dir, "raises")
+})
+
+test_that("a DE low gene whose minor allele raises expression is drawn on the major allele", {
+  got <- oriented()[Gene_name == "DN1" & panel_group == "DE low"]
+  expect_false(got$with_deviation)     # minor A raises, the gene deviates low
+  expect_false(got$plot_minor)
+  expect_equal(got$plot_allele, "G")
+  expect_equal(got$plot_allele_role, "major")
+  expect_equal(got$canonical_dir, "raises")
+})
+
+test_that("a control panel has no deviation to match and stays on the minor allele", {
+  got <- oriented()[panel_group == "Positive control (GTEx eGenes)"]
+  expect_true(is.na(got$with_deviation))
+  expect_true(got$plot_minor)
+  expect_equal(got$plot_allele, "G")
+  expect_equal(got$canonical_dir, "lowers")
+})
+
+test_that("a decoy panel has no canonical direction and stays on the minor allele", {
+  got <- oriented()[panel_group == "Negative control (decoy variants)"]
+  expect_true(all(is.na(got$canonical_dir)))
+  expect_true(all(is.na(got$with_deviation)))
+  expect_true(all(got$plot_minor))
+})
+
+test_that("orientation follows GTEx, not the sign of the data being plotted", {
+  # Same panel, GTEx slope flipped: the plotted allele has to flip with it.
+  g <- gtex_tbl(); g[Gene_name == "UP1", gtex_slope_minor := -0.3]
+  got <- orient_panels(panel_variants(perm_tbl(), lane_tbl(), neg_tbl(), pos_tbl()),
+                       variant_tbl(), g, gene_dir_tbl())[Gene_name == "UP1" & panel_group == "DE high"]
+  expect_false(got$plot_minor)
+  expect_equal(got$plot_allele, "C")
+})
+
+test_that("orient_panels keeps one row per panel", {
+  p <- panel_variants(perm_tbl(), lane_tbl(), neg_tbl(), pos_tbl())
+  expect_equal(nrow(oriented()), nrow(p))
+})
+
+# --- panel_dosage --------------------------------------------------------------
+
+test_that("panel_dosage is minor dosage when the panel shows the minor allele", {
+  expect_equal(panel_dosage(0:3, TRUE, TRUE, 3), as.numeric(0:3))
+  expect_equal(panel_dosage(0:3, FALSE, TRUE, 3), c(3, 2, 1, 0))
+})
+
+test_that("panel_dosage is the major-allele count when the panel shows the major allele", {
+  expect_equal(panel_dosage(0:3, TRUE, FALSE, 3), c(3, 2, 1, 0))
+  expect_equal(panel_dosage(0:3, FALSE, FALSE, 3), as.numeric(0:3))
+})
+
+test_that("panel_dosage recycles a scalar orientation over a dosage vector", {
+  expect_equal(panel_dosage(c(0, 1, 2, 3), TRUE, FALSE, 3), c(3, 2, 1, 0))
+  expect_true(all(is.na(panel_dosage(0:3, NA, TRUE, 3))))
+})

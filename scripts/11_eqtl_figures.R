@@ -1,17 +1,33 @@
 # 11_eqtl_figures.R
 #
-# Purpose: Three figures for the within-T21 cis-eQTL stage, drawn from tables
+# Purpose: Four figures for the within-T21 cis-eQTL stage, drawn from tables
 #          scripts 03 and 04 already wrote. No statistic is recomputed here.
 #
-#   eqtl_dosage_panels   Expression by alt-allele dosage in T21, box + jitter,
-#                        one panel per gene, in four groups: DE high, DE low,
+#   eqtl_dosage_panels   Expression by dosage in T21, box + jitter, one panel
+#                        per gene. Main figure: panel A = DE high, panel B =
+#                        DE low genes, each on the best variant of the
+#                        gene-level permutation test, the one the
+#                        classification rests on, so detected and
+#                        not-detected genes are shown alike. Each panel's
+#                        x-axis carries the DEVIATION-MATCHING allele (the
+#                        allele GTEx says moves expression the way the gene
+#                        deviates), so a panel reproducing GTEx trends up in
+#                        panel A and down in panel B. The strip names the
+#                        minor allele, its MAF, the canonical GTEx direction,
+#                        whether the within-T21 fit agrees, and whether the
+#                        minor allele runs with or against the deviation; a
+#                        trend line coloured by that agreement is drawn on
+#                        every panel.
+#   eqtl_dosage_controls Supplement to the above, same layout: panel A =
 #                        positive controls (strong GTEx eGenes on their own
-#                        best variant) and negative controls (each deviating
-#                        gene against the best variant of its decoy set).
-#                        The variant is the best variant of the gene-level
-#                        permutation test, the one the classification rests
-#                        on, so detected and not-detected genes are shown alike.
-#   eqtl_effect_sizes    Scatter: within-T21 slope at the best variant (x)
+#                        best variant), panel B = negative controls (each
+#                        deviating gene against the best variant of its
+#                        decoy set). Neither has a deviation to match, so both
+#                        stay on minor-allele dosage; a decoy variant is an
+#                        eQTL of the decoy gene, not of the gene plotted, so
+#                        it carries no canonical direction.
+#   eqtl_effect_sizes    Scatter: within-T21 slope per minor allele at the
+#                        best variant (x)
 #                        against -log10 gene-level permutation q (y), for the
 #                        deviating genes (by direction), their decoy variant
 #                        sets and the positive controls, with the q = 0.05
@@ -27,8 +43,8 @@
 #     expression_adjusted.csv, analysis_cohort.csv
 #   - data/chr21_gene_positions.csv (TSS for deviating genes GTEx lacks)
 # Outputs (per run): figures/eqtl_dosage_panels.{pdf,png},
-#   figures/eqtl_effect_sizes.{pdf,png}, figures/chr21_deviating_map.{pdf,png},
-#   tables/eqtl_best_variant_effects.csv
+#   figures/eqtl_dosage_controls.{pdf,png}, figures/eqtl_effect_sizes.{pdf,png},
+#   figures/chr21_deviating_map.{pdf,png}, tables/eqtl_best_variant_effects.csv
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -38,6 +54,7 @@ suppressPackageStartupMessages({
 })
 source("scripts/lib/cohort.R")        # subject_id_from_labid
 source("scripts/lib/eqtl_fit.R")      # expr_from_matrix
+source("scripts/lib/alleles.R")       # minor_dosage, T21_CHR21_PLOIDY
 source("scripts/lib/eqtl_figures.R")  # panel_variants, overview_rows, map_bands
 source("scripts/lib/run.R"); run <- load_run()
 
@@ -53,6 +70,30 @@ LAB_EQTL  <- c(cis_eqtl = "cis-eQTL detected", no_cis_eqtl = "Tested, not detect
 COL_GROUP <- c("DE high" = COL_DIR[["up"]], "DE low" = COL_DIR[["down"]],
                "Positive control (GTEx eGenes)" = "#1B7837",
                "Negative control (decoy variants)" = "grey45")
+
+# Does the within-T21 trend reproduce the canonical (GTEx) direction of the
+# eQTL for the same allele? Compared on the minor allele, so the answer is
+# independent of which allele a panel is oriented to.
+LAB_AGREE <- c(match    = "Within-T21 trend matches the GTEx direction",
+               opposite = "Within-T21 trend opposite to GTEx",
+               none     = "No canonical direction for this gene (decoy variant)")
+COL_AGREE <- setNames(c("#1B7837", "#E08214", "grey55"), LAB_AGREE)
+
+# Panel-block titles and x-axis labels. A deviating-gene block is drawn on the
+# allele that matches its deviation, so the block title states which way the
+# panels should run; the controls stay on minor-allele dosage.
+BLOCK_TITLE <- c(
+  "DE high" = "DE high - expressed higher than the trisomy expectation",
+  "DE low"  = "DE low - expressed lower than the trisomy expectation",
+  "Positive control (GTEx eGenes)"    = "Positive control (strong GTEx eGenes)",
+  "Negative control (decoy variants)" = "Negative control (decoy variants)")
+BLOCK_XLAB <- c(
+  "DE high" = paste("Dosage of the expression-raising allele in T21 (0-3)",
+                    "- a panel that reproduces the GTEx direction trends up"),
+  "DE low"  = paste("Dosage of the expression-lowering allele in T21 (0-3)",
+                    "- a panel that reproduces the GTEx direction trends down"),
+  "Positive control (GTEx eGenes)"    = "Minor-allele dosage in T21 (0-3)",
+  "Negative control (decoy variants)" = "Minor-allele dosage in T21 (0-3)")
 
 # GRCh38 chr21: length and centromere (UCSC cytoBand acen bands).
 CHR21_LEN <- 46709983
@@ -100,6 +141,39 @@ E        <- run$expression()
 meta_t21 <- cohort[Karyotype == "T21"]
 meta_t21[, subject_id := subject_id_from_labid(LabID)]
 
+# ---- Which allele each panel is oriented to --------------------------------
+# A deviating gene's panel carries the DEVIATION-MATCHING allele: the allele
+# whose GTEx effect has the same sign as the gene's own deviation. Every DE
+# high panel therefore trends up and every DE low panel trends down whenever
+# the within-T21 fit reproduces GTEx, and a panel that does not reproduce it
+# is the one trending the wrong way. The orientation comes from GTEx, never
+# from the within-T21 slope being plotted.
+#
+# The minor allele is plotted exactly when it is itself the deviation-matching
+# one, so the "minor"/"major" role printed in each strip is also the
+# with/against-the-deviation badge. Control panels have no deviation to match
+# and stay on minor-allele dosage.
+tv <- fread(run$processed("eqtl_target_variants.csv"))
+tv[, gtex_slope_minor := align_slope_to_minor(slope, alt_is_minor)]
+variant_alleles <- unique(tv[, .(variant_id, minor_allele, major_allele,
+                                 alt_is_minor, gtex_maf)], by = "variant_id")
+gtex_by_gene    <- unique(tv[, .(variant_id, Gene_name, gtex_slope_minor)],
+                          by = c("variant_id", "Gene_name"))
+gene_dir <- lanes[sig_lane %in% c("DE_high", "DE_low"),
+                  .(Gene_name, deviation_sign = sign(norm_log2FC))]
+
+missing_allele <- setdiff(panels$variant_id, variant_alleles$variant_id)
+if (length(missing_allele))
+  stop("no minor-allele call for panel variant(s): ",
+       paste(head(missing_allele, 3), collapse = ", "), call. = FALSE)
+
+panels <- orient_panels(panels, variant_alleles, gtex_by_gene, gene_dir)
+cat(sprintf("  minor allele runs with the gene's deviation: %d of %d deviating-gene panels\n",
+            sum(panels$with_deviation, na.rm = TRUE),
+            sum(!is.na(panels$with_deviation))))
+cat(sprintf("  panels drawn on major-allele dosage (minor allele runs against): %d\n",
+            sum(!panels$plot_minor)))
+
 geno_t21 <- geno[karyotype == "T21" & !is.na(alt_dosage) &
                    variant_id %in% panels$variant_id &
                    subject_id %in% meta_t21$subject_id,
@@ -112,54 +186,135 @@ expr_tbl <- rbindlist(lapply(unique(panels$Gene_name), function(g)
 plot_df <- merge(panels, geno_t21, by = "variant_id", allow.cartesian = TRUE)
 plot_df <- merge(plot_df, expr_tbl, by = c("Gene_name", "subject_id"))
 plot_df <- plot_df[!is.na(expr)]
-panels[, facet := sprintf("%s\n%s\nq = %.2g%s", Gene_name, sub("_b38$", "", variant_id),
-                          q_gene_bh, fifelse(is.na(decoy_gene), "",
-                                             paste0("  (decoy: ", decoy_gene, ")")))]
-plot_df <- merge(plot_df, panels[, .(Gene_name, panel_group, variant_id, facet)],
+# dosage_minor: the issue #3 coding, what every reported slope is per.
+# dosage_plot:  what this panel's x-axis shows (the same thing reflected
+#               again where the major allele is the deviation-matching one).
+plot_df[, dosage_minor := minor_dosage(alt_dosage, alt_is_minor, T21_CHR21_PLOIDY)]
+plot_df[, dosage_plot  := panel_dosage(alt_dosage, alt_is_minor, plot_minor, T21_CHR21_PLOIDY)]
+
+# ---- Does the within-T21 trend reproduce the canonical GTEx direction? -----
+# Compared on the minor allele, so the answer does not depend on which allele
+# the panel happens to be oriented to.
+effects <- best_variant_effects(plot_df, dosage_col = "dosage_minor")
+panels[, pg := as.character(panel_group)]
+panels <- merge(panels,
+                effects[, .(Gene_name, pg = panel_group, variant_id, t21_slope_minor = slope)],
+                by = c("Gene_name", "pg", "variant_id"), all.x = TRUE, sort = FALSE)
+panels[, t21_dir := fcase(is.na(t21_slope_minor), NA_character_,
+                          t21_slope_minor > 0, "raises", default = "lowers")]
+panels[, agrees := canonical_dir == t21_dir]
+panels[, agree_lab := fcase(is.na(agrees), LAB_AGREE[["none"]],
+                            agrees,        LAB_AGREE[["match"]],
+                            default =      LAB_AGREE[["opposite"]])]
+cat(sprintf("  within-T21 trend reproduces the GTEx direction: %d of %d panels with one\n",
+            sum(panels$agrees, na.rm = TRUE), sum(!is.na(panels$agrees))))
+
+# ---- Facet strips -----------------------------------------------------------
+setorder(panels, panel_group, q_gene_bh, Gene_name)
+# Four short lines rather than two long ones: at PANEL_W inches per panel a
+# strip clips past roughly 50 characters.
+x_txt <- fifelse(panels$plot_allele_role == "minor",
+                 sprintf("x = %s   (minor allele, MAF %.2f)",
+                         panels$plot_allele, panels$gtex_maf),
+                 sprintf("x = %s   (major allele; minor %s, MAF %.2f)",
+                         panels$plot_allele, panels$minor_allele, panels$gtex_maf))
+canon <- fifelse(is.na(panels$canonical_dir),
+                 sprintf("decoy of %s | no canonical direction", panels$decoy_gene),
+                 sprintf("GTEx: %s %s", panels$minor_allele, panels$canonical_dir))
+agree_txt <- fcase(is.na(panels$agrees), "", panels$agrees, "T21 agrees",
+                   default = "T21 opposite")
+badge <- fcase(is.na(panels$with_deviation), "",
+               panels$with_deviation, "with deviation",
+               default = "against deviation")
+line4 <- canon
+line4 <- fifelse(nzchar(agree_txt), paste0(line4, " | ", agree_txt), line4)
+line4 <- fifelse(nzchar(badge),     paste0(line4, " | ", badge),     line4)
+panels[, facet := sprintf("%s   q = %.2g\n%s\n%s\n%s", Gene_name, q_gene_bh,
+                          sub("_b38$", "", variant_id), x_txt, line4)]
+
+plot_df <- merge(plot_df, panels[, .(Gene_name, panel_group, variant_id, facet, agree_lab)],
                  by = c("Gene_name", "panel_group", "variant_id"))
 plot_df[, facet := factor(facet, levels = panels$facet)]
-plot_df[, dosage := factor(alt_dosage, levels = 0:3)]
+plot_df[, dosage := factor(dosage_plot, levels = 0:3)]
+plot_df[, agree_lab := factor(agree_lab, levels = LAB_AGREE)]
 
-NCOL_PANELS <- 5
-group_plot <- function(df, title, colour) {
+# One row per category: a block's panels are laid out in a single row, so the
+# figure grows sideways with the block rather than wrapping. PANEL_W is the
+# width each panel needs for its four-line strip to render without clipping.
+PANEL_W <- 3.1
+#' One panel block. `show_legend` is TRUE for a single block per figure: with
+#' a guide on every block patchwork collects one legend per block instead of
+#' merging them, and the row of duplicates runs off both edges.
+group_plot <- function(df, title, colour, xlab, show_legend) {
   ng <- uniqueN(df$facet)
   ggplot(df, aes(x = dosage, y = expr)) +
     geom_boxplot(outlier.shape = NA, fill = "grey92", colour = "grey40", linewidth = 0.35) +
     geom_jitter(width = 0.18, size = 0.55, alpha = 0.45, colour = colour) +
+    # Trend of the within-T21 fit on the allele this panel shows. The factor
+    # x-axis is at positions 1..4 for dosage 0..3, a shift that leaves the
+    # line's slope and direction unchanged.
+    geom_smooth(aes(x = as.numeric(dosage), colour = agree_lab, group = 1),
+                method = "lm", formula = y ~ x, se = FALSE, linewidth = 0.55,
+                show.legend = show_legend) +
     scale_x_discrete(drop = FALSE) +
-    facet_wrap(~ facet, scales = "free_y", ncol = min(NCOL_PANELS, ng)) +
-    labs(title = title, x = "Alt-allele dosage in T21 (0-3)",
-         y = "Expression (log2-CPM, run artifact)") +
+    scale_colour_manual(values = COL_AGREE, drop = FALSE, name = NULL) +
+    # override.aes so the two outcomes absent from a given figure still get a
+    # visible coloured key, which is what tells the reader what would be flagged
+    guides(colour = guide_legend(override.aes = list(linewidth = 0.9))) +
+    facet_wrap(~ facet, scales = "free_y", nrow = 1) +
+    labs(title = title, x = xlab, y = "Expression (log2-CPM, run artifact)") +
     theme_bw(base_size = 8.5) +
-    theme(strip.text = element_text(size = 6.3, lineheight = 0.9),
+    theme(strip.text = element_text(size = 5.8, lineheight = 1.05),
           plot.title = element_text(face = "bold", size = 10),
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom", legend.text = element_text(size = 7.5))
 }
-group_plots <- lapply(levels(panels$panel_group), function(g) {
-  d <- plot_df[panel_group == g]
-  if (nrow(d) == 0) return(NULL)
-  group_plot(d, g, COL_GROUP[[g]])
-})
-keep <- !vapply(group_plots, is.null, logical(1))
-group_rows <- vapply(levels(panels$panel_group)[keep], function(g)
-  ceiling(uniqueN(plot_df[panel_group == g, facet]) / NCOL_PANELS), numeric(1))
-fig_panels <- wrap_plots(group_plots[keep], ncol = 1, heights = group_rows)
-save_fig(fig_panels, run$figure("eqtl_dosage_panels"),
-         width = 11, height = max(6, 2.3 * sum(group_rows) + 0.8 * sum(keep)))
+#' Stack the named panel_group(s) into one lettered (A, B, ...) figure and
+#' save it under `stem`. Groups with no panels are silently dropped, so a
+#' figure still renders if e.g. no gene lacks GTEx coverage in a given run.
+dosage_fig <- function(groups, stem) {
+  present <- vapply(groups, function(g) nrow(plot_df[panel_group == g]) > 0, logical(1))
+  first   <- if (any(present)) groups[present][1] else NA_character_
+  gp <- lapply(groups, function(g) {
+    d <- plot_df[panel_group == g]
+    if (nrow(d) == 0) return(NULL)
+    group_plot(d, BLOCK_TITLE[[g]], COL_GROUP[[g]], BLOCK_XLAB[[g]],
+               show_legend = identical(g, first))
+  })
+  keep <- !vapply(gp, is.null, logical(1))
+  if (!any(keep)) { cat(sprintf("  Skipped %s: no panels\n", stem)); return(invisible()) }
+  widest <- max(vapply(groups[keep], function(g)
+    uniqueN(plot_df[panel_group == g, facet]), numeric(1)))
+  fig <- wrap_plots(gp[keep], ncol = 1) +
+    plot_annotation(tag_levels = "A") +
+    plot_layout(guides = "collect") & theme(legend.position = "bottom")
+  cat(sprintf("  %s: %d block(s), widest %d panels in one row\n", stem, sum(keep), widest))
+  save_fig(fig, run$figure(stem), width = 0.9 + PANEL_W * widest,
+           height = max(6, 3.6 * sum(keep)))
+}
+dosage_fig(c("DE high", "DE low"), "eqtl_dosage_panels")
+dosage_fig(c("Positive control (GTEx eGenes)", "Negative control (decoy variants)"),
+           "eqtl_dosage_controls")
 
 # =============================================================================
 # STEP 3: Per-gene effect sizes
 # =============================================================================
-# Within-T21 slope of expression on alt-allele dosage at each gene's best
+# Within-T21 slope of expression on MINOR-allele dosage at each gene's best
 # variant (own cis variants), at the best variant of its decoy set (negative
 # control), and for the positive controls. The control tables store only p,
 # so the single best variant is refit here with fit_variants(), the fit script
 # 03 used; the refit p must reproduce the stored min_p_obs, which ties every
-# effect size to the test it came from. The alt allele is arbitrary, so the
-# figure shows the absolute slope with its 95% CI.
+# effect size to the test it came from. Reflecting the regressor flips the
+# slope's sign and nothing else, so that check holds on either coding while
+# the sign now means "per copy of the rarer allele" for every point.
+
+# Unlike the dosage panels above, this scatter keeps the MINOR allele as the
+# common reference across genes. Orienting it to each gene's deviation-matching
+# allele would make the sign of x a restatement of the block and of the GTEx
+# agreement, carrying no information of its own.
 
 cat("\nStep 3: Effect sizes...\n")
-effects <- best_variant_effects(plot_df)
+# `effects` was fitted on minor-allele dosage in Step 2.
 
 stored <- rbindlist(list(
   perm[!is.na(best_variant), .(Gene_name, panel_group = NA_character_, variant_id = best_variant, min_p_obs)],
@@ -221,10 +376,11 @@ fig_effects <- ggplot(sc, aes(x = slope, y = y)) +
   coord_cartesian(xlim = c(-x_lim, x_lim)) +
   labs(title = "Within-T21 cis-eQTL: effect size and significance per gene, with controls",
        subtitle = paste0(
-         "Slope of expression on alt-allele dosage at the best variant (sign follows the alt allele, which is arbitrary) against the gene-level\n",
-         "permutation q. With 1000 permutations q cannot fall much below 0.001, so the strongest genes share the top row.",
+         "Slope of expression on minor-allele dosage at the best variant (positive: the rarer allele raises expression) against the gene-level\n",
+         "permutation q. The dosage panels are oriented differently, to each gene's deviation-matching allele.\n",
+         "With 1000 permutations q cannot fall much below 0.001, so the strongest genes share the top row.",
          if (length(untested)) paste0("\nNo GTEx variants, not tested: ", paste(untested, collapse = ", "), ".") else ""),
-       x = "Within-T21 slope at the best variant (log2-CPM per alt allele)",
+       x = "Within-T21 slope at the best variant (log2-CPM per minor allele)",
        y = expression(-log[10]~italic(q)~"(gene-level permutation test)")) +
   theme_bw(base_size = 9) +
   theme(panel.grid.minor = element_blank(),

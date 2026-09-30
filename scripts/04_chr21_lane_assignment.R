@@ -115,6 +115,13 @@ per_var <- merge(per_var,
 #                           boxplot panels (e.g., APP at t21_p ~ 0.07).
 per_var[, dir_match := !is.na(gtex_slope) & !is.na(norm_log2FC_obs) &
                        sign(gtex_slope) == sign(norm_log2FC_obs)]
+# dir_match is ALT-referenced: REF and ALT come from the assembly, not from
+# the population, so its meaning flips with an arbitrary label. dir_match_minor
+# asks the same question of the MINOR allele (script 03, scripts/lib/alleles.R)
+# and is the one comparable across variants and with published eQTL
+# directions. Both are locus-level context; neither gates a lane.
+per_var[, dir_match_minor := !is.na(gtex_slope_minor) & !is.na(norm_log2FC_obs) &
+                             sign(gtex_slope_minor) == sign(norm_log2FC_obs)]
 per_var[, supportive_with_repro :=
           dir_match &
           !is.na(t21_slope) & !is.na(t21_p) &
@@ -125,6 +132,7 @@ per_var[, supportive_with_repro :=
 locus <- per_var[, .(
   n_cis_total       = uniqueN(variant_id),
   n_dir_match       = uniqueN(variant_id[dir_match == TRUE]),
+  n_dir_match_minor = uniqueN(variant_id[dir_match_minor == TRUE]),
   n_supp_with_repro = uniqueN(variant_id[supportive_with_repro == TRUE])
 ), by = ensembl_stable]
 
@@ -181,6 +189,7 @@ m <- merge(deseq[, .(ensembl_stable, EnsemblID, Gene_name, Gene_type, Chr,
 # Genes with no GTEx whole-blood signif eQTL at all -> 0 cis variants tested
 m[is.na(n_cis_total),       n_cis_total       := 0L]
 m[is.na(n_dir_match),       n_dir_match       := 0L]
+m[is.na(n_dir_match_minor), n_dir_match_minor := 0L]
 m[is.na(n_supp_with_repro), n_supp_with_repro := 0L]
 m[, raw_FC := 2^raw_log2FC]
 
@@ -253,6 +262,21 @@ perm <- if (file.exists(run$table("eqtl_gene_level_perm.csv"))) {
 m <- merge(m, perm[, .(Gene_name, p_gene_perm, q_gene_bh, cis_eqtl_detected, best_variant)],
            by = "Gene_name", all.x = TRUE)
 
+# Minor-allele reference for the variant the call rests on, so the lane table
+# states the direction of the detected eQTL per copy of the allele that is
+# rarer in the population rather than per copy of whichever base differs from
+# the reference assembly (scripts/lib/alleles.R).
+best_allele <- unique(per_var[, .(Gene_name, best_variant = variant_id,
+                                  best_minor_allele    = minor_allele,
+                                  best_major_allele    = major_allele,
+                                  best_maf_gtex        = gtex_maf,
+                                  best_maf_gnomad      = gnomad_maf,
+                                  best_maf_htp         = htp_maf,
+                                  best_minor_concordant = minor_concordant,
+                                  best_slope_minor_t21  = t21_slope_minor,
+                                  best_slope_minor_gtex = gtex_slope_minor)])
+m <- merge(m, best_allele, by = c("Gene_name", "best_variant"), all.x = TRUE)
+
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")
 #   - DE genes:
@@ -281,8 +305,11 @@ setcolorder(m, c(
   "eligible_idx", "passes_magnitude_filter", "tier",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
-  "n_cis_total", "n_dir_match", "n_supp_with_repro",
+  "n_cis_total", "n_dir_match", "n_dir_match_minor", "n_supp_with_repro",
   "p_gene_perm", "q_gene_bh", "cis_eqtl_detected",
+  "best_minor_allele", "best_major_allele", "best_maf_gtex", "best_maf_gnomad",
+  "best_maf_htp", "best_minor_concordant",
+  "best_slope_minor_t21", "best_slope_minor_gtex",
   "strongest_supp_pval", "strongest_supp_variant",
   "strongest_dir_pval", "strongest_dir_variant",
   "strongest_overall_pval", "strongest_overall_variant"

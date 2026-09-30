@@ -63,6 +63,8 @@ cran_packages <- c(
 # Bioconductor packages
 bioc_packages <- c(
   "DESeq2",         # Differential expression analysis
+  "Rsamtools",      # Remote tabix queries of the gnomAD sites VCF
+                    # (scripts/lib/gnomad.R); pulls in GenomicRanges/IRanges
   "BiocManager"     # Bioconductor package manager
 )
 
