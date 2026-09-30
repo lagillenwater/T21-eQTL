@@ -28,6 +28,7 @@ Rscript scripts/05_sankeymatic_export.R --run baseline          # SankeyMATIC in
 Rscript scripts/06_chr21_distribution_panel.R --run baseline    # ploidy-correction effect: chr21 vs chr22
 Rscript scripts/07_three_panel_figure.R --run baseline          # volcano figures: all genes, chr21 only
 Rscript scripts/11_eqtl_figures.R --run baseline                # eQTL dosage panels, effect sizes, chr21 map
+Rscript scripts/13_af_deviation_bound.R --run baseline         # can the cis-eQTLs move the group ratio? (AF bound)
 Rscript scripts/S1_covariate_evidence.R --run baseline          # supplement: evidence for covariates and exclusions
 
 # Covariate- and composition-adjusted run: same scripts with --run adjusted, then
