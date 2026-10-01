@@ -1,4 +1,4 @@
-# 09_filter_genotypes.R
+# 02_filter_genotypes.R
 #
 # Purpose: Build the genotype + cis-variant universe for the eQTL stage of
 #          the pipeline.

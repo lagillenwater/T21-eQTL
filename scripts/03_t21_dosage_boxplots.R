@@ -1,4 +1,4 @@
-# 11_t21_dosage_boxplots.R
+# 03_t21_dosage_boxplots.R
 #
 # Purpose: Within-T21 cis-eQTL test. For each target gene, regress expression
 #          on alt-allele dosage in T21 subjects only (per variant), re-express

@@ -1,4 +1,4 @@
-# 12_chr21_lane_assignment.R
+# 04_chr21_lane_assignment.R
 #
 # Purpose: Assign every chr21 gene to a (significance lane, eQTL lane) pair
 #          for the comprehensive Sankey/alluvial figure. Mirrors the paper's
