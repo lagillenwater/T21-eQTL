@@ -45,8 +45,27 @@ git_rev <- tryCatch(
 )
 ```
 
-Computed from the pipeline outputs in `results/runs/<run>/tables/` at commit
-`` `r git_rev` ``. To refresh after a pipeline run:
+Rendered at commit `` `r git_rev` `` (the commit checked out when this
+document was last knitted; `results/` is gitignored, so the outputs
+themselves are not versioned). This document reads:
+
+- `results/runs/baseline/tables/`: `chr21_lane_assignments.csv` (script
+  04) - every number and gene list in the baseline sections;
+  `eqtl_controls_summary.csv`, `eqtl_control_positive.csv` and
+  `eqtl_control_negative.csv` (script 03); `eqtl_best_variant_effects.csv`
+  (script 11).
+- `results/runs/adjusted/`: `processed/cohort_roster.csv` (script 01);
+  `tables/chr21_lane_assignments.csv` and `chr21_lane_summary.csv` (script
+  04); `tables/eqtl_controls_summary.csv` (script 03);
+  `tables/lane_transitions_adjusted_vs_baseline.csv` and
+  `run_comparison_adjusted_vs_baseline.csv` (script 10);
+  `tables/S1_attribution.csv` and `S1_covariates_vs_karyotype.csv` (S1).
+- `docs/figures/` - the PNGs embedded under Figures and in the adjusted-run
+  section (copies of the outputs of scripts 06, 07, 10, 11 and S1), and
+  `Sankey.png`, the SankeyMATIC render of
+  `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt` (script 05).
+
+To refresh after a pipeline run:
 `Rscript -e 'rmarkdown::render("docs/summary.Rmd")'`. Methodology and
 its history: `README.md` and `docs/decisions.md`.
 

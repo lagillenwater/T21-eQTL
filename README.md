@@ -126,11 +126,19 @@ arrow 22.
 ```text
 T21-eQTL/
   README.md                  # this file (canonical doc)
-  install_packages.R
+  LICENSE                    # BSD-2-Clause Plus Patent
+  install_packages.R         # one-time CRAN + Bioconductor install
   environment.yml            # conda alternative
+  download_gtex.sh           # fetch the GTEx v10 chr21 whole-blood allpairs parquet
+  .github/workflows/ci.yml   # CI: parse-check scripts, run tests, upload coverage
+  codecov.yml                # Codecov settings for the CI coverage upload
+  .coderabbit.yaml           # CodeRabbit review settings (used on the fork)
   scripts/                   # production pipeline (see Pipeline section)
-    lib/                     # shared helpers
+    lib/                     # shared helpers, unit-tested under tests/
     archive/                 # legacy + supplementary scripts (see docs/decisions.md)
+  tests/
+    testthat.R               # test runner: Rscript tests/testthat.R
+    testthat/                # unit tests for scripts/lib/
   data/                      # inputs - mostly .gitignored
     HTP_WholeBlood_RNAseq_Counts_Synapse.txt   # 3.9 GB raw counts
     P4C_metadata_021921_Costello.txt           # sample metadata
@@ -139,6 +147,7 @@ T21-eQTL/
     chr21_ctrl_PASS.csv                        # 103 MB Control chr21 genotypes
     GTEx_Analysis_v10_..._Whole_Blood.v10.allpairs.chr21.parquet
                                                # GTEx allpairs (chr21)
+    raw/                                       # placeholder for raw downloads - .gitignored
     processed/                                 # script outputs - .gitignored
   config/runs/               # run definitions: baseline.R, adjusted.R
   results/
@@ -146,7 +155,10 @@ T21-eQTL/
     archive/2026-09-04_flat/ # pre-refactor flat outputs + drift_audit.md (historical)
     archive/                 # outputs of earlier pipeline versions (.gitignored)
   docs/
+    summary.Rmd              # results summary; reads results/tables/ and renders to summary.md
+    summary.md               # rendered summary (headline numbers and figures)
     decisions.md             # decision log, legacy notes, gotchas
+    figures/                 # PNG copies of the pipeline figures embedded by summary.md
     package_installation_info.txt
 ```
 
