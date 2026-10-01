@@ -1,9 +1,31 @@
 T21-eQTL results summary
 ================
-2026-09-10
+2026-10-01
 
-Computed from the pipeline outputs in `results/runs/<run>/tables/` at
-commit `c2d79dc`. To refresh after a pipeline run:
+Rendered at commit `36b3556` (the commit checked out when this document
+was last knitted; `results/` is gitignored, so the outputs themselves
+are not versioned). This document reads:
+
+- `results/runs/baseline/tables/`: `chr21_lane_assignments.csv` (script
+  04\) - every number and gene list in the baseline sections;
+  `eqtl_controls_summary.csv`, `eqtl_control_positive.csv` and
+  `eqtl_control_negative.csv` (script 03);
+  `positive_control_matching.csv` (script 02);
+  `eqtl_best_variant_effects.csv` (script 11).
+- `config/runs/baseline.R` - the control thresholds quoted in the text.
+- `results/runs/adjusted/`: `processed/cohort_roster.csv` (script 01);
+  `tables/chr21_lane_assignments.csv` and `chr21_lane_summary.csv`
+  (script 04); `tables/eqtl_controls_summary.csv` (script 03);
+  `tables/lane_transitions_adjusted_vs_baseline.csv` and
+  `run_comparison_adjusted_vs_baseline.csv` (script 10);
+  `tables/S1_attribution.csv` and `S1_covariates_vs_karyotype.csv` (S1).
+- `docs/figures/` - the PNGs embedded under Figures and in the
+  adjusted-run section (copies of the outputs of scripts 06, 07, 10, 11
+  and S1), and `Sankey.png`, the SankeyMATIC render of
+  `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt` (script
+  05).
+
+To refresh after a pipeline run:
 `Rscript -e 'rmarkdown::render("docs/summary.Rmd")'`. Methodology and
 its history: `README.md` and `docs/decisions.md`.
 
@@ -74,69 +96,86 @@ does not attribute them to a mechanism:
 ## Controls for the eQTL test
 
 Two standalone gene sets go through the identical gene-level permutation
-test (same runner, 1000 permutations, BH within the set, q \< 0.05). The
-negative control pairs each deviating gene’s expression with the cis
-variants of another tested gene at least 5 Mb away (no LD with its own
-locus), choosing the one with the closest variant count; detections
-should sit near the FDR level. The positive control takes the 10 chr21
-genes with the strongest GTEx whole-blood cis-eQTL among expressed,
-non-repeat, non-deviating genes and tests them on their own cis
-variants; most should be detected, or the test lacks power at this
-cohort size.
+test (same runner, 1000 permutations, BH within the set, q \< 0.05).
 
-| run | set | n_tested | n_detected | pct_detected | expectation |
-|:---|:---|---:|---:|---:|:---|
-| baseline | observed_deviating | 20 | 14 | 70 | the result |
-| baseline | negative_unlinked_variants | 20 | 0 | 0 | about 5% (the FDR level) |
-| baseline | positive_gtex_egenes | 10 | 10 | 100 | most detected |
-| adjusted | observed_deviating | 10 | 7 | 70 | the result |
-| adjusted | negative_unlinked_variants | 10 | 0 | 0 | about 5% (the FDR level) |
-| adjusted | positive_gtex_egenes | 10 | 10 | 100 | most detected |
+**Negative control, unlinked variants.** Each deviating gene’s
+expression is tested against 5 cis variant sets of other tested genes
+(deviating genes and positive controls) whose TSS is at least 5 Mb away,
+so no decoy set can be in LD with the gene’s own locus. Sets with the
+closest variant count are taken first, and decoy variants below GTEx MAF
+0.05 are dropped. Same genotypes, same subjects. Detections should sit
+near the FDR level, and about 5% of tests should reach nominal
+permutation p \< 0.05.
+
+**Positive control, matched GTEx eGenes.** Up to one control per tested
+deviating gene, matched in order of decreasing GTEx effect size until
+the one-per-locus rule below has used up the candidates (here 13 of the
+20 tested genes), drawn from the GTEx whole-blood eGenes (q \< 0.0001,
+with at least 10 variants at the GTEx pval cut) among expressed,
+non-repeat, non-deviating chr21 genes: the candidate nearest the
+deviating gene in GTEx allelic fold change and expression level, one per
+locus (TSS at least 1 Mb from every other control and 100 kb from any
+deviating gene), never a gene in a GRCh38 false duplication. Each is
+tested on its own cis variants. Most should be detected; if not, the
+test lacks power for effects of the size it is asked to find.
+
+| run | set | n_tested | n_detected | pct_detected | n_nominal_p05 | expectation |
+|:---|:---|---:|---:|---:|---:|:---|
+| baseline | observed_deviating | 20 | 14 | 70.0 | 15 | the result |
+| baseline | negative_unlinked_variants | 100 | 0 | 0.0 | 10 | about 5% (the FDR level) |
+| baseline | positive_gtex_egenes | 13 | 11 | 84.6 | 11 | most detected |
+| adjusted | observed_deviating | 10 | 7 | 70.0 | 8 | the result |
+| adjusted | negative_unlinked_variants | 50 | 0 | 0.0 | 6 | about 5% (the FDR level) |
+| adjusted | positive_gtex_egenes | 10 | 8 | 80.0 | 8 | most detected |
 
 eQTL test: observed set and the two standalone controls, both runs.
 
-| Gene_name | gtex_min_p | n_variants | p_gene_perm | q_gene_bh | detected |
-|:----------|:-----------|-----------:|------------:|----------:|:---------|
-| PWP2      | 8.6e-175   |        304 |    0.000999 |    0.0011 | TRUE     |
-| GATD3A    | 3.7e-169   |        244 |    0.000999 |    0.0011 | TRUE     |
-| COL18A1   | 3.4e-127   |        255 |    0.000999 |    0.0011 | TRUE     |
-| DIP2A     | 1.3e-114   |       1005 |    0.000999 |    0.0011 | TRUE     |
-| LINC00649 | 1.7e-97    |        435 |    0.000999 |    0.0011 | TRUE     |
-| CSTB      | 1.6e-85    |        368 |    0.000999 |    0.0011 | TRUE     |
-| S100B     | 2.1e-84    |        937 |    0.000999 |    0.0011 | TRUE     |
-| CFAP410   | 1.1e-72    |        207 |    0.004995 |    0.0050 | TRUE     |
-| TRPM2     | 1.5e-69    |        419 |    0.000999 |    0.0011 | TRUE     |
-| SPATC1L   | 3.2e-68    |        935 |    0.000999 |    0.0011 | TRUE     |
+| Control | Matched to | GTEx abs aFC | matched gene abs aFC | GTEx min p | n variants | q | detected |
+|:---|:---|---:|---:|:---|---:|---:|:---|
+| CYP4F29P | CYYR1 | 2.76 | 3.07 | 5.6e-50 | 291 | 0.0014 | TRUE |
+| LINC00189 | TEKT4P2 | 1.53 | 1.46 | 3.7e-21 | 610 | 0.0014 | TRUE |
+| LRRC3 | ABCC13 | 1.64 | 1.39 | 4.0e-33 | 124 | 0.0014 | TRUE |
+| TMPRSS3 | LINC01679 | 0.78 | 1.30 | 8.0e-20 | 107 | 0.0014 | TRUE |
+| CBR3 | ICOSLG | 1.04 | 1.08 | 6.2e-15 | 201 | 0.0014 | TRUE |
+| EVA1C | OLIG2 | 0.66 | 1.04 | 1.5e-22 | 102 | 0.1200 | FALSE |
+| GET1 | YBEY | 0.57 | 0.93 | 5.0e-68 | 661 | 0.0014 | TRUE |
+| KCNJ15 | MX1 | 0.56 | 0.82 | 1.4e-37 | 545 | 0.0014 | TRUE |
+| ITSN1 | PDE9A | 0.50 | 0.72 | 8.4e-31 | 196 | 0.0014 | TRUE |
+| DIP2A | COL6A2 | 0.71 | 0.65 | 1.3e-114 | 1005 | 0.0014 | TRUE |
+| ADAMTS1 | TSPEAR | 0.37 | 0.63 | 1.9e-08 | 23 | 0.0026 | TRUE |
+| MRPL39 | BACE2 | 0.29 | 0.60 | 7.3e-21 | 301 | 0.0140 | TRUE |
+| NRIP1 | RIPK4 | 0.25 | 0.58 | 2.9e-08 | 14 | 0.3800 | FALSE |
 
-Baseline positive control: strongest GTEx whole-blood eGenes on chr21
-outside the deviating set, tested within T21 on their own cis variants.
+Baseline positive control: one matched GTEx whole-blood eGene per tested
+deviating gene, tested within T21 on its own cis variants. aFC = GTEx
+allelic fold change (absolute log2).
 
-| Gene_name | decoy_gene | distance_mb | n_variants | p_gene_perm | q_gene_bh | detected |
-|:---|:---|---:|---:|---:|---:|:---|
-| PCBP3 | ABCC13 | 31.4 | 179 | 0.0079920 | 0.16 | FALSE |
-| ABCC13 | PCBP3 | 31.4 | 161 | 0.0569431 | 0.39 | FALSE |
-| TSPEAR | PAXBP1-AS1 | 12.0 | 10 | 0.0839161 | 0.39 | FALSE |
-| AF165147.1 | LINC01679 | 14.7 | 63 | 0.0889111 | 0.39 | FALSE |
-| COL6A2 | ABCC13 | 31.9 | 179 | 0.0979021 | 0.39 | FALSE |
-| AATBC | AF165147.1 | 15.1 | 61 | 0.1408591 | 0.47 | FALSE |
-| ICOSLG | C21orf62-AS1 | 11.5 | 114 | 0.1858142 | 0.48 | FALSE |
-| OLIG2 | RIPK4 | 8.7 | 86 | 0.1928072 | 0.48 | FALSE |
-| RIPK4 | RBM11 | 27.6 | 83 | 0.2577423 | 0.52 | FALSE |
-| BACE2 | AF165147.1 | 12.5 | 61 | 0.2617383 | 0.52 | FALSE |
-| CYYR1 | ABCC13 | 12.3 | 179 | 0.3176823 | 0.58 | FALSE |
-| LINC01679 | AF165147.1 | 14.7 | 61 | 0.3906094 | 0.65 | FALSE |
-| COL6A1 | C21orf62-AS1 | 13.2 | 114 | 0.6173826 | 0.88 | FALSE |
-| C21orf62-AS1 | PDE9A | 9.9 | 107 | 0.6663337 | 0.88 | FALSE |
-| TEKT4P2 | PAXBP1-AS1 | 23.6 | 10 | 0.6763237 | 0.88 | FALSE |
-| PAXBP1-AS1 | TEKT4P2 | 23.6 | 1 | 0.7012987 | 0.88 | FALSE |
-| YBEY | CYYR1 | 19.7 | 308 | 0.7932068 | 0.93 | FALSE |
-| PDE9A | C21orf62-AS1 | 9.9 | 114 | 0.9550450 | 0.99 | FALSE |
-| RBM11 | RIPK4 | 27.6 | 86 | 0.9770230 | 0.99 | FALSE |
-| MX1 | ABCC13 | 27.2 | 179 | 0.9920080 | 0.99 | FALSE |
+| Gene         | decoy sets | detected (q \< 0.05) | nominal p \< 0.05 | smallest q |
+|:-------------|-----------:|---------------------:|------------------:|-----------:|
+| AATBC        |          5 |                    0 |                 0 |       0.60 |
+| ABCC13       |          5 |                    0 |                 2 |       0.46 |
+| AF165147.1   |          5 |                    0 |                 0 |       0.60 |
+| BACE2        |          5 |                    0 |                 0 |       0.65 |
+| C21orf62-AS1 |          5 |                    0 |                 0 |       0.91 |
+| COL6A1       |          5 |                    0 |                 1 |       0.34 |
+| COL6A2       |          5 |                    0 |                 2 |       0.32 |
+| CYYR1        |          5 |                    0 |                 0 |       0.60 |
+| ICOSLG       |          5 |                    0 |                 2 |       0.25 |
+| LINC01679    |          5 |                    0 |                 0 |       0.65 |
+| MX1          |          5 |                    0 |                 0 |       0.65 |
+| OLIG2        |          5 |                    0 |                 0 |       0.60 |
+| PAXBP1-AS1   |          5 |                    0 |                 0 |       0.65 |
+| PCBP3        |          5 |                    0 |                 1 |       0.25 |
+| PDE9A        |          5 |                    0 |                 0 |       0.60 |
+| RBM11        |          5 |                    0 |                 0 |       0.60 |
+| RIPK4        |          5 |                    0 |                 1 |       0.32 |
+| TEKT4P2      |          5 |                    0 |                 0 |       0.60 |
+| TSPEAR       |          5 |                    0 |                 1 |       0.27 |
+| YBEY         |          5 |                    0 |                 0 |       0.80 |
 
-Baseline negative control: each deviating gene tested against the cis
-variants of a distant tested gene (decoy). Genes without a decoy at
-least 5 Mb away have no test.
+Baseline negative control, per deviating gene: its expression tested
+against each of its decoy variant sets. A gene with fewer sets had fewer
+donors far enough away.
 
 ## Figures
 
@@ -160,24 +199,23 @@ PNGs into `docs/figures/`, and re-render this document.
 
 ### cis-eQTL effect size per gene, with its controls (script 11):
 
-<img src="./figures/baseline_eqtl_effect_sizes.png" alt="Scatter plot with the within-T21 slope of expression on alt-allele dosage at the best variant on the x-axis and minus log10 of the gene-level permutation q on the y-axis, with a dashed line at q = 0.05. Green triangles are the ten positive-control GTEx eGenes, all on the top row and spread widely along x up to a slope of about 1.7. Red and blue circles are deviating genes higher and lower than expected; most sit above the dashed line with slopes within about 0.45 of zero, and six sit below it. Grey diamonds are the decoy variant sets, all near the bottom, well below the line." width="90%" />
+<img src="./figures/baseline_eqtl_effect_sizes.png" alt="Scatter plot with the within-T21 slope of expression per copy of the minor allele at the best variant on the x-axis and minus log10 of the gene-level permutation q on the y-axis, with a dashed line at q = 0.05. Green triangles are the matched positive-control GTEx eGenes, most on or near the top row with slopes from about -0.25 to 0.6, two below the line. Red and blue circles are deviating genes higher and lower than expected; most sit above the dashed line with slopes within about 0.45 of zero, and six sit below it. Grey diamonds are the decoy variant sets, all near the bottom, well below the line. The subtitle names the deviating genes with no GTEx variants." width="90%" />
 
 Each point is one gene’s best variant: its within-T21 slope on the
-x-axis (the sign follows the alt allele, which is arbitrary) and the
-gene-level permutation q on the y-axis, the value that decides
-detection. The dashed line is q = 0.05. The median absolute slope is
-0.22 log2-CPM per allele on the deviating genes’ own variants, 0.09 on
-their decoy sets, and 0.47 for the positive controls. With 1000
-permutations q cannot fall much below 0.001, so the strongest genes
-share the top row and differ only in slope. Genes with no GTEx variants
-have neither value and are named in the subtitle. Every slope is the
-best of many variants, so it is inflated by that selection; the decoys
-show that a large best-variant slope can occur with no cis link, as for
-the rare variant behind the far-right decoy.
+x-axis (per copy of the minor allele) and the gene-level permutation q
+on the y-axis, the value that decides detection. The dashed line is q =
+0.05. The median absolute slope is 0.22 log2-CPM per allele on the
+deviating genes’ own variants, 0.09 on their decoy sets, and 0.23 for
+the positive controls. With 1000 permutations q cannot fall much below
+0.001, so the strongest genes share the top row and differ only in
+slope. Genes with no GTEx variants have neither value and are named in
+the subtitle. Every slope is the best of many variants, so it is
+inflated by that selection; the decoys show that a large best-variant
+slope can occur with no cis link.
 
-### Expression by genotype for every tested gene and control (script 11):
+### Expression by genotype for every tested deviating gene (script 11; the controls are drawn the same way in `eqtl_dosage_controls`):
 
-<img src="./figures/baseline_eqtl_dosage_panels.png" alt="Grid of box-and-jitter panels, one per gene, showing expression in T21 subjects against alt-allele dosage from 0 to 3 at the gene's best variant. Four groups from top to bottom: DE high genes in red, DE low genes in blue, positive-control genes in green, and negative-control panels in grey where the gene's expression is drawn against the best variant of its decoy set. Each panel is titled with the gene, the variant and the permutation q." width="100%" />
+<img src="./figures/baseline_eqtl_dosage_panels.png" alt="Two rows of box-and-jitter panels, one per tested deviating gene, showing expression in T21 subjects against the dosage (0 to 3 copies) at the gene's best variant of the allele whose GTEx effect runs the way the gene deviates. Row A, DE high genes in red, is drawn on the expression-raising allele, so a panel that reproduces GTEx trends up; row B, DE low genes in blue, on the expression-lowering allele, so it trends down. Each strip names the gene, the permutation q, the variant, the plotted allele, the minor allele and its MAF, the GTEx direction and whether the within-T21 trend agrees. Every trend line is green, meaning the within-T21 trend matches the GTEx direction." width="100%" />
 
 ### Deviating genes along chr21 (script 11):
 
