@@ -206,7 +206,7 @@ pc_candidates <- merge(eligible[!ensembl_stable %in% target_genes$ensembl_stable
 pc_candidates <- merge(pc_candidates, n_at_cut, by = "ensembl_stable")[n_at_cut >= th$positive_min_variants]
 near_dev <- apply(abs(outer(pc_candidates$tss, dev_tss, "-")) < th$positive_dev_separation, 1, any)
 pc_candidates <- pc_candidates[!near_dev]
-cat(sprintf("  Positive-control pool: %d eGenes (q < %.2f) among %d eligible non-deviating genes; %d false-duplication genes excluded by name\n",
+cat(sprintf("  Positive-control pool: %d eGenes (q < %g) among %d eligible non-deviating genes; %d false-duplication genes excluded by name\n",
             nrow(pc_candidates), th$positive_egene_qval, sum(!eligible$ensembl_stable %in% target_genes$ensembl_stable),
             sum(eligible$Gene_name %in% FALSE_DUP$gene)))
 matching <- match_positive_controls(pc_targets, pc_candidates, th$positive_min_separation)
