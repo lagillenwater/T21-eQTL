@@ -26,22 +26,32 @@
 #              in docs/REPO_STATE.md and
 #              docs/superpowers/plans/2026-08-31-tight-plan.md.
 #
-# Inputs:
-#   - results/tables/deseq2_chr21_genes_both_analyses.csv
+# Usage:  Rscript scripts/02_filter_genotypes.R --run <name>
+#
+# Inputs (<run> = results/runs/<name>):
+#   - <run>/tables/deseq2_chr21_genes_both_analyses.csv   (script 01)
+#   - <run>/processed/analysis_cohort.csv                 (script 01)
 #   - data/processed/blacklisted_genes.csv
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
-#   - data/processed/sample_metadata.csv
+#   - data/Whole_Blood.v10.eGenes.txt.gz                  (positive-control pool)
+#   - data/grch38_false_duplication_genes_chr21.csv       (excluded from that pool)
 #   - data/chr21_ds_PASS.csv
 #   - data/chr21_ctrl_PASS.csv
+#   - data/gnomad/ (gnomAD v4.1 chr21 AF cache, scripts/lib/gnomad.R; positions
+#     not yet cached are fetched by remote tabix and appended)
 #
 # Outputs:
-#   - data/processed/eqtl_supported_genes.csv      (target gene roster)
-#   - data/processed/eqtl_target_variants.csv      (cis variants per gene, with
-#                                                   the minor-allele reference:
-#                                                   GTEx af and gnomAD v4.1 AF)
-#   - data/processed/genotypes_filtered.csv        (HTP genotypes at those
-#                                                   variants, T21+Control)
-#   - data/processed/genotype_filter_session_info.txt
+#   - <run>/processed/eqtl_supported_genes.csv      (target gene roster, positive
+#                                                    controls included)
+#   - <run>/processed/eqtl_target_variants.csv      (cis variants per gene, with
+#                                                    the minor-allele reference:
+#                                                    GTEx af and gnomAD v4.1 AF)
+#   - <run>/processed/genotypes_filtered.csv        (HTP genotypes at those
+#                                                    variants, T21+Control)
+#   - <run>/processed/genotype_target_positions.txt (cache key for the stream)
+#   - <run>/processed/genotype_filter_session_info.txt
+#   - <run>/tables/positive_control_matching.csv    (each control's matched
+#                                                    deviating gene)
 #
 # Date: 2026-05-04
 
@@ -553,3 +563,15 @@ cat("\n=== Filter complete ===\n")
 #             same variant and genotype extraction. ADDED gtex_min_p and tss
 #             columns to eqtl_supported_genes.csv; the roster is now written
 #             after the GTEx pull. Deviating-gene selection is unchanged.
+# 2026-09-30  ADDED the minor-allele reference to every cis variant: GTEx af
+#             and gnomAD v4.1 global and non-Finnish European AF
+#             (scripts/lib/alleles.R, scripts/lib/gnomad.R), written to
+#             eqtl_target_variants.csv.
+# 2026-09-30  REPLACED the positive-control selection (controls v2): instead
+#             of the n_positive_controls strongest eGenes, one matched eGene
+#             per tested deviating gene (match_positive_controls), nearest in
+#             standardised (log2 |aFC|, log10 baseMean), eGene q <
+#             positive_egene_qval with at least positive_min_variants variants
+#             at the pval cut, one per locus (positive_min_separation), clear
+#             of every deviating gene (positive_dev_separation), and never in
+#             a GRCh38 false duplication. ADDED positive_control_matching.csv.

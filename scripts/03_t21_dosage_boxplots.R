@@ -9,24 +9,28 @@
 #          representative supportive variant per gene is kept as a legacy
 #          table.
 #
-# Inputs:
-#   - data/processed/genotypes_filtered.csv
-#   - data/processed/eqtl_target_variants.csv
-#   - data/processed/eqtl_supported_genes.csv
-#   - data/processed/count_matrix.csv
-#   - data/processed/sample_metadata.csv
+# Usage:  Rscript scripts/03_t21_dosage_boxplots.R --run <name>
+#
+# Inputs (<run> = results/runs/<name>):
+#   - <run>/processed/genotypes_filtered.csv          (script 02)
+#   - <run>/processed/eqtl_target_variants.csv        (script 02)
+#   - <run>/processed/eqtl_supported_genes.csv        (script 02)
+#   - <run>/processed/analysis_cohort.csv             (script 01)
+#   - <run>/processed/expression_adjusted.csv         (script 01; the run's
+#                                                      expression artifact)
 #
 # Outputs:
-#   - results/tables/t21_dosage_per_variant.csv       (deviating genes only;
-#                                                      slopes also per minor allele)
-#   - results/tables/eqtl_allele_alignment.csv         (minor-allele reference
-#                                                      per variant, three populations)
-#   - results/tables/eqtl_gene_level_perm.csv          (the classification test)
-#   - results/tables/eqtl_control_negative.csv         (unlinked-variant decoys)
-#   - results/tables/eqtl_control_positive.csv         (strong GTEx eGenes)
-#   - results/tables/eqtl_controls_summary.csv
-#   - results/tables/t21_representative_variants.csv (legacy, archive/14)
-#   - results/tables/t21_dosage_session_info.txt
+#   - <run>/tables/t21_dosage_per_variant.csv       (deviating genes only;
+#                                                    slopes also per minor allele)
+#   - <run>/tables/eqtl_allele_alignment.csv        (minor-allele reference
+#                                                    per variant, three populations)
+#   - <run>/tables/eqtl_gene_level_perm.csv         (the classification test)
+#   - <run>/tables/eqtl_control_negative.csv        (decoy variant sets, one row
+#                                                    per gene and set)
+#   - <run>/tables/eqtl_control_positive.csv        (matched GTEx eGenes)
+#   - <run>/tables/eqtl_controls_summary.csv
+#   - <run>/tables/t21_representative_variants.csv  (legacy, archive/14)
+#   - <run>/tables/t21_dosage_session_info.txt
 #   Per-gene dosage panels are drawn by scripts/11_eqtl_figures.R from these
 #   tables, so this script writes no figure.
 #
@@ -460,3 +464,11 @@ cat("\n=== Script 03 complete ===\n")
 #             per-gene dosage panels are drawn by scripts/11_eqtl_figures.R
 #             from the best variant of the permutation test, with the control
 #             sets alongside. Tables are unchanged.
+# 2026-09-30  ADDED per-minor-allele slopes beside the ALT-coded ones
+#             (gtex_slope_minor, t21_slope_minor, dir_match_minor) and
+#             eqtl_allele_alignment.csv (scripts/lib/alleles.R). Fits, p values
+#             and calls are unchanged: re-referencing only flips a slope's sign.
+# 2026-09-30  REPLACED the negative control's single decoy set per gene with
+#             n_decoy_sets sets (assign_decoy_sets), common decoy variants only
+#             (decoy_min_maf), one row per (gene, set) with decoy_rank; the
+#             positive controls are now script 02's matched eGenes (controls v2).
