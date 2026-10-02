@@ -148,5 +148,7 @@ p <- ggplot(power_rows, aes(x = afc, y = power_p05, group = Gene_name, colour = 
         plot.title = element_text(face = "bold", size = 9.5), plot.subtitle = element_text(size = 7.5, colour = "grey30"))
 stem <- run$figure("spike_in_power")
 ggsave(paste0(stem, ".pdf"), p, width = 7, height = 5); ggsave(paste0(stem, ".png"), p, width = 7, height = 5, dpi = 200)
-cat(sprintf("  Saved: %s.png\n", stem))
+figs <- paste0(stem, c(".pdf", ".png"))
+if (!all(file.exists(figs))) stop("failed to write: ", paste(figs[!file.exists(figs)], collapse = ", "))
+cat(sprintf("  Saved: %s.{pdf,png}\n", stem))
 cat("\nDone.\n")
