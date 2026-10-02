@@ -172,19 +172,28 @@ panel_dosage <- function(alt_dosage, alt_is_minor, plot_minor, ploidy) {
 #' the plotted slope is per copy of the minor allele; p, and so the check
 #' against the stored test p, is the same either way, since reflecting the
 #' regressor only flips the slope's sign.
+#' With `covariates` (a matrix with one row per subject, rownames subject
+#' ids; `long` then needs subject_id) each fit is expression ~ dosage +
+#' covariates, as in script 03. `mean_dosage` and `mean_expr` place the
+#' fitted line through the panel's mean point for drawing.
 #' @param long data.table with Gene_name, panel_group, variant_id, expr and `dosage_col`
-best_variant_effects <- function(long, dosage_col = "alt_dosage") {
+best_variant_effects <- function(long, dosage_col = "alt_dosage", covariates = NULL) {
   stopifnot(all(c("Gene_name", "panel_group", "variant_id", dosage_col, "expr")
-                %in% names(long)))
+                %in% names(long)),
+            is.null(covariates) || "subject_id" %in% names(long))
   d <- data.table::copy(data.table::as.data.table(long))
   data.table::setnames(d, dosage_col, ".dosage")
   d <- d[!is.na(.dosage) & !is.na(expr)]
+  if (is.null(d$subject_id)) d[, subject_id := NA_character_]
   d[, {
     if (.N < 3 || stats::var(.dosage) == 0) {
-      list(n = .N, slope = NA_real_, se = NA_real_, p = NA_real_)
+      list(n = .N, slope = NA_real_, se = NA_real_, p = NA_real_,
+           mean_dosage = mean(.dosage), mean_expr = mean(expr))
     } else {
-      f <- fit_variants(matrix(.dosage, ncol = 1), expr)
-      list(n = .N, slope = f$slope[1], se = f$se[1], p = f$p[1])
+      C <- if (is.null(covariates)) NULL else covariates[subject_id, , drop = FALSE]
+      f <- fit_variants(matrix(.dosage, ncol = 1), expr, covariates = C)
+      list(n = .N, slope = f$slope[1], se = f$se[1], p = f$p[1],
+           mean_dosage = mean(.dosage), mean_expr = mean(expr))
     }
   }, by = .(Gene_name, panel_group = as.character(panel_group), variant_id)]
 }

@@ -39,13 +39,8 @@ lambda_from_abs_r <- function(r_med, df) {
   qchisq(p_from_abs_r(r_med, df), 1, lower.tail = FALSE) / qchisq(0.5, 1)
 }
 
-#' Remove covariates from every column of M by least squares (with an
-#' intercept). Projecting the same covariates out of expression and genotype
-#' is the Frisch-Waugh-Lovell form of putting them in the model.
-project_out <- function(M, C) {
-  X <- cbind(1, C)
-  M - X %*% qr.solve(X, M)
-}
+# project_out() and covariate_rank() live in eqtl_fit.R, shared with the
+# eQTL fits; source it first.
 
 #' Centre each column, set missing entries to the column mean (0 after
 #' centring) and scale to unit length, so crossprod() of two such matrices is

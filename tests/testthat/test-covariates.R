@@ -74,3 +74,20 @@ test_that("coef_rows matches lm coefficients row by row", {
   B <- coef_rows(d$Y, X)
   for (i in seq_len(nrow(d$Y))) expect_equal(unname(B[i, ]), unname(coef(lm(d$Y[i, ] ~ g + d$X))))
 })
+
+test_that("run_covariate_matrix builds dummies and fractions in cohort order, NULL without covariates", {
+  dir <- tempfile(); dir.create(dir)
+  comp <- data.table::data.table(LabID = c("L2", "L1", "L3"), `CD27+ B` = c(2, 1, 3), `CD27- B` = c(5, 4, 6))
+  data.table::fwrite(comp, file.path(dir, "composition_fractions.csv"))
+  run <- list(covariates = c("Age_at_visit", "Sex"), composition = list(source = "cytof"),
+              processed = function(f) file.path(dir, f))
+  cohort <- data.table::data.table(LabID = c("L1", "L2", "L3"), Age_at_visit = c(10, 20, 30),
+                                   Sex = c("Female", "Male", "Male"))
+  X <- run_covariate_matrix(run, cohort)
+  expect_equal(colnames(X), c("Age_at_visit", "SexMale", "CD27+ B", "CD27- B"))
+  expect_equal(unname(X[, "CD27+ B"]), c(1, 2, 3))
+  expect_equal(unname(X[, "SexMale"]), c(0, 1, 1))
+  expect_null(run_covariate_matrix(list(covariates = character(0), composition = NULL), cohort))
+  cohort$Age_at_visit[2] <- NA
+  expect_error(run_covariate_matrix(run, cohort), "missing")
+})

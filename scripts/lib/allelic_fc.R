@@ -25,11 +25,14 @@ afc_curve <- function(g, afc, ploidy) {
 }
 
 #' Residual sum of squares of the aFC curve at each candidate aFC, with the
-#' intercept profiled out. Vectorised over `afc`.
-afc_rss <- function(afc, g, y, ploidy) {
+#' intercept profiled out, and with `covariates` (if given) profiled out too:
+#' the model is then y = intercept + curve(g; aFC) + covariates. Vectorised
+#' over `afc`. project_out() is in eqtl_fit.R.
+afc_rss <- function(afc, g, y, ploidy, covariates = NULL) {
   H <- log2(outer(ploidy - g, rep(1, length(afc))) + outer(g, 2^afc))
   R <- y - H
-  colSums(sweep(R, 2, colMeans(R))^2)
+  if (is.null(covariates)) return(colSums(sweep(R, 2, colMeans(R))^2))
+  colSums(project_out(R, covariates)^2)
 }
 
 #' Least-squares aFC of allele A from dosage and log2 expression.
@@ -40,23 +43,33 @@ afc_rss <- function(afc, g, y, ploidy) {
 #' the bound.
 #' @param g copies of allele A per subject (0..ploidy).
 #' @param y log2 expression.
+#' @param covariates optional matrix fitted jointly with the curve (genotype-
+#'   side adjustment); rows with a missing covariate are dropped.
 #' @return list(afc, se, intercept, n, at_bound)
-fit_afc <- function(g, y, ploidy, bound = AFC_BOUND, grid_n = 401L) {
-  ok <- !is.na(g) & !is.na(y); g <- g[ok]; y <- y[ok]; n <- length(y)
+fit_afc <- function(g, y, ploidy, bound = AFC_BOUND, grid_n = 401L, covariates = NULL) {
+  ok <- !is.na(g) & !is.na(y)
+  if (!is.null(covariates)) {
+    covariates <- as.matrix(covariates)
+    stopifnot(nrow(covariates) == length(g))
+    ok <- ok & stats::complete.cases(covariates)
+    covariates <- covariates[ok, , drop = FALSE]
+  }
+  g <- g[ok]; y <- y[ok]; n <- length(y)
+  k <- if (is.null(covariates)) 0L else covariate_rank(covariates)
   na_out <- list(afc = NA_real_, se = NA_real_, intercept = NA_real_, n = n, at_bound = NA)
-  if (n < 4 || stats::var(g) == 0) return(na_out)
+  if (n - k < 4 || stats::var(g) == 0) return(na_out)
   if (any(g < 0 | g > ploidy)) stop("dosage outside [0, ", ploidy, "]", call. = FALSE)
   grid <- seq(-bound, bound, length.out = grid_n)
-  a0   <- grid[which.min(afc_rss(grid, g, y, ploidy))]
+  a0   <- grid[which.min(afc_rss(grid, g, y, ploidy, covariates))]
   step <- grid[2] - grid[1]
   opt  <- stats::optimize(afc_rss, c(max(a0 - step, -bound), min(a0 + step, bound)),
-                          g = g, y = y, ploidy = ploidy, tol = 1e-8)
+                          g = g, y = y, ploidy = ploidy, covariates = covariates, tol = 1e-8)
   a <- opt$minimum
   at_bound <- abs(a) > bound - 1e-4
   h  <- 1e-3
-  r3 <- afc_rss(c(a - h, a, a + h), g, y, ploidy)
+  r3 <- afc_rss(c(a - h, a, a + h), g, y, ploidy, covariates)
   d2 <- (r3[1] - 2 * r3[2] + r3[3]) / h^2
-  se <- if (at_bound || !is.finite(d2) || d2 <= 0) NA_real_ else sqrt(2 * (r3[2] / (n - 2)) / d2)
+  se <- if (at_bound || !is.finite(d2) || d2 <= 0) NA_real_ else sqrt(2 * (r3[2] / (n - 2 - k)) / d2)
   list(afc = a, se = se, intercept = mean(y - afc_curve(g, a, ploidy)), n = n, at_bound = at_bound)
 }
 

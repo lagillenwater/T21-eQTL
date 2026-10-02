@@ -79,8 +79,15 @@ test_that("bootstrap_alt_af centres on the observed frequency", {
   expect_error(bootstrap_alt_af(cbind(c(NA, 1)), 3), "NA")
 })
 
-test_that("r2_from_t recovers the regression R-squared", {
+test_that("r2_from_t recovers the regression R-squared from the residual df", {
   set.seed(3); x <- rep(0:3, 25); y <- 0.2 * x + rnorm(100)
   s <- summary(lm(y ~ x))
-  expect_equal(r2_from_t(coef(s)[2, 3], 100), s$r.squared)
+  expect_equal(r2_from_t(coef(s)[2, 3], 98), s$r.squared)
+})
+
+test_that("r2_from_t with covariates gives the partial R-squared of the variant", {
+  set.seed(4); z <- rnorm(100); x <- rep(0:3, 25); y <- 0.2 * x + z + rnorm(100)
+  t <- summary(lm(y ~ x + z))$coefficients["x", 3]
+  partial <- 1 - sum(resid(lm(y ~ x + z))^2) / sum(resid(lm(y ~ z))^2)
+  expect_equal(r2_from_t(t, 97), partial)
 })

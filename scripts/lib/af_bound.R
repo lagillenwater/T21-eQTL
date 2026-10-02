@@ -85,5 +85,7 @@ bootstrap_alt_af <- function(D, ploidy, B = 2000, seed = 1) {
   (D %*% W) / (ploidy * n)
 }
 
-#' Within-group R-squared of a single-variant regression from its t statistic.
-r2_from_t <- function(t, n) t^2 / (t^2 + n - 2)
+#' Within-group R-squared of a single-variant regression from its t statistic
+#' and residual degrees of freedom: n - 2 without covariates, n - 2 - k with
+#' k covariates, when it is the variant's partial R-squared.
+r2_from_t <- function(t, df) t^2 / (t^2 + df)

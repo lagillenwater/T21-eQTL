@@ -148,3 +148,17 @@ test_that("assign_decoy_sets returns fewer than k when few donors are far enough
                            min_distance = 5e6, k = 3)
   expect_equal(got$decoy_gene, "P2")
 })
+
+test_that("gene_level_tests passes covariates to the observed fit", {
+  set.seed(41)
+  n <- 150
+  C <- cbind(rnorm(n), rnorm(n))
+  G <- matrix(rbinom(n * 5, 3, 0.3), nrow = n); colnames(G) <- paste0("v", 1:5)
+  e <- 0.4 * G[, 2] + C %*% c(1, -1) + rnorm(n)
+  got <- gene_level_tests("A", list(A = colnames(G)), G, function(g) as.vector(e),
+                          n_perm = 50, seed_base = 1L, fdr = 0.05, covariates = C)
+  expect_equal(got$min_p_obs, min(fit_variants(G, as.vector(e), covariates = C)$p))
+  base <- gene_level_tests("A", list(A = colnames(G)), G, function(g) as.vector(e),
+                           n_perm = 50, seed_base = 1L, fdr = 0.05)
+  expect_equal(base$min_p_obs, min(fit_variants(G, as.vector(e))$p))
+})
