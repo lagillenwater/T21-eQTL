@@ -21,6 +21,8 @@ renv/staging/
 results/figures/
 results/tables/
 results/*.txt
+# Outputs of earlier pipeline versions, moved out of results/{figures,tables}
+results/archive/
 
 # Ignore everything in data/ by default.
 # Note: cannot use bare `data/` here because git won't allow re-including
@@ -30,6 +32,8 @@ data/processed/*
 data/raw/*
 
 # Keep directory placeholders (also re-include the subdirs themselves)
+!data/chr21_gene_positions.csv
+!data/grch38_false_duplication_genes_chr21.csv
 !data/processed/
 !data/processed/.gitkeep
 !data/raw/
@@ -68,3 +72,6 @@ __pycache__/
 *.so
 .ipynb_checkpoints
 notebooks/executed/
+
+# Run outputs (see config/runs/); tracked copies of figures live in docs/figures
+results/runs/

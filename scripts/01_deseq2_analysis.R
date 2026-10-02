@@ -3,32 +3,44 @@
 # Purpose: Trisomy-aware differential expression analysis using DESeq2
 #          Compares T21 vs Control samples with ploidy normalization for chr21
 #
+# Run-aware (scripts/lib/run.R): `Rscript scripts/01_deseq2_analysis.R --run <name>`.
+# The run config supplies covariates, composition source, cohort exclusions and
+# ploidy; outputs go under results/runs/<name>/.
+#
 # Inputs:
 #   - data/processed/count_matrix.csv
-#   - data/processed/sample_metadata.csv
+#   - data/processed/sample_metadata.csv   (with karyotype_subtype, script 00)
 #   - data/processed/gene_annotations.csv
+#   - the run's CyTOF table when composition is configured
 #
-# Outputs:
-#   - results/tables/deseq2_results_all_genes.csv
-#   - results/tables/deseq2_chr21_genes.csv
-#   - results/figures/pca_plot.pdf
-#   - results/figures/dispersion_plot.pdf
-#   - results/figures/ma_plot.pdf
+# Outputs (all under results/runs/<name>/):
+#   - processed/cohort_roster.csv, processed/analysis_cohort.csv
+#   - processed/composition_fractions.csv        (composition runs only)
+#   - processed/expression_adjusted.csv          (log2-CPM, covariate effects removed,
+#                                                 karyotype kept; read by 03, 04, 08, 09)
+#   - tables/deseq2_all_genes_both_analyses.csv       (raw + ploidy-corrected, one row per gene)
+#   - tables/deseq2_all_genes_ploidy_normalized.csv   (ploidy-corrected arm)
+#   - tables/deseq2_all_genes_no_ploidy_norm.csv      (uncorrected arm)
+#   - tables/deseq2_chr21_genes_both_analyses.csv     (chr21 subset; read by scripts 02 and 04)
+#   - tables/deseq2_chr21_genes_both_analyses_nocooks.csv
+#   - tables/deseq2_cooks_diagnostics.csv
+#   - tables/deseq2_session_info.txt
+#   - figures/pca_plot.pdf
+#   - figures/dispersion_plot.pdf
+#   - figures/ma_plot.pdf
 #
-# Date: 2025-11-11
+# Date: 2025-11-11 (outputs list refreshed 2026-09-04)
 
 # Load required libraries
 library(tidyverse)
 library(DESeq2)
+source("scripts/lib/run.R"); run <- load_run()
+source("scripts/lib/cohort.R"); source("scripts/lib/covariates.R")
 
 # Set seed for reproducibility
 set.seed(42)
 
-cat("=== T21-eQTL Analysis: Trisomy-Aware DESeq2 ===\n\n")
-
-# Create output directories
-dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
-dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
+cat(sprintf("=== T21-eQTL Analysis: Trisomy-Aware DESeq2 [run: %s] ===\n\n", run$name))
 
 # =============================================================================
 # STEP 1: Load preprocessed data
@@ -90,30 +102,54 @@ metadata <- metadata %>%
 stopifnot(all(metadata$LabID == colnames(count_matrix)))
 cat("  Sample order verified\n")
 
-# Analysis cohort from Task 1: T21 need RNA-seq AND WGS (302 of 304); Controls
-# need RNA-seq only (95 of 95), because genotypes are used solely for the
-# within-T21 dosage regressions that controls never enter. Running DE on the
-# same people as the eQTL step removes the old "302 of 304" mismatch.
-cohort <- read_csv("data/processed/analysis_cohort.csv", show_col_types = FALSE)
-keep_samples <- colnames(count_matrix) %in% cohort$LabID
-cat(sprintf("  Analysis cohort: %d of %d samples (T21 %d, Control %d)\n",
-            sum(keep_samples), ncol(count_matrix),
+# Run cohort: the keep rule (genotyped T21 plus all controls), then the run's
+# exclusions, then completeness for the run's covariates and CyTOF match.
+metadata <- data.table::as.data.table(metadata)
+cytof_ids <- NULL; cytof_wide <- NULL
+if (!is.null(run$composition)) {
+  cytof_wide <- read_cytof_wide(run$composition$path)
+  cytof_ids  <- rownames(cytof_wide)
+}
+roster <- build_cohort(metadata, run, cytof_ids)
+data.table::fwrite(roster, run$processed("cohort_roster.csv"))
+cohort <- roster[is.na(excluded_reason)]
+data.table::fwrite(cohort, run$processed("analysis_cohort.csv"))
+cat(sprintf("  Cohort: %d kept (T21 %d, Control %d)\n", nrow(cohort),
             sum(cohort$Karyotype == "T21"), sum(cohort$Karyotype == "Control")))
-stopifnot(sum(keep_samples) == 397)
+excl <- roster[!is.na(excluded_reason), .N, by = excluded_reason]
+if (nrow(excl)) { cat("  Excluded:\n"); print(as.data.frame(excl)) }
+keep_samples <- colnames(count_matrix) %in% cohort$LabID
 count_matrix <- count_matrix[, keep_samples, drop = FALSE]
-metadata     <- metadata[metadata$LabID %in% cohort$LabID, ]
+metadata     <- cohort[match(colnames(count_matrix), LabID)]
+stopifnot(identical(metadata$LabID, colnames(count_matrix)))
 
-# Create colData for DESeq2
-col_data <- DataFrame(
-  sample_id = metadata$LabID,
-  karyotype = factor(metadata$Karyotype, levels = c("Control", "T21")),
-  sex = factor(metadata$Sex),
-  age = metadata$Age_at_visit,
-  bmi = metadata$BMI
-)
-rownames(col_data) <- metadata$LabID
-
-cat(sprintf("  Design: ~karyotype (Control vs T21)\n"))
+# colData and design. Continuous covariates are centred and scaled;
+# categorical ones are factors; composition fractions (reference cluster
+# dropped) are scaled and named syntactically. Karyotype is the last term so
+# the contrast name is unchanged across runs.
+col_df <- data.frame(sample_id = metadata$LabID,
+                     karyotype = factor(metadata$Karyotype, levels = c("Control", "T21")),
+                     row.names = metadata$LabID, stringsAsFactors = FALSE)
+for (cv in run$covariates) {
+  v <- metadata[[cv]]
+  col_df[[cv]] <- if (is.numeric(v)) as.numeric(scale(v)) else factor(v)
+}
+fraction_names <- character(0)
+if (!is.null(run$composition)) {
+  F <- composition_fractions(cytof_wide, metadata$LabID, run$composition$reference)
+  data.table::fwrite(data.table::data.table(LabID = rownames(F), F),
+                     run$processed("composition_fractions.csv"))
+  fraction_names <- colnames(F)
+  zero_var <- apply(F, 2, sd) == 0
+  if (any(zero_var)) stop("composition fraction(s) with zero variance in the cohort: ",
+                          paste(fraction_names[zero_var], collapse = ", "), call. = FALSE)
+  Fs <- scale(F); colnames(Fs) <- fraction_colnames(fraction_names)
+  stopifnot(!anyDuplicated(c(names(col_df), colnames(Fs))))
+  col_df <- cbind(col_df, as.data.frame(Fs))
+}
+design   <- design_formula(run$covariates, fraction_names)
+col_data <- DataFrame(col_df)
+cat("  Design:", paste(deparse(design), collapse = ""), "\n")
 
 # =============================================================================
 # STEP 3: Create ploidy normalization matrix
@@ -154,17 +190,17 @@ chr21_idx <- which(rownames(norm_matrix) %in% chr21_genes)
 t21_idx <- which(colnames(norm_matrix) %in% t21_samples)
 
 if (length(chr21_idx) > 0 && length(t21_idx) > 0) {
-  norm_matrix[chr21_idx, t21_idx] <- 1.5
+  norm_matrix[chr21_idx, t21_idx] <- run$ploidy
 }
 
 cat(sprintf("  Ploidy matrix created: %d x %d\n",
             nrow(norm_matrix), ncol(norm_matrix)))
-cat(sprintf("  Normalization factors: 1.5 (T21 chr21), 1.0 (all others)\n"))
+cat(sprintf("  Normalization factors: %g (T21 chr21), 1.0 (all others)\n", run$ploidy))
 
 # Verify normalization matrix
 stopifnot(nrow(norm_matrix) == nrow(count_matrix))
 stopifnot(ncol(norm_matrix) == ncol(count_matrix))
-stopifnot(all(norm_matrix == 1.0 | norm_matrix == 1.5))
+stopifnot(all(norm_matrix == 1.0 | norm_matrix == run$ploidy))
 cat("  Ploidy matrix validation: PASSED\n")
 
 # =============================================================================
@@ -178,7 +214,7 @@ cat("  (This gives raw fold changes to identify chr21 genes >= 1.5 FC)\n")
 dds_raw <- DESeqDataSetFromMatrix(
   countData = count_matrix,
   colData = col_data,
-  design = ~ karyotype
+  design = design
 )
 
 # CRITICAL: Exclude chr21 genes from size factor calculation
@@ -214,7 +250,7 @@ cat("  (This tests if chr21 genes < 1.5 FC are truly DE)\n")
 dds_norm <- DESeqDataSetFromMatrix(
   countData = count_matrix,
   colData = col_data,
-  design = ~ karyotype
+  design = design
 )
 
 # Apply ploidy normalization matrix
@@ -282,9 +318,9 @@ cooks_diag <- data.frame(
   stringsAsFactors      = FALSE)
 cat(sprintf("  Cook's filtering nulled %d genes; cooksCutoff=FALSE recovers them\n",
             sum(is.na(cooks_diag$padj_default) & !is.na(cooks_diag$padj_nocooks))))
-write_csv(cooks_diag, "results/tables/deseq2_cooks_diagnostics.csv")
-stopifnot(file.exists("results/tables/deseq2_cooks_diagnostics.csv"))
-cat("  Saved: results/tables/deseq2_cooks_diagnostics.csv\n")
+write_csv(cooks_diag, run$table("deseq2_cooks_diagnostics.csv"))
+stopifnot(file.exists(run$table("deseq2_cooks_diagnostics.csv")))
+cat("  Saved:", run$table("deseq2_cooks_diagnostics.csv"), "\n")
 
 # Convert to table
 results_norm_table <- as.data.frame(results_norm) %>%
@@ -348,14 +384,14 @@ cat(sprintf("    Genes < 1.5 FC: %d\n", chr21_below_expected))
 cat("\nStep 7: Saving results...\n")
 
 # Main results files with clear names
-write_csv(results_combined, "results/tables/deseq2_all_genes_both_analyses.csv")
-stopifnot(file.exists("results/tables/deseq2_all_genes_both_analyses.csv"))
-cat("  Saved: results/tables/deseq2_all_genes_both_analyses.csv\n")
+write_csv(results_combined, run$table("deseq2_all_genes_both_analyses.csv"))
+stopifnot(file.exists(run$table("deseq2_all_genes_both_analyses.csv")))
+cat("  Saved:", run$table("deseq2_all_genes_both_analyses.csv"), "\n")
 cat("         (All genes with raw_log2FC and norm_log2FC columns)\n")
 
-write_csv(chr21_combined, "results/tables/deseq2_chr21_genes_both_analyses.csv")
-stopifnot(file.exists("results/tables/deseq2_chr21_genes_both_analyses.csv"))
-cat("  Saved: results/tables/deseq2_chr21_genes_both_analyses.csv\n")
+write_csv(chr21_combined, run$table("deseq2_chr21_genes_both_analyses.csv"))
+stopifnot(file.exists(run$table("deseq2_chr21_genes_both_analyses.csv")))
+cat("  Saved:", run$table("deseq2_chr21_genes_both_analyses.csv"), "\n")
 cat("         (Chr21 genes with raw_log2FC and norm_log2FC columns)\n")
 
 # Parallel chr21 table from the cooksCutoff=FALSE arm, for the MX1 sensitivity
@@ -364,20 +400,47 @@ chr21_nocooks <- chr21_combined
 idx <- match(chr21_nocooks$EnsemblID, rownames(results_norm_nocooks))
 chr21_nocooks$norm_pvalue <- results_norm_nocooks$pvalue[idx]
 chr21_nocooks$norm_padj   <- results_norm_nocooks$padj[idx]
-write_csv(chr21_nocooks, "results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv")
-stopifnot(file.exists("results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv"))
-cat("  Saved: results/tables/deseq2_chr21_genes_both_analyses_nocooks.csv\n")
+write_csv(chr21_nocooks, run$table("deseq2_chr21_genes_both_analyses_nocooks.csv"))
+stopifnot(file.exists(run$table("deseq2_chr21_genes_both_analyses_nocooks.csv")))
+cat("  Saved:", run$table("deseq2_chr21_genes_both_analyses_nocooks.csv"), "\n")
 
 # Individual analysis results (for reference)
-write_csv(results_raw_table, "results/tables/deseq2_all_genes_no_ploidy_norm.csv")
-stopifnot(file.exists("results/tables/deseq2_all_genes_no_ploidy_norm.csv"))
-cat("  Saved: results/tables/deseq2_all_genes_no_ploidy_norm.csv\n")
+write_csv(results_raw_table, run$table("deseq2_all_genes_no_ploidy_norm.csv"))
+stopifnot(file.exists(run$table("deseq2_all_genes_no_ploidy_norm.csv")))
+cat("  Saved:", run$table("deseq2_all_genes_no_ploidy_norm.csv"), "\n")
 cat("         (All genes, no ploidy normalization - use for FC >= 1.5 filter)\n")
 
-write_csv(results_norm_table, "results/tables/deseq2_all_genes_ploidy_normalized.csv")
-stopifnot(file.exists("results/tables/deseq2_all_genes_ploidy_normalized.csv"))
-cat("  Saved: results/tables/deseq2_all_genes_ploidy_normalized.csv\n")
+write_csv(results_norm_table, run$table("deseq2_all_genes_ploidy_normalized.csv"))
+stopifnot(file.exists(run$table("deseq2_all_genes_ploidy_normalized.csv")))
+cat("  Saved:", run$table("deseq2_all_genes_ploidy_normalized.csv"), "\n")
 cat("         (All genes, ploidy normalized - use for DE testing)\n")
+
+# =============================================================================
+# STEP 7b: Covariate-adjusted expression artifact (read by scripts 03, 04, 08, 09)
+# =============================================================================
+# log2(CPM + 1) with the library size excluding chr21, then for each gene the
+# fitted contribution of the run's covariates and composition fractions is
+# subtracted, with karyotype kept in the fit (scripts/lib/covariates.R). In
+# the baseline run nothing is removed. The artifact is not ploidy-scaled:
+# downstream stages use it within one karyotype group or for partner selection
+# in controls; between-group fold changes come from DESeq2 above.
+
+cat("\nStep 7b: Writing the expression artifact...\n")
+is_chr21 <- rownames(count_matrix) %in% chr21_genes
+lib_size <- colSums(count_matrix[!is_chr21, , drop = FALSE])
+L <- log2(t(t(count_matrix) / lib_size * 1e6) + 1)
+X_adj <- NULL
+adj_cols <- setdiff(names(col_df), c("sample_id", "karyotype"))
+if (length(adj_cols)) {
+  X_adj <- model.matrix(~ ., col_df[, adj_cols, drop = FALSE])[, -1, drop = FALSE]
+}
+A <- adjust_expression(L, col_df$karyotype == "T21", X_adj)
+gene_names <- gene_annotations$Gene_name[match(rownames(A), gene_annotations$EnsemblID)]
+data.table::fwrite(data.table::data.table(Gene_name = gene_names, A),
+                   run$processed("expression_adjusted.csv"))
+cat(sprintf("  Wrote %s (%d genes x %d samples; %d adjustment columns)\n",
+            run$processed("expression_adjusted.csv"), nrow(A), ncol(A),
+            if (is.null(X_adj)) 0L else ncol(X_adj)))
 
 # =============================================================================
 # STEP 8: Generate QC plots
@@ -390,7 +453,7 @@ vsd <- vst(dds_raw, blind = FALSE)
 pca_data <- plotPCA(vsd, intgroup = "karyotype", returnData = TRUE)
 percent_var <- round(100 * attr(pca_data, "percentVar"))
 
-pdf("results/figures/pca_plot.pdf", width = 8, height = 6)
+pdf(run$figure("pca_plot.pdf"), width = 8, height = 6)
 pca_plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = karyotype)) +
   geom_point(size = 3, alpha = 0.8) +
   scale_color_manual(values = c("Control" = "#00BFC4", "T21" = "#F8766D"),
@@ -403,16 +466,16 @@ pca_plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = karyotype)) +
         legend.title = element_text(face = "bold"))
 print(pca_plot)
 dev.off()
-cat("  Saved: results/figures/pca_plot.pdf\n")
+cat("  Saved:", run$figure("pca_plot.pdf"), "\n")
 
 # Dispersion plot (raw analysis)
-pdf("results/figures/dispersion_plot.pdf", width = 8, height = 6)
+pdf(run$figure("dispersion_plot.pdf"), width = 8, height = 6)
 plotDispEsts(dds_raw, main = "Dispersion Estimates (Raw)")
 dev.off()
-cat("  Saved: results/figures/dispersion_plot.pdf\n")
+cat("  Saved:", run$figure("dispersion_plot.pdf"), "\n")
 
 # MA plots comparing raw vs normalized
-pdf("results/figures/ma_plot.pdf", width = 10, height = 10)
+pdf(run$figure("ma_plot.pdf"), width = 10, height = 10)
 par(mfrow = c(2, 2))
 
 # Raw - All genes
@@ -448,7 +511,7 @@ legend("topright", legend = c("Chr21", "FC=1"),
        pch = c(20, NA), lty = c(NA, 2), bty = "n", cex = 0.8)
 
 dev.off()
-cat("  Saved: results/figures/ma_plot.pdf\n")
+cat("  Saved:", run$figure("ma_plot.pdf"), "\n")
 
 # =============================================================================
 # STEP 9: Summary statistics
@@ -514,8 +577,8 @@ if (chr21_norm_sig > 0) {
 
 # Save session info
 writeLines(capture.output(sessionInfo()),
-           "results/tables/deseq2_session_info.txt")
-cat("\nSaved session info to results/tables/deseq2_session_info.txt\n")
+           run$table("deseq2_session_info.txt"))
+cat("\nSaved session info to", run$table("deseq2_session_info.txt"), "\n")
 
 cat("\n=== DESeq2 Analysis Complete ===\n")
 cat("Next step: Run scripts/02_filter_genotypes.R\n\n")

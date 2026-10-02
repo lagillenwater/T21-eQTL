@@ -5,7 +5,7 @@ compensation does not occur in Down syndrome" (BMC Biology 21:228), applied
 to the Human Trisome Project (HTP): 304 T21 + 95 Control whole-blood RNA-seq
 samples, 302 of the T21 subjects with paired chr21 genotypes.
 
-**Question.** Of the chromosome 21 protein-coding genes that show ploidy-
+**Question.** Of the chromosome 21 genes (protein-coding, lncRNA, pseudogene) that show ploidy-
 corrected expression deviations in T21 vs Control, how many carry a
 detectable common cis-eQTL in GTEx whole blood (gene-level permutation
 test), and how many do not and so remain open as candidates for regulatory
@@ -19,22 +19,68 @@ From the repository root, with R >= 4.2:
 ```bash
 Rscript install_packages.R                        # one-time package install
 
-Rscript scripts/00_preprocess_data.R              # long -> wide count matrix
-Rscript scripts/01_deseq2_analysis.R              # trisomy-aware DESeq2
-Rscript scripts/02_filter_genotypes.R             # deviating genes + genotype universe
-Rscript scripts/03_t21_dosage_boxplots.R          # within-T21 fits + permutation test
-Rscript scripts/04_chr21_lane_assignment.R        # MAIN: per-gene lane table
-Rscript scripts/05_alluvial_lane_assignment.R     # alluvial flow figure
-Rscript scripts/06_chr21_distribution_panel.R     # chr21 vs genome distributions
-Rscript scripts/07_three_panel_figure.R           # volcano summary panel
+Rscript scripts/00_preprocess_data.R                            # long -> wide count matrix; karyotype subtype
+Rscript scripts/01_deseq2_analysis.R --run baseline             # trisomy-aware DESeq2; cohort; expression artifact
+Rscript scripts/02_filter_genotypes.R --run baseline            # deviating-gene selection + genotype universe
+Rscript scripts/03_t21_dosage_boxplots.R --run baseline         # within-T21 fits + gene-level eQTL permutation test
+Rscript scripts/04_chr21_lane_assignment.R --run baseline       # MAIN: per-gene lane table
+Rscript scripts/05_sankeymatic_export.R --run baseline          # SankeyMATIC input for the lane-flow figure
+Rscript scripts/06_chr21_distribution_panel.R --run baseline    # ploidy-correction effect: chr21 vs chr22
+Rscript scripts/07_three_panel_figure.R --run baseline          # volcano figures: all genes, chr21 only
+Rscript scripts/11_eqtl_figures.R --run baseline                # eQTL dosage panels, effect sizes, chr21 map
+Rscript scripts/13_af_deviation_bound.R --run baseline         # can the cis-eQTLs move the group ratio? (AF bound)
+Rscript scripts/15_spike_in_power.R --run baseline             # power per deviating gene by spike-in at its GTEx aFC
+Rscript scripts/16_base_rate_expected_dosage.R --run baseline  # the same eQTL test on every Expected-dosage gene (base rate)
+Rscript scripts/14_t21_vs_gtex_allelic_effect.R --run baseline # same allelic effect in T21 as in GTEx? (aFC, ploidy 3); after 15, 16
+Rscript scripts/S1_covariate_evidence.R --run baseline          # supplement: evidence for covariates and exclusions
+
+# Covariate- and composition-adjusted run: same scripts with --run adjusted, then
+Rscript scripts/10_compare_runs.R --run adjusted --against baseline   # per-gene comparison of the two runs
+Rscript scripts/audit_baseline_drift.R --run baseline --archive results/archive/2026-09-04_flat
 ```
 
 Total runtime end-to-end on a laptop: ~30 minutes, dominated by 02 (genotype
 streaming) and 03 (per-variant within-T21 regressions). Script 05 also
 emits the SankeyMATIC text input
-(`results/tables/chr21_lane_sankeymatic_input.txt`); paste it into
+(`results/runs/<name>/tables/chr21_lane_sankeymatic_input.txt`); paste it into
 https://sankeymatic.com/build/
 to render the lane-flow diagram.
+
+## Runs
+
+Every pipeline script from 01 onward takes `--run <name>` (default
+`baseline`; the `T21_RUN` environment variable is honoured when the flag is
+absent) and reads `config/runs/<name>.R`: covariates, composition source,
+cohort exclusions, ploidy, and every classification threshold. Outputs go
+to `results/runs/<name>/{processed,tables,figures}`. Two runs are defined:
+
+- `baseline`: design `~ karyotype`, no exclusions. The primary
+  result. Regenerated through the run mechanism and checked against the
+  2026-09-04 flat outputs (`results/archive/2026-09-04_flat/`, historical)
+  by `scripts/audit_baseline_drift.R`.
+- `adjusted`: design `~ age + sex + BMI + sample source + 19 CyTOF cell
+  fractions + karyotype`, mosaic T21 subjects excluded. Requires the CyTOF
+  table (`download_synapse_celltypes.sh`).
+
+Script 01 writes the run's cohort (`processed/analysis_cohort.csv`, plus
+`cohort_roster.csv` with an `excluded_reason` per dropped sample) and one
+expression artifact, `processed/expression_adjusted.csv`: log2-CPM
+(library size excluding chr21) with the run's covariate effects removed and
+karyotype kept (`scripts/lib/covariates.R::adjust_expression`). Script 03
+reads that artifact, so the eQTL fits are on adjusted data in the
+adjusted run. In baseline nothing is removed. The artifact is not
+ploidy-scaled; between-group fold changes come from DESeq2.
+
+To add a covariate, list it in `covariates` (it must be a column of
+`data/processed/sample_metadata.csv` named in `RUN_COVARIATES` in
+`scripts/lib/run.R`). To exclude samples, add `column = c(values)` to
+`exclude`. Thresholds live only in the config. Re-run from script 01.
+
+`scripts/S1_covariate_evidence.R --run <name>` writes the evidence
+supplement (covariates vs karyotype; cell-fraction reach into expression;
+mosaic subtype vs expression; per-covariate attribution of the fold-change
+shift). `scripts/10_compare_runs.R --run adjusted --against baseline`
+writes the per-gene run comparison and lane-transition table.
 
 ## Installation
 
@@ -51,7 +97,7 @@ Installs CRAN + Bioconductor packages, writes
 
 ```r
 pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
-          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "patchwork", "RColorBrewer", "viridis",
           "here", "arrow")
 install.packages(pkgs)
 if (!require("BiocManager")) install.packages("BiocManager")
@@ -64,7 +110,7 @@ Checks every package from the manual block plus DESeq2:
 
 ```r
 pkgs <- c("tidyverse", "data.table", "ggplot2", "ggrepel",
-          "ggalluvial", "patchwork", "RColorBrewer", "viridis",
+          "patchwork", "RColorBrewer", "viridis",
           "here", "arrow", "DESeq2")
 for (p in pkgs) {
   ok <- requireNamespace(p, quietly = TRUE)
@@ -72,8 +118,8 @@ for (p in pkgs) {
 }
 ```
 
-Tested versions: R 4.5.2; tidyverse 2.0; data.table 1.16; DESeq2 1.46;
-ggalluvial 0.12; arrow 17.
+Tested versions: R 4.5.1; tidyverse 2.0; data.table 1.17; DESeq2 1.50;
+arrow 22.
 
 ## Repository layout
 
@@ -103,132 +149,58 @@ T21-eQTL/
                                                # GTEx allpairs (chr21)
     raw/                                       # placeholder for raw downloads - .gitignored
     processed/                                 # script outputs - .gitignored
+  config/runs/               # run definitions: baseline.R, adjusted.R
   results/
-    tables/                  # CSVs from the pipeline (.gitignored)
-    figures/                 # PDFs / PNGs (.gitignored)
+    runs/<name>/             # per-run outputs (.gitignored): processed/, tables/, figures/
+    archive/2026-09-04_flat/ # pre-refactor flat outputs + drift_audit.md (historical)
+    archive/                 # outputs of earlier pipeline versions (.gitignored)
   docs/
-    summary.Rmd              # results summary; reads results/tables/ and renders to summary.md
+    summary.Rmd              # results summary; reads results/runs/<run>/ and renders to summary.md
     summary.md               # rendered summary (headline numbers and figures)
     decisions.md             # decision log, legacy notes, gotchas
     figures/                 # PNG copies of the pipeline figures embedded by summary.md
     package_installation_info.txt
 ```
 
-## Input data
-
-### 1. RNA-seq counts (HTP whole blood)
-
-**File**: `data/HTP_WholeBlood_RNAseq_Counts_Synapse.txt` (3.9 GB, long format)
-
-Columns: `LabID`, `Sample_type`, `Platform`, `EnsemblID`, `Gene_name`, `Chr`,
-`Gene_type`, `Units`, `Value`. ~24M rows = ~400 samples x ~60k genes.
-Script 00 pivots this to a gene x sample matrix (`data/processed/count_matrix.csv`).
-
-### 2. Sample metadata
-
-**File**: `data/P4C_metadata_021921_Costello.txt` (587 samples). Columns include
-`RecordID`, `Sex`, `Karyotype` (T21 / Control / other), `LabID` (without the
-tissue suffix used in the count file), `Age_at_visit`, `BMI`,
-`Sample_source`. Matched to count data by stripping the trailing letter
-suffix. After matching: 304 T21 + 95 Control with both expression and
-metadata.
-
-### 3. Comorbidity data (optional)
-
-**File**: `data/P4C_Comorbidity_020921.tsv`. Not currently used downstream;
-kept for future covariate adjustment.
-
-### 4. HTP chr21 genotypes
-
-**Files**: `data/chr21_ds_PASS.csv` and `data/chr21_ctrl_PASS.csv`. VCF-style
-CSVs filtered to PASS variants, chr21 only. T21 file uses ploidy-3 calls;
-Control file uses ploidy-2. Streamed by script 02 to extract only the
-positions of the eQTL universe.
-
-### 5. GTEx whole-blood eQTLs
-
-Chr21 extract from GTEx v10 allpairs (every cis-window variant tested per
-gene, regardless of significance). Filename:
-`data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet`.
-Script 02 applies `pval_nominal <= 1e-4` to keep the variant universe
-manageable.
-
-GTEx distributes the v10 all-associations results per tissue and per
-chromosome as parquet files in a requester-pays Google Cloud bucket
-(`gs://gtex-resources/GTEx_Analysis_v10_QTLs/GTEx_Analysis_v10_eQTL_all_associations/`;
-see https://gtexportal.org/home/downloads/adult-gtex/qtl). The chr21
-whole-blood file is used exactly as distributed: no conversion step, and
-no python or pyarrow, is involved. To re-download it, run from the repo
-root
-
-```bash
-GCP_BILLING_PROJECT=<your-gcp-project> bash download_gtex.sh
-```
-
-which fetches `Whole_Blood.v10.allpairs.chr21.parquet` with `gcloud
-storage cp` (or `gsutil cp`), billing the egress to the named project,
-validates it with `arrow` (a parquet carrying the columns script 02 reads:
-`gene_id`, `variant_id`, `pval_nominal`), and only then moves it to the
-filename above. Without the Google Cloud SDK the script prints the object
-path for a manual download and exits non-zero; without R and `arrow` it
-keeps the unvalidated download as a `.part` file and exits non-zero.
-
 ## Pipeline
 
-The production pipeline is the 00-07 chain in `scripts/`, backed by shared
+The production pipeline is the 00-07 chain plus 11 (eQTL figures), 14 (T21 vs GTEx allelic effect), 10 (run comparison) and the S1 supplement, run per named run (see Runs), in `scripts/`, backed by shared
 helpers in `scripts/lib/` (`cohort.R` - analysis-cohort definition;
 `chr21_threshold.R` - chr21-internal robust outlier test, annotation only;
-`composition.R` - co-expression composition control; `lane_rules.R` -
+`lane_rules.R` -
 the sig_lane classification rule (`assign_sig_lane`); `eqtl_fit.R` -
 vectorized per-variant regressions and the gene-level permutation test;
-`table1.R` - cohort-characteristics table helpers).
+`eqtl_controls.R` - the shared gene-level test runner and the standalone
+negative (decoy variant set) and positive (GTEx eGene) controls;
+`eqtl_figures.R` - table preparation for script 11 (dosage-panel variants, per-gene rows, best-variant effect sizes, chr21 map bands);
+`allelic_fc.R` - allelic fold change fitted at ploidy 3, for script 14;
+`table1.R` - cohort-characteristics table helpers; `sankey_flow.R` - lane flow and its SankeyMATIC serialisation; `ploidy_distributions.R` - uncorrected vs ploidy-corrected log2FC tables for script 06; `biotypes.R` - the chr21 target biotype set, `TARGET_BIOTYPES`; `covariates.R` - CyTOF table reader, composition fractions, design formula, the expression-artifact adjustment and the per-covariate attribution; `run.R` - run configuration and paths; `karyotype_subtype.R` - INCLUDE subtype join).
 
 | Script | Purpose | Output |
 |---|---|---|
 | 00_preprocess_data | Long -> wide gene x sample matrix; match metadata | `data/processed/count_matrix.csv`, `sample_metadata.csv`, `gene_annotations.csv` |
-| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/tables/deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, `deseq2_all_genes_both_analyses.csv`, QC PDFs |
-| 02_filter_genotypes | Select deviating chr21 genes by Hunter et al.'s rule (`norm_padj < ALPHA_DE` AND `abs(norm_log2FC) >= DEVIATION_LFC`), restrict to protein-coding, compute the chr21-internal outlier annotation (`dev_z`, `q_outlier`), pull GTEx allpairs cis variants, stream PASS files for those positions | `data/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv` |
-| 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 expression ~ dosage regressions; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); negative-control diagnostics | `results/tables/t21_dosage_per_variant.csv`, `t21_representative_variants.csv`, `eqtl_gene_level_perm.csv`, `eqtl_negative_controls.csv` |
-| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj + 1.5-fold rule is the classification split (`sig_lane`, applied by `scripts/lib/lane_rules.R`); deviating genes get a composition control (`scripts/lib/composition.R`) and an `eqtl_lane` terminal from the gene-level permutation test | `results/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_composition_control.csv`, `chr21_k_sensitivity.csv` |
-| 05_alluvial_lane_assignment | Alluvial flow (Classification -> Sub-category -> eQTL terminal) + SankeyMATIC export | `results/figures/chr21_lane_alluvial.{pdf,png}`, `results/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_alluvial_flow.csv` |
-| 06_chr21_distribution_panel | Density + ECDF of chr21 vs baseMean-matched non-chr21 protein-coding distributions; per-lane magnitude scatter | `results/figures/chr21_vs_genome_distribution.{pdf,png}` |
-| 07_three_panel_figure | 2x2 volcanoes: A/B all genes before/after ploidy correction, C/D chr21 only; labels read from the lane table | `results/figures/Chr21_DEG.{pdf,png}` |
+| 01_deseq2_analysis | Trisomy-aware DESeq2 (ploidy normalization matrix; chr21 excluded from size factors; betaPrior=FALSE) | `results/runs/<name>/tables/deseq2_all_genes_ploidy_normalized.csv`, `deseq2_chr21_genes_both_analyses.csv`, `deseq2_all_genes_both_analyses.csv`, QC PDFs |
+| 02_filter_genotypes | Select deviating chr21 genes (`norm_padj < 0.01` AND `abs(norm_log2FC) >= log2(4/3)`, the tier-2 cut) among `TARGET_BIOTYPES` with baseMean >= 30, with the chr21-internal outlier annotation (`dev_z`, `q_outlier`); pull their GTEx allpairs cis variants (`pval_nominal <= 1e-4`), stream the PASS genotypes at those positions, and attach the minor-allele reference (GTEx `af`, gnomAD v4.1 AF); add one matched GTEx eGene per tested deviating gene as a positive control (`scripts/lib/eqtl_controls.R`) | `results/runs/<name>/processed/eqtl_supported_genes.csv`, `eqtl_target_variants.csv`, `genotypes_filtered.csv`; `tables/positive_control_matching.csv` |
+| 03_t21_dosage_boxplots | Per-(variant, gene) within-T21 regressions of the run's expression artifact on genotype dosage, slopes also per minor allele; gene-level cis-eQTL permutation test (`scripts/lib/eqtl_fit.R`); its standalone controls through the same runner: negative (each deviating gene against several decoy variant sets at least 5 Mb away) and positive (the matched eGenes from script 02) (`scripts/lib/eqtl_controls.R`) | `results/runs/<name>/tables/t21_dosage_per_variant.csv`, `eqtl_allele_alignment.csv`, `eqtl_gene_level_perm.csv`, `eqtl_control_negative.csv`, `eqtl_control_positive.csv`, `eqtl_controls_summary.csv`, `t21_representative_variants.csv` |
+| **04_chr21_lane_assignment** | **Per-gene lane assignment.** Hunter's padj rule with the two-tier magnitude cut (`norm_padj < 0.01` AND `abs(norm_log2FC) >= log2(4/3)`; tier 1 at log2(1.5)) is the classification split (`sig_lane`, applied by `scripts/lib/lane_rules.R`); deviating genes get an `eqtl_lane` terminal from the gene-level permutation test | `results/runs/<name>/tables/chr21_lane_assignments.csv`, `chr21_lane_summary.csv`, `chr21_k_sensitivity.csv` |
+| 05_sankeymatic_export | Lane flow (Classification -> Sub-category -> eQTL terminal) serialised as SankeyMATIC input (`scripts/lib/sankey_flow.R`); the figure itself is rendered at https://sankeymatic.com/build/ | `results/runs/<name>/tables/chr21_lane_sankeymatic_input.txt`, `chr21_lane_flow.csv` |
+| 06_chr21_distribution_panel | Density + ECDF of uncorrected vs ploidy-corrected log2FC for chr21 genes of the target biotypes, with chr22 on both scales as the control that the correction leaves unchanged (`scripts/lib/ploidy_distributions.R`) | `results/runs/<name>/figures/ploidy_correction_distributions.{pdf,png}`, `results/runs/<name>/tables/ploidy_correction_distribution_stats.csv` |
+| 07_three_panel_figure | Two volcano figures: `volcano_all_genes` (A/B uncorrected and ploidy-corrected, all target-biotype genes with chr21 highlighted, no labels) and `volcano_chr21` (chr21 only, deviating genes labelled and coloured by direction, tier 1 bold); labels read from the lane table | `results/runs/<name>/figures/volcano_all_genes.{pdf,png}`, `volcano_chr21.{pdf,png}` |
+| 11_eqtl_figures | eQTL-stage figures from existing tables: `eqtl_dosage_panels` (expression by dosage in T21 on each deviating gene's best variant, plotted on the allele whose GTEx effect runs the way the gene deviates; DE high and DE low panels), `eqtl_dosage_controls` (the same for the positive and negative controls, on minor-allele dosage), `eqtl_effect_sizes` (within-T21 slope per minor allele at the best variant against -log10 gene-level permutation q, with both control sets and the q = 0.05 line; writes `tables/eqtl_best_variant_effects.csv`), `chr21_deviating_map` (a band per deviating gene along chr21, coloured by eQTL outcome). Helpers in `scripts/lib/eqtl_figures.R` | `results/runs/<name>/figures/eqtl_dosage_panels.{pdf,png}`, `eqtl_dosage_controls.{pdf,png}`, `eqtl_effect_sizes.{pdf,png}`, `chr21_deviating_map.{pdf,png}`, `tables/eqtl_best_variant_effects.csv` |
+| 14_t21_vs_gtex_allelic_effect | Does an allele have the same per-copy effect in T21 as in euploid blood? For every dosage panel of script 11 (deviating genes and positive controls on their best variant, negative controls on their decoy best variant), the allelic fold change (aFC) in T21 fitted at ploidy 3 (`scripts/lib/allelic_fc.R`) against GTEx whole-blood aFC at the same variant, with the T21-minus-GTEx difference. GTEx publishes aFC only at its lead variant, so elsewhere its slope is converted with the lead variant's aFC-to-slope ratio; a sensitivity table repeats the comparison at the lead variant. The figure adds spike-in power (script 15) and detection rates (script 16) as panels C and D when their tables exist, so run 15 and 16 first | `results/runs/<name>/tables/t21_vs_gtex_afc.csv`, `t21_vs_gtex_afc_lead_variant.csv`, `t21_vs_gtex_afc_summary.csv`, `figures/t21_vs_gtex_allelic_effect.{pdf,png}` |
+| 10_compare_runs | Per-gene comparison of two runs' lane tables (lane, tier, norm_log2FC, eQTL call, attenuation) and a lane-transition table; `--run adjusted --against baseline` | `results/runs/adjusted/tables/run_comparison_adjusted_vs_baseline.csv`, `lane_transitions_adjusted_vs_baseline.csv`, `figures/run_comparison_adjusted_vs_baseline.{pdf,png}` |
+| S1_covariate_evidence | Supplement per run: A covariates vs karyotype; B cell-fraction reach into expression (composition runs); C mosaic subtype vs chr21 index and genome-wide expression; D per-covariate attribution of the baseline-to-adjusted fold-change shift with bootstrap intervals | `results/runs/<name>/tables/S1_*.csv`, `figures/S1_covariate_evidence.{pdf,png}` |
+| audit_baseline_drift | Table-by-table comparison of a regenerated run against the archived 2026-09-04 flat outputs; strict on DESeq2 tables and lane classification, reports expression-scale-dependent tables | `results/archive/2026-09-04_flat/drift_audit.md` |
 
 Legacy and supplementary scripts live under `scripts/archive/`; the
 catalog is in [docs/decisions.md](docs/decisions.md).
-
-## Methodology
-
-### Trisomy-aware DESeq2
-
-The single biggest methodological correction from the paper. Standard DESeq2
-(default null `FC = 1`) calls every chr21 gene differentially expressed in
-T21 because the expected FC is `1.5`, not `1`. Two issues compound:
-
-1. **Wrong null hypothesis.** Significance tests against `FC = 1` over-call DE
-   on chr21 even when expression is exactly proportional to copy number.
-2. **Inflated dispersion.** Including chr21 in the size-factor estimation
-   shrinks all fold changes toward 1, masking real signal elsewhere.
-
-Fixes (script 01):
-- Build a per-gene-per-sample ploidy-normalization matrix: 1.5 for
-  chr21 genes in T21 samples, 1.0 elsewhere. Pass via DESeq2's `normMatrix`.
-- Exclude chr21 from size-factor computation.
-- `betaPrior = FALSE` (no shrinkage), so the MAP fold change reflects the
-  raw maximum-likelihood estimate.
-- Apply a minimum baseMean filter (paper's "second quintile"; pipeline uses
-  the 20th-percentile baseMean cutoff for consistency with script 02).
-
-After ploidy normalization, the appropriate null on chr21 is back to `FC = 1`,
-so DESeq2's standard p-value testing applies cleanly.
-
 
 
 ## Outputs
 
 ### Tables
 
-`results/tables/`:
+`results/runs/<name>/tables/`:
 - `deseq2_chr21_genes_both_analyses.csv` - chr21 DESeq2 results (raw + ploidy-
   corrected in one row per gene).
 - `deseq2_all_genes_ploidy_normalized.csv` - genome-wide ploidy-corrected
@@ -236,7 +208,7 @@ so DESeq2's standard p-value testing applies cleanly.
 - **`chr21_lane_assignments.csv`** - canonical per-gene lane table (read
   this for the headline numbers).
 - `chr21_lane_summary.csv` - lane counts (all chr21 + after paper filters).
-- `chr21_lane_alluvial_flow.csv` - long-format flow data for the alluvial.
+- `chr21_lane_flow.csv` - lane-flow paths (level2 / level3 / level4 counts) behind the SankeyMATIC input.
 - **`chr21_lane_sankeymatic_input.txt`** - SankeyMATIC paste-ready export.
 - `t21_dosage_per_variant.csv` - per-variant within-T21 regression fits.
 
@@ -250,20 +222,25 @@ so DESeq2's standard p-value testing applies cleanly.
 
 ### Figures
 
-`results/figures/`:
-- **`chr21_lane_alluvial.{pdf,png}`** - main lane-flow visualization
-  (script 05).
-- `chr21_vs_genome_distribution.{pdf,png}` - chr21 vs non-chr21
-  ploidy-corrected log2FC distributions + per-lane magnitude scatter
-  (script 06).
-- `Chr21_DEG.{pdf,png}` - volcano summary panel (script 07).
+`results/runs/<name>/figures/`:
+- Lane-flow Sankey: rendered at https://sankeymatic.com/build/ from
+  `results/runs/<name>/tables/chr21_lane_sankeymatic_input.txt` (script 05); the
+  tracked render is `docs/figures/Sankey.png`.
+- `ploidy_correction_distributions.{pdf,png}` - uncorrected vs
+  ploidy-corrected log2FC distributions for chr21, with chr22 as the
+  unchanged control (script 06).
+- `volcano_all_genes.{pdf,png}`, `volcano_chr21.{pdf,png}` - volcano figures (script 07).
+- `eqtl_dosage_panels.{pdf,png}`, `eqtl_effect_sizes.{pdf,png}`,
+  `chr21_deviating_map.{pdf,png}` - eQTL-stage figures with the controls (script 11).
+- `t21_vs_gtex_allelic_effect.{pdf,png}` - T21 vs GTEx allelic fold change,
+  with spike-in power and detection rates (scripts 14, 15, 16).
 
 
 ## Further documentation
 
 [docs/decisions.md](docs/decisions.md) - decision log (retired
-classification filters, the replaced eQTL rule, composition-control null
-design), legacy data sources and terminology, the `scripts/archive/`
+classification filters, the replaced eQTL rule, the retired
+neighborhood check), legacy data sources and terminology, the `scripts/archive/`
 catalog, and practical gotchas.
 
 ## AI assistance

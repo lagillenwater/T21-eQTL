@@ -1,29 +1,32 @@
 # 07_three_panel_figure.R
 #
-# Purpose: Chr21_DEG - a 2 x 2 volcano figure.
-#   A  uncorrected DESeq2, all protein-coding genes, chr21 highlighted
-#   B  ploidy-corrected DESeq2, all protein-coding genes, chr21 highlighted
-#   C  uncorrected, chr21 genes only
-#   D  ploidy-corrected, chr21 genes only
+# Purpose: Two volcano figures from the DESeq2 results.
+#   volcano_all_genes  A uncorrected / B ploidy-corrected, every gene of the
+#                      target biotypes in grey with chr21 genes drawn on top
+#                      in one highlight colour. No labels: the point is the
+#                      shift of the whole chr21 cloud from log2(1.5) to 0.
+#   volcano_chr21      A uncorrected / B ploidy-corrected, chr21 genes only.
+#                      Deviating genes are labelled and coloured by direction
+#                      alone (red DE_high, blue DE_low; tier 1 bold); every
+#                      other chr21 gene is grey. eQTL outcomes are not drawn
+#                      here (see scripts/11_eqtl_figures.R).
 #
-# All four panels share axes so the shift is readable directly: before
-# correction the chr21 cloud sits near log2(1.5) = 0.585 and is almost
-# uniformly significant; after correction it recenters on 0 and most of that
-# significance is absorbed, leaving the genes that genuinely deviate from the
-# trisomy expectation. The bottom row removes the genome-wide background so the
-# chr21 structure is visible on its own. Labelled genes are read from the lane
-# table rather than hardcoded, so the figure cannot drift from the pipeline.
+# Both figures share axes so the shift is readable directly: before correction
+# the chr21 cloud sits near log2(1.5) = 0.585 and is almost uniformly
+# significant; after correction it recenters on 0 and most of that
+# significance is absorbed, leaving the genes that deviate from the trisomy
+# expectation. Labelled genes are read from the lane table, not hardcoded.
 #
 # The lane-flow diagram is NOT drawn here: paste
-# results/tables/chr21_lane_sankeymatic_input.txt into
+# results/runs/<name>/tables/chr21_lane_sankeymatic_input.txt into
 # https://sankeymatic.com/build/ to render it.
 #
-# Inputs:
-#   - results/tables/deseq2_all_genes_both_analyses.csv (script 01)
-#   - results/tables/chr21_lane_assignments.csv         (script 04)
-# Outputs:
-#   - results/figures/Chr21_DEG.pdf
-#   - results/figures/Chr21_DEG.png
+# Inputs (per run):
+#   - tables/deseq2_all_genes_both_analyses.csv (script 01)
+#   - tables/chr21_lane_assignments.csv         (script 04)
+# Outputs (per run):
+#   - figures/volcano_all_genes.{pdf,png}
+#   - figures/volcano_chr21.{pdf,png}
 
 suppressPackageStartupMessages({
   library(readr)
@@ -34,68 +37,48 @@ suppressPackageStartupMessages({
 })
 
 # ---- constants --------------------------------------------------------------
-ALPHA       <- 0.01         # padj threshold, matches scripts 02/04
-TRISOMY_LFC <- log2(1.5)    # 0.585, the expected chr21 dosage bump
+source("scripts/lib/run.R"); run <- load_run()
+ALPHA       <- run$thresholds$alpha_de   # padj threshold, from the run config
+TRISOMY_LFC <- log2(run$ploidy)          # 0.585, the expected chr21 dosage bump
 Y_CAP       <- 60           # -log10(padj) display ceiling; see note below
-OUT_STEM    <- "results/figures/Chr21_DEG"
+source("scripts/lib/biotypes.R")   # TARGET_BIOTYPES, matches scripts 02/04/06
 
-# Group labels, ordered high -> low so the legend reads top-down. Every
-# (sig_lane, eqtl_lane) combination the pipeline can produce needs a label
-# here: a combination with no branch falls through to NA and is silently drawn
-# as "Other chr21" grey. LAB_HI_UNEX is empty at present but is the
-# OLIG2-shaped case on the high side, and would otherwise disappear.
-LAB_HI_EXPL <- "Higher, cis-eQTL detected"
-LAB_HI_UNEX <- "Higher, no cis-eQTL detected"
-LAB_HI_NOEQ <- "Higher, no GTEx eQTL"
-LAB_LO_EXPL <- "Lower, cis-eQTL detected"
-LAB_LO_UNEX <- "Lower, no cis-eQTL detected"
-LAB_LO_NOEQ <- "Lower, no GTEx eQTL"
-LAB_NOPADJ  <- "Outside noise, padj not estimable"
-LAB_CHR21   <- "Other chr21"
-LAB_OTHER   <- "Other protein-coding"
-
-PALETTE <- c("#B2182B", "#67001F", "#E08214", "#2166AC", "#D6604D", "#762A83",
-             "#1B7837", "#F4A582", "grey80")
-names(PALETTE) <- c(LAB_HI_EXPL, LAB_HI_UNEX, LAB_HI_NOEQ, LAB_LO_EXPL,
-                    LAB_LO_UNEX, LAB_LO_NOEQ, LAB_NOPADJ, LAB_CHR21, LAB_OTHER)
+LAB_HIGH  <- "Higher than expected (DE_high)"
+LAB_LOW   <- "Lower than expected (DE_low)"
+LAB_CHR21 <- "Other chr21"
+LAB_OTHER <- "Other genes (target biotypes)"
+# Direction colours match scripts/11_eqtl_figures.R.
+PALETTE <- c("#B2182B", "#2166AC", "#762A83", "grey80")
+names(PALETTE) <- c(LAB_HIGH, LAB_LOW, LAB_CHR21, LAB_OTHER)
+CHR21_GREY <- "grey60"   # chr21 background in the chr21-only figure
 
 # ---- load -------------------------------------------------------------------
 cat("Loading DESeq2 results and lane assignments...\n")
-res  <- read_csv("results/tables/deseq2_all_genes_both_analyses.csv",
+res  <- read_csv(run$table("deseq2_all_genes_both_analyses.csv"),
                  show_col_types = FALSE)
-lane <- read_csv("results/tables/chr21_lane_assignments.csv",
+lane <- read_csv(run$table("chr21_lane_assignments.csv"),
                  show_col_types = FALSE)
 
-res <- res %>% filter(Gene_type == "protein_coding")
+res <- res %>% filter(Gene_type %in% TARGET_BIOTYPES)
 
 # No global padj filter here: build_volcano() filters on its own padj column
 # per panel, so a gene missing raw_padj but carrying a valid norm_padj still
 # appears in the corrected panels (and vice versa).
-cat(sprintf("  %d protein-coding genes (%d on chr21)\n",
+cat(sprintf("  %d target-biotype genes (%d on chr21)\n",
             nrow(res), sum(res$Chr == "chr21")))
 
 # ---- assign display groups from the lane table ------------------------------
 # Derived, not hardcoded: whatever scripts 02/04 currently call DE is what gets
 # labelled here.
 lane_groups <- lane %>%
-  mutate(group = case_when(
-    sig_lane == "DE_high" & eqtl_lane == "cis_eqtl"     ~ LAB_HI_EXPL,
-    sig_lane == "DE_high" & eqtl_lane == "no_cis_eqtl"  ~ LAB_HI_UNEX,
-    sig_lane == "DE_high" & eqtl_lane == "no_GTEx_data" ~ LAB_HI_NOEQ,
-    sig_lane == "DE_low"  & eqtl_lane == "cis_eqtl"     ~ LAB_LO_EXPL,
-    sig_lane == "DE_low"  & eqtl_lane == "no_cis_eqtl"  ~ LAB_LO_UNEX,
-    sig_lane == "DE_low"  & eqtl_lane == "no_GTEx_data" ~ LAB_LO_NOEQ,
-    sig_lane == "Not_DE_outside_noise" & is.na(norm_padj) ~ LAB_NOPADJ,
-    TRUE ~ NA_character_
-  )) %>%
+  mutate(group = case_when(sig_lane == "DE_high" ~ LAB_HIGH,
+                           sig_lane == "DE_low"  ~ LAB_LOW,
+                           TRUE ~ NA_character_)) %>%
   filter(!is.na(group)) %>%
   select(Gene_name, group, tier)
-
-cat("  Labelled genes by group:\n")
-for (g in names(PALETTE)) {
-  n <- sum(lane_groups$group == g)
-  if (n > 0) cat(sprintf("    %-34s %d\n", g, n))
-}
+cat(sprintf("  Deviating genes: %d higher, %d lower (tier 1: %d)\n",
+            sum(lane_groups$group == LAB_HIGH), sum(lane_groups$group == LAB_LOW),
+            sum(lane_groups$tier == 1L, na.rm = TRUE)))
 
 res <- res %>%
   left_join(lane_groups, by = "Gene_name") %>%
@@ -107,25 +90,48 @@ res <- res %>%
   group = factor(group, levels = names(PALETTE)))
 
 # ---- volcano builder --------------------------------------------------------
-# A handful of genes have padj ~1e-216, which would flatten every other point
-# against the x-axis. Cap the display at Y_CAP and draw capped points as
-# triangles so the truncation is visible rather than silent.
+# A handful of genes have padj ~1e-216 (uncorrected chr21 genes tested against
+# FC = 1), which would flatten every other point against the x-axis. Cap the
+# display at Y_CAP and draw capped points as triangles, keyed in the shape
+# legend and counted in the panel subtitle, so the truncation is visible
+# rather than silent.
+#
+# mode = "all":   background grey, chr21 (deviating or not) in the chr21
+#                 highlight colour, no labels.
+# mode = "chr21": chr21 background grey, deviating genes coloured by direction
+#                 and labelled (tier 1 bold).
 build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
-                          show_trisomy_line) {
+                          show_trisomy_line, mode = c("all", "chr21")) {
+  mode <- match.arg(mode)
   d <- df %>%
     filter(!is.na(.data[[padj_col]])) %>%
     mutate(
       lfc      = .data[[lfc_col]],
       neglog10 = -log10(.data[[padj_col]] + 1e-300),
-      capped   = neglog10 > Y_CAP,
+      capped   = factor(neglog10 > Y_CAP, levels = c("FALSE", "TRUE")),
       y        = pmin(neglog10, Y_CAP)
     )
+  n_capped <- sum(d$capped == "TRUE")
+  if (n_capped > 0) {
+    subtitle <- sprintf("%s; %d at the ceiling", subtitle, n_capped)
+  }
 
-  # Draw in layers so labelled genes sit above the chr21 cloud, which sits
-  # above the genome-wide background.
-  bg    <- d %>% filter(group == LAB_OTHER)
-  c21   <- d %>% filter(group == LAB_CHR21)
-  named <- d %>% filter(!group %in% c(LAB_OTHER, LAB_CHR21))
+  if (mode == "all") {
+    d <- d %>% mutate(group = factor(ifelse(Chr == "chr21", LAB_CHR21, LAB_OTHER),
+                                     levels = c(LAB_CHR21, LAB_OTHER)))
+    pal    <- PALETTE[c(LAB_CHR21, LAB_OTHER)]
+    bg     <- d %>% filter(group == LAB_OTHER)
+    c21    <- d %>% filter(group == LAB_CHR21)
+    named  <- d[0, ]
+    c21_col <- NULL
+  } else {
+    d <- d %>% filter(Chr == "chr21") %>%
+      mutate(group = factor(as.character(group), levels = c(LAB_HIGH, LAB_LOW, LAB_CHR21)))
+    pal    <- c(PALETTE[c(LAB_HIGH, LAB_LOW)], setNames(CHR21_GREY, LAB_CHR21))
+    bg     <- d[0, ]
+    c21    <- d %>% filter(group == LAB_CHR21)
+    named  <- d %>% filter(group != LAB_CHR21)
+  }
 
   ggplot(mapping = aes(x = lfc, y = y, colour = group)) +
     geom_hline(yintercept = -log10(ALPHA), linetype = "dashed",
@@ -146,14 +152,19 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
                     segment.size = 0.2, segment.alpha = 0.6,
                     box.padding = 0.4, force = 6, seed = 1,
                     show.legend = FALSE) +
-    # limits pins the legend to the full level set. Without it the two panels
-    # build different guides (MX1 has no corrected padj, so panel B never sees
-    # that level) and patchwork's guide collection draws the legend twice.
-    scale_colour_manual(values = PALETTE, limits = names(PALETTE),
-                        drop = FALSE, name = NULL) +
-    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17), guide = "none") +
+    # limits pins the legend to the full level set so the two panels build the
+    # same guide and patchwork collects one legend.
+    scale_colour_manual(values = pal, limits = names(pal), drop = FALSE, name = NULL) +
+    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17), drop = FALSE,
+                       name = NULL,
+                       labels = c(sprintf("-log10 padj <= %d", Y_CAP),
+                                  sprintf("-log10 padj > %d, drawn at the ceiling",
+                                          Y_CAP))) +
     guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1),
-                                 nrow = 3, byrow = TRUE)) +
+                                 nrow = 2, byrow = TRUE, order = 1),
+           shape  = guide_legend(override.aes = list(size = 2.2, alpha = 1,
+                                                     colour = "grey30"),
+                                 nrow = 2, order = 2)) +
     # Headroom above the cap so labels on capped points have somewhere to go.
     coord_cartesian(xlim = c(-2.5, 2.5), ylim = c(0, Y_CAP + 8)) +
     labs(title = title, subtitle = subtitle,
@@ -181,105 +192,72 @@ cat(sprintf("  chr21 median log2FC: raw %.3f (FC %.2f) -> corrected %.3f\n",
 cat(sprintf("  chr21 padj < %.2g: raw %d -> corrected %d (of %d)\n",
             ALPHA, sig_raw, sig_norm, n_chr21))
 
-panel_a <- build_volcano(
-  res, "raw_log2FC", "raw_padj",
-  title    = "A  Uncorrected",
-  subtitle = sprintf(
-    "chr21 median FC = %.2f (dotted = 1.5x expectation); %d/%d chr21 padj < %.2g",
-    2^med_raw, sig_raw, n_chr21, ALPHA),
-  show_trisomy_line = TRUE
-)
-
-panel_b <- build_volcano(
-  res, "norm_log2FC", "norm_padj",
-  title    = "B  Ploidy-corrected",
-  subtitle = sprintf("chr21 median log2FC = %.2f; %d/%d chr21 padj < %.2g",
-                     med_norm, sig_norm, n_chr21, ALPHA),
-  show_trisomy_line = FALSE
-)
-
-# ---- panels C and D: chr21 only -------------------------------------------
-# Same builder, same axes, but the genome-wide background is removed so the
-# 160 chr21 genes can be read on their own.
-res_chr21 <- res %>% filter(Chr == "chr21")
-
-panel_c <- build_volcano(
-  res_chr21, "raw_log2FC", "raw_padj",
-  title    = "C  Uncorrected, chr21 only",
-  subtitle = sprintf("%d protein-coding chr21 genes; dotted = 1.5x expectation",
-                     nrow(res_chr21)),
-  show_trisomy_line = TRUE
-)
-
-panel_d <- build_volcano(
-  res_chr21, "norm_log2FC", "norm_padj",
-  title    = "D  Ploidy-corrected, chr21 only",
-  subtitle = sprintf("%d chr21 genes; tier 1 (bold): %s; tier 2: %d more",
-                     nrow(res_chr21),
-                     paste(sort(lane$Gene_name[!is.na(lane$tier) & lane$tier == 1L]),
-                           collapse = ", "),
-                     sum(lane$tier == 2L, na.rm = TRUE)),
-  show_trisomy_line = FALSE
-)
-
-# ---- assemble ---------------------------------------------------------------
-# One legend, deterministically: patchwork only merges guides it considers
-# identical, and the four panels build theirs from different data. Keep the
-# legend on panel A only and let guides = "collect" place it in guide_area().
-panel_a <- panel_a + theme(legend.position = "bottom")
-for (nm in c("panel_b", "panel_c", "panel_d")) {
-  assign(nm, get(nm) + theme(legend.position = "none"))
+# One legend per figure: keep it on panel A, collect with patchwork.
+assemble <- function(pa, pb) {
+  # Panel B carries no legend, so guides = "collect" gathers panel A's alone;
+  # setting legend.position through `&` would switch B's back on and draw
+  # the shape legend twice.
+  pa <- pa + theme(legend.position = "bottom")
+  pb <- pb + theme(legend.position = "none")
+  pa + pb + guide_area() +
+    plot_layout(design = "AB\nCC", guides = "collect", heights = c(1, 0.16)) &
+    theme(legend.box = "horizontal", legend.box.just = "top",
+          legend.spacing.x = unit(1.5, "lines"))
 }
 
-design <- "AB
-CD
-EE"
-
-fig <- panel_a + panel_b + panel_c + panel_d + guide_area() +
-  plot_layout(design = design, guides = "collect",
-              heights = c(1, 1, 0.14))
-
-cat("Writing figure...\n")
-# Plain pdf() rather than cairo_pdf: cairo is not available on every machine
-# here (no X11), and cairo_pdf fails to write at all when it is missing.
-ggsave(paste0(OUT_STEM, ".pdf"), fig, width = 9.5, height = 9.5,
-       units = "in", device = "pdf")
-ggsave(paste0(OUT_STEM, ".png"), fig, width = 9.5, height = 9.5,
-       units = "in", dpi = 300)
-
-# Confirm both actually landed - a failed graphics device is otherwise silent.
-for (f in paste0(OUT_STEM, c(".pdf", ".png"))) {
-  if (!file.exists(f)) stop("failed to write ", f)
-  cat(sprintf("  Saved: %s (%.1f KB)\n", f, file.size(f) / 1024))
+write_fig <- function(fig, stem, width, height) {
+  # Plain pdf() rather than cairo_pdf: cairo is not available on every machine
+  # here (no X11), and cairo_pdf fails to write at all when it is missing.
+  ggsave(paste0(stem, ".pdf"), fig, width = width, height = height, units = "in", device = "pdf")
+  ggsave(paste0(stem, ".png"), fig, width = width, height = height, units = "in", dpi = 300)
+  # Confirm both actually landed - a failed graphics device is otherwise silent.
+  for (f in paste0(stem, c(".pdf", ".png"))) {
+    if (!file.exists(f)) stop("failed to write ", f)
+    cat(sprintf("  Saved: %s (%.1f KB)\n", f, file.size(f) / 1024))
+  }
 }
+
+# ---- figure 1: all genes, chr21 highlighted, no labels ---------------------
+fig_all <- assemble(
+  build_volcano(res, "raw_log2FC", "raw_padj", mode = "all",
+    title    = "A  Uncorrected",
+    subtitle = sprintf("chr21 median FC = %.2f (dotted = 1.5x expectation); %d/%d chr21 padj < %.2g",
+                       2^med_raw, sig_raw, n_chr21, ALPHA),
+    show_trisomy_line = TRUE),
+  build_volcano(res, "norm_log2FC", "norm_padj", mode = "all",
+    title    = "B  Ploidy-corrected",
+    subtitle = sprintf("chr21 median log2FC = %.2f; %d/%d chr21 padj < %.2g",
+                       med_norm, sig_norm, n_chr21, ALPHA),
+    show_trisomy_line = FALSE))
+cat("Writing volcano_all_genes...\n")
+write_fig(fig_all, run$figure("volcano_all_genes"), width = 9.5, height = 5.8)
+
+# ---- figure 2: chr21 only, deviating genes labelled by direction -----------
+tier1 <- sort(lane$Gene_name[!is.na(lane$tier) & lane$tier == 1L])
+fig_chr21 <- assemble(
+  build_volcano(res, "raw_log2FC", "raw_padj", mode = "chr21",
+    title    = "A  Uncorrected, chr21 only",
+    subtitle = sprintf("%d chr21 genes (%s); dotted = 1.5x expectation",
+                       n_chr21, TARGET_BIOTYPES_LABEL),
+    show_trisomy_line = TRUE),
+  build_volcano(res, "norm_log2FC", "norm_padj", mode = "chr21",
+    title    = "B  Ploidy-corrected, chr21 only",
+    subtitle = sprintf("%d deviating genes labelled; tier 1 (bold):\n%s",
+                       nrow(lane_groups),
+                       paste(strwrap(paste(tier1, collapse = ", "), width = 95), collapse = "\n")),
+    show_trisomy_line = FALSE))
+cat("Writing volcano_chr21...\n")
+write_fig(fig_chr21, run$figure("volcano_chr21"), width = 9.5, height = 5.8)
 
 writeLines(capture.output(sessionInfo()),
-           "results/figures/Chr21_DEG_session_info.txt")
+           run$figure("volcano_session_info.txt"))
 cat("Done.\n")
 
 # =============================================================================
 # CHANGELOG
 # =============================================================================
-# 2026-08-31  ADDED LAB_HI_UNEX ("Higher, no cis-eQTL detected") with its own
-#             palette entry and case_when branch. DE_high & no_cis_eqtl had no
-#             branch, so such a gene fell through to NA and was drawn as grey
-#             "Other chr21" - silently unlabelled. The combination is empty
-#             today but is the OLIG2-shaped case on the high side, and the two
-#             DE_high genes are one permutation result away from it.
-#
-# 2026-08-31  RELABELLED the panel C sub-categories: "DE high (>= 1.5 raw FC)"
-#             / "DE low (< 1.5 raw FC)" named the raw fold change, but the rule
-#             is abs(norm_log2FC) >= log2(1.5) on the ploidy-corrected scale.
-#             The panel title, subtitle and header comment likewise described
-#             the retired cohort-noise SD filter and a stale gene count; they
-#             now state the current rule without hardcoded numbers.
-# 2026-09-01  REPLACED panel C (the ggalluvial lane-flow) with two chr21-only
-#             volcano panels (C uncorrected, D ploidy-corrected), making a 2x2
-#             figure. Output renamed three_panel_summary -> Chr21_DEG. The lane
-#             flow is rendered by hand from chr21_lane_sankeymatic_input.txt at
-#             sankeymatic.com instead. Dropped the now-unused ggalluvial, png,
-#             grid and tidyr loads and the SANKEY_PNG switch.
-#             Reason: user request - the SankeyMATIC render is preferred and
-#             the chr21-only view is more legible than the flattened alluvial.
-# 2026-09-01  Two-tier labelling: tier-1 (Hunter) gene names bold, tier-2
-#             plain; panel D subtitle names tier 1 and counts tier 2.
+# 2026-09-10  SPLIT the 2x2 Chr21_DEG figure into volcano_all_genes (chr21
+#             highlighted, no labels) and volcano_chr21 (deviating genes
+#             labelled, coloured by direction only). eQTL outcomes moved to
+#             scripts/11_eqtl_figures.R. Chr21_DEG.{pdf,png} are no longer
+#             written.

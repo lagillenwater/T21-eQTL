@@ -1,0 +1,13 @@
+gene,partner,role,source
+CBS,CBSL,original,"Aganezov et al. 2022 Science doi:10.1126/science.abl3533; Behera et al. 2023 Genome Biol doi:10.1186/s13059-023-02863-7 (FixItFelix)"
+CRYAA,CRYAA2,original,"Aganezov et al. 2022; Behera et al. 2023"
+KCNE1,KCNE1B,original,"Aganezov et al. 2022; Behera et al. 2023"
+U2AF1,U2AF1L5,original,"Aganezov et al. 2022; Behera et al. 2023"
+SIK1,SIK1B,original,"Behera et al. 2023"
+GATD3A,GATD3B,original,"Behera et al. 2023"
+CBSL,CBS,false_copy,"as above"
+CRYAA2,CRYAA,false_copy,"as above"
+KCNE1B,KCNE1,false_copy,"as above"
+U2AF1L5,U2AF1,false_copy,"as above"
+SIK1B,SIK1,false_copy,"as above"
+GATD3B,GATD3A,false_copy,"as above"

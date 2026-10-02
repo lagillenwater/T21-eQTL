@@ -1,4 +1,4 @@
-# 12_chr21_lane_assignment.R
+# 04_chr21_lane_assignment.R
 #
 # Purpose: Assign every chr21 gene to a (significance lane, eQTL lane) pair
 #          for the comprehensive Sankey/alluvial figure. Mirrors the paper's
@@ -43,37 +43,23 @@ suppressPackageStartupMessages({
 })
 
 set.seed(42)
+source("scripts/lib/run.R"); run <- load_run(); th <- run$thresholds
 
-cat("=== T21-eQTL: Per-Gene Lane Assignment (DE x eQTL) ===\n\n")
+cat(sprintf("=== T21-eQTL: Per-Gene Lane Assignment (DE x eQTL) [run: %s] ===\n\n", run$name))
 
 # =============================================================================
 # Constants - matched to paper conventions
 # =============================================================================
 
-ALPHA               <- 0.01    # paper: padj < .01 (Fig. 2B, 3B)
-ALPHA_REPRO         <- 0.05    # within-T21 nominal p for a cis variant to
-                               # count as a reproducible supporter
-OUTLIER_FDR         <- 0.10    # FDR-controlled robust outlier test against a
-                               # chr21-internal median/MAD null. Genes that do
-                               # not clear this are flagged "Expected_dosage"
-                               # - their statistically significant deviations
-                               # are within typical chr21 variation, so no
-                               # eQTL explanation is sought. This filter is
-                               # also applied upstream in script 02 (gene
-                               # selection) so failing genes have no genotype
-                               # data. Eligibility (low_expr / high_repeat)
-                               # also determines lane routing directly: those
-                               # genes are excluded from the null because they
-                               # are too noisy to assess, not because they
-                               # follow expected dosage, so the sig_lane
-                               # fcase below must test high_repeat/low_expr
-                               # BEFORE passes_magnitude_filter.
-DEVIATION_LFC       <- log2(1.5)   # tier 1 (primary, Hunter)
-DEVIATION_LFC_T2    <- log2(4/3)   # tier 2 (secondary)   # Hunter et al.'s FC >= 1.5 cut, applied on
-                                   # the ploidy-corrected log2FC scale
-LOW_EXPR_QUANT      <- 0.20    # paper: "second quintile of baseMean"
-RESTRICT_TO_PROTEIN_CODING <- TRUE   # restrict chr21 set + cohort-noise
-                                     # reference to protein-coding genes
+# Thresholds come from the run config (config/runs/<name>.R); local names kept.
+ALPHA               <- th$alpha_de          # paper: padj < .01 (Fig. 2B, 3B)
+ALPHA_REPRO         <- th$alpha_repro       # within-T21 nominal p, context column only
+OUTLIER_FDR         <- th$outlier_fdr       # chr21-internal outlier annotation only
+DEVIATION_LFC       <- th$deviation_lfc     # tier 1 (primary, Hunter)
+DEVIATION_LFC_T2    <- th$deviation_lfc_t2  # tier 2 (secondary); the cut assign_sig_lane splits on
+LOW_EXPR_BASEMEAN   <- th$low_expr_basemean # Hunter et al.'s minimum read coverage
+source("scripts/lib/biotypes.R")   # TARGET_BIOTYPES: the chr21 target set, the
+                                   # biotypes GTEx whole blood tests
 
 KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
                         "IFNAR1", "IFNAR2", "TPTE", "BAGE", "DAB1")
@@ -84,21 +70,18 @@ KNOWN_REPEAT_GENES <- c("RPS6KB1", "RPS27", "RPS27L", "RPS27P",
 
 cat("Step 1: Loading inputs...\n")
 
-deseq <- fread("results/tables/deseq2_chr21_genes_both_analyses.csv")
+deseq <- fread(run$table("deseq2_chr21_genes_both_analyses.csv"))
 deseq[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
-if (RESTRICT_TO_PROTEIN_CODING) {
-  n_before <- nrow(deseq)
-  deseq <- deseq[Gene_type == "protein_coding"]
-  cat(sprintf("  chr21 DESeq2 rows (protein_coding only): %d (was %d)\n",
-              nrow(deseq), n_before))
-} else {
-  cat(sprintf("  chr21 DESeq2 rows: %d\n", nrow(deseq)))
-}
+n_before <- nrow(deseq)
+deseq <- deseq[Gene_type %in% TARGET_BIOTYPES]
+cat(sprintf("  chr21 DESeq2 rows (%s): %d (was %d)\n",
+            paste(TARGET_BIOTYPES, collapse = " + "), nrow(deseq), n_before))
+print(deseq[, .N, by = Gene_type])
 
-per_var <- fread("results/tables/t21_dosage_per_variant.csv")
+per_var <- fread(run$table("t21_dosage_per_variant.csv"))
 cat(sprintf("  Per-variant within-T21 fits: %d\n", nrow(per_var)))
 
-targets <- fread("data/processed/eqtl_target_variants.csv")
+targets <- fread(run$processed("eqtl_target_variants.csv"))
 cat(sprintf("  GTEx target (variant, gene) pairs: %d (%d unique genes)\n",
             nrow(targets), uniqueN(targets$ensembl_stable)))
 
@@ -132,6 +115,13 @@ per_var <- merge(per_var,
 #                           boxplot panels (e.g., APP at t21_p ~ 0.07).
 per_var[, dir_match := !is.na(gtex_slope) & !is.na(norm_log2FC_obs) &
                        sign(gtex_slope) == sign(norm_log2FC_obs)]
+# dir_match is ALT-referenced: REF and ALT come from the assembly, not from
+# the population, so its meaning flips with an arbitrary label. dir_match_minor
+# asks the same question of the MINOR allele (script 03, scripts/lib/alleles.R)
+# and is the one comparable across variants and with published eQTL
+# directions. Both are locus-level context; neither gates a lane.
+per_var[, dir_match_minor := !is.na(gtex_slope_minor) & !is.na(norm_log2FC_obs) &
+                             sign(gtex_slope_minor) == sign(norm_log2FC_obs)]
 per_var[, supportive_with_repro :=
           dir_match &
           !is.na(t21_slope) & !is.na(t21_p) &
@@ -142,6 +132,7 @@ per_var[, supportive_with_repro :=
 locus <- per_var[, .(
   n_cis_total       = uniqueN(variant_id),
   n_dir_match       = uniqueN(variant_id[dir_match == TRUE]),
+  n_dir_match_minor = uniqueN(variant_id[dir_match_minor == TRUE]),
   n_supp_with_repro = uniqueN(variant_id[supportive_with_repro == TRUE])
 ), by = ensembl_stable]
 
@@ -198,19 +189,20 @@ m <- merge(deseq[, .(ensembl_stable, EnsemblID, Gene_name, Gene_type, Chr,
 # Genes with no GTEx whole-blood signif eQTL at all -> 0 cis variants tested
 m[is.na(n_cis_total),       n_cis_total       := 0L]
 m[is.na(n_dir_match),       n_dir_match       := 0L]
+m[is.na(n_dir_match_minor), n_dir_match_minor := 0L]
 m[is.na(n_supp_with_repro), n_supp_with_repro := 0L]
 m[, raw_FC := 2^raw_log2FC]
 
-# Paper's filters as flags (categorize, do not remove)
-basemean_threshold <- quantile(m$baseMean, LOW_EXPR_QUANT, na.rm = TRUE)
-cat(sprintf("  baseMean cutoff at %.0fth percentile: %.2f\n",
-            100 * LOW_EXPR_QUANT, basemean_threshold))
+# Paper's filters as flags (categorize, do not remove). The low-expression
+# cutoff is Hunter et al.'s absolute minimum (matches script 02).
+basemean_threshold <- LOW_EXPR_BASEMEAN
+cat(sprintf("  baseMean cutoff (absolute): %.2f\n", basemean_threshold))
 m[, low_expr   := !is.na(baseMean) & baseMean < basemean_threshold]
 m[, high_repeat := Gene_name %in% high_repeat_genes]
 
 m[, deviation_magnitude := abs(norm_log2FC)]
 
-# Significance lane - Hunter's padj + 1.5-fold rule, gated on eligibility.
+# Significance lane - padj + tier-2 magnitude cut, gated on eligibility.
 # The rule (and the reason its fcase order is what it is) lives in
 # scripts/lib/lane_rules.R so it can be unit-tested; this call is the only
 # place it is applied. It adds eligible_idx, passes_magnitude_filter, sig_lane.
@@ -225,15 +217,15 @@ cat(sprintf("  Tier 1 (>= %.3f): %d genes; tier 2 (>= %.3f): %d genes\n",
             DEVIATION_LFC, sum(m$tier == 1L, na.rm = TRUE),
             DEVIATION_LFC_T2, sum(m$tier == 2L, na.rm = TRUE)))
 
-cat(sprintf("  Hunter rule (padj < %.2g AND |corrected log2FC| >= %.3f): %d genes\n",
-            ALPHA, DEVIATION_LFC,
+cat(sprintf("  Deviating (padj < %.2g AND |corrected log2FC| >= %.3f): %d genes\n",
+            ALPHA, DEVIATION_LFC_T2,
             sum(m$sig_lane %in% c("DE_low", "DE_high"))))
 cat(sprintf("  Clearing the magnitude cut alone: %d eligible genes\n",
             sum(m$passes_magnitude_filter)))
 
 # Deviation magnitude vs a chr21-internal null. ANNOTATION ONLY - dev_z,
-# q_outlier and chr21_k_sensitivity.csv do not gate any lane; the Hunter rule
-# above is the sole classification rule. See docs/REPO_STATE.md decision log.
+# q_outlier and chr21_k_sensitivity.csv do not gate any lane; the
+# assign_sig_lane rule above is the sole classification rule. See docs/REPO_STATE.md decision log.
 source("scripts/lib/chr21_threshold.R")
 
 # Null from eligible genes only; z and q reported for all genes so the table
@@ -253,22 +245,41 @@ cat(sprintf("  Annotation only - FDR-outlier test at FDR < %.2f flags %d genes (
             effective_k(m$dev_z, m$q_outlier, OUTLIER_FDR)))
 
 sens <- k_sensitivity(m$dev_z[eligible_idx])
-fwrite(sens, "results/tables/chr21_k_sensitivity.csv")
-stopifnot(file.exists("results/tables/chr21_k_sensitivity.csv"))
-cat("  Wrote results/tables/chr21_k_sensitivity.csv\n")
+fwrite(sens, run$table("chr21_k_sensitivity.csv"))
+stopifnot(file.exists(run$table("chr21_k_sensitivity.csv")))
+cat("  Wrote", run$table("chr21_k_sensitivity.csv"), "\n")
 print(sens)
 
 # eQTL lane, now gated on gene-level permutation significance rather than
 # "at least one supportive variant". The old rule scaled with the number of cis
 # variants tested (median n_cis 107 for cis_eqtl genes vs 36 for the one
 # no_cis_eqtl gene), so it measured variant count more than genetic evidence.
-perm <- if (file.exists("results/tables/eqtl_gene_level_perm.csv")) {
-  fread("results/tables/eqtl_gene_level_perm.csv")
+perm <- if (file.exists(run$table("eqtl_gene_level_perm.csv"))) {
+  fread(run$table("eqtl_gene_level_perm.csv"))
 } else {
-  stop("run scripts/03_t21_dosage_boxplots.R first - eqtl_gene_level_perm.csv is missing")
+  stop("run scripts/03_t21_dosage_boxplots.R --run ", run$name, " first - eqtl_gene_level_perm.csv is missing")
 }
 m <- merge(m, perm[, .(Gene_name, p_gene_perm, q_gene_bh, cis_eqtl_detected, best_variant)],
            by = "Gene_name", all.x = TRUE)
+
+# Minor-allele reference for the variant the call rests on, so the lane table
+# states the direction of the detected eQTL per copy of the allele that is
+# rarer in the population rather than per copy of whichever base differs from
+# the reference assembly (scripts/lib/alleles.R).
+best_allele <- unique(per_var[, .(Gene_name, best_variant = variant_id,
+                                  best_minor_allele    = minor_allele,
+                                  best_major_allele    = major_allele,
+                                  best_maf_gtex        = gtex_maf,
+                                  best_maf_gnomad      = gnomad_maf,
+                                  best_maf_htp         = htp_maf,
+                                  best_minor_concordant = minor_concordant,
+                                  best_slope_minor_t21  = t21_slope_minor,
+                                  best_slope_minor_gtex = gtex_slope_minor)])
+# One row per (gene, variant), or the merge would duplicate lane rows.
+stopifnot(!anyDuplicated(best_allele, by = c("Gene_name", "best_variant")))
+n_m <- nrow(m)
+m <- merge(m, best_allele, by = c("Gene_name", "best_variant"), all.x = TRUE)
+stopifnot(nrow(m) == n_m)
 
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")
@@ -285,80 +296,6 @@ m[, eqtl_lane := fcase(
   default =                                            "no_cis_eqtl")]
 
 # =============================================================================
-# STEP 3b: Composition control for deviating (DE_low / DE_high) genes
-# =============================================================================
-#
-# A chr21 gene can appear to deviate from dosage expectation because the
-# blood cell type that expresses it changed in abundance in T21, not because
-# of any regulatory effect on the gene itself. Composition shifts move whole
-# co-expression programs, not single genes: for each deviating gene, find its
-# 20 most co-expressed non-chr21 genes using CONTROLS ONLY (so the karyotype
-# effect cannot leak into the correlation), take the median T21-vs-Control
-# log2FC of those partners, and compare it to a CORRELATION-MATCHED null -
-# random seed genes from the same pool, each contributing the median log2FC of
-# its own top-20 correlated partners. Matching matters: a co-expression module
-# moves together, so its median log2FC is several times more variable than an
-# independent 20-gene set's, and an independent null would call almost any
-# partner shift significant. If the partners shift with the gene, that looks
-# like a program (composition or shared pathway), not gene-specific dosage
-# regulation.
-
-cat("\nStep 3b: Composition control for deviating genes...\n")
-
-source("scripts/lib/composition.R")
-
-count_mat <- fread("data/processed/count_matrix.csv")
-cohort <- fread("data/processed/analysis_cohort.csv")
-de_all <- fread("results/tables/deseq2_all_genes_ploidy_normalized.csv")
-
-lab_ids <- intersect(setdiff(names(count_mat), c("EnsemblID", "Gene_name", "Chr")),
-                     cohort$LabID)
-karyotype <- cohort$Karyotype[match(lab_ids, cohort$LabID)]
-
-M <- as.matrix(count_mat[, ..lab_ids])
-rownames(M) <- count_mat$Gene_name
-L <- log2(t(t(M) / colSums(M) * 1e6) + 1)
-
-partner_pool <- rowMeans(M) >= 25 & count_mat$Chr != "chr21"
-L_ctrl <- L[partner_pool, karyotype == "Control"]
-
-genome_lfc <- setNames(de_all$log2FoldChange, de_all$Gene_name)
-lfc_bg <- genome_lfc[rownames(L_ctrl)]
-lfc_bg <- lfc_bg[!is.na(lfc_bg)]
-
-deviating_genes <- m$Gene_name[m$sig_lane %in% c("DE_high", "DE_low")]
-deviating_genes <- intersect(deviating_genes, rownames(L))
-
-null <- partner_null(L_ctrl, lfc_bg, n_partners = 20, n_draw = 300, seed = 1)
-cat(sprintf("  Correlation-matched null: %d module draws, median %.4f, SD %.4f\n",
-            length(null), median(null), sd(null)))
-
-composition <- rbindlist(lapply(deviating_genes, function(g) {
-  gene_lfc <- genome_lfc[[g]]
-  gene_ctrl <- L[g, karyotype == "Control"]
-  partner_lfc <- partner_shift(g, L_ctrl, gene_ctrl, lfc_bg, n_partners = 20)
-  p_partners <- partner_p(gene_lfc, partner_lfc, null)
-  verdict <- composition_verdict(gene_lfc, partner_lfc, p_partners)
-  data.table(
-    Gene_name    = g,
-    gene_lfc     = gene_lfc,
-    partner_lfc  = partner_lfc,
-    p_partners   = p_partners,
-    program_share = partner_lfc / gene_lfc,
-    residual_lfc = gene_lfc - partner_lfc,
-    verdict      = verdict
-  )
-}))
-
-fwrite(composition, "results/tables/chr21_composition_control.csv")
-stopifnot(file.exists("results/tables/chr21_composition_control.csv"))
-cat("  Wrote results/tables/chr21_composition_control.csv\n")
-print(composition)
-
-m <- merge(m, composition[, .(Gene_name, verdict, residual_lfc)],
-           by = "Gene_name", all.x = TRUE)
-
-# =============================================================================
 # STEP 4: Ordered output table
 # =============================================================================
 
@@ -372,9 +309,11 @@ setcolorder(m, c(
   "eligible_idx", "passes_magnitude_filter", "tier",
   "low_expr", "high_repeat",
   "sig_lane", "eqtl_lane",
-  "verdict", "residual_lfc",
-  "n_cis_total", "n_dir_match", "n_supp_with_repro",
+  "n_cis_total", "n_dir_match", "n_dir_match_minor", "n_supp_with_repro",
   "p_gene_perm", "q_gene_bh", "cis_eqtl_detected",
+  "best_minor_allele", "best_major_allele", "best_maf_gtex", "best_maf_gnomad",
+  "best_maf_htp", "best_minor_concordant",
+  "best_slope_minor_t21", "best_slope_minor_gtex",
   "strongest_supp_pval", "strongest_supp_variant",
   "strongest_dir_pval", "strongest_dir_variant",
   "strongest_overall_pval", "strongest_overall_variant"
@@ -382,8 +321,8 @@ setcolorder(m, c(
 
 setorder(m, sig_lane, eqtl_lane, -deviation_magnitude)
 
-fwrite(m, "results/tables/chr21_lane_assignments.csv")
-cat("  Wrote results/tables/chr21_lane_assignments.csv\n")
+fwrite(m, run$table("chr21_lane_assignments.csv"))
+cat("  Wrote", run$table("chr21_lane_assignments.csv"), "\n")
 
 # Lane counts (overall, and after baseMean filter for the headline numbers)
 summary_all <- m[, .(n_genes = .N),
@@ -397,8 +336,8 @@ summary_all[,  scope := "all_chr21"]
 summary_filt[, scope := "after_paper_filters"]
 
 lane_summary <- rbindlist(list(summary_all, summary_filt))
-fwrite(lane_summary, "results/tables/chr21_lane_summary.csv")
-cat("  Wrote results/tables/chr21_lane_summary.csv\n")
+fwrite(lane_summary, run$table("chr21_lane_summary.csv"))
+cat("  Wrote", run$table("chr21_lane_summary.csv"), "\n")
 
 # =============================================================================
 # STEP 5: Verification
@@ -406,14 +345,19 @@ cat("  Wrote results/tables/chr21_lane_summary.csv\n")
 
 cat("\n=== Verification ===\n")
 cat(sprintf("Total chr21 genes assigned: %d\n", nrow(m)))
-cat(sprintf("Low-expression flagged (q%d):  %d\n",
-            as.integer(100 * LOW_EXPR_QUANT), sum(m$low_expr)))
+print(m[, .N, by = Gene_type])
+cat(sprintf("Low-expression flagged (baseMean < %g): %d\n",
+            LOW_EXPR_BASEMEAN, sum(m$low_expr)))
 cat(sprintf("High-repeat flagged:          %d\n", sum(m$high_repeat)))
 cat(sprintf("Genes with any GTEx eQTL data: %d / %d\n",
             sum(m$n_cis_total > 0), nrow(m)))
 
-cat("\nLane counts (after baseMean q20 + repeat filter):\n")
+cat("\nLane counts (after baseMean + repeat filter):\n")
 print(summary_filt)
+
+cat("\nsig_lane by biotype (all chr21):\n")
+print(dcast(m[, .N, by = .(sig_lane, Gene_type)], sig_lane ~ Gene_type,
+            value.var = "N", fill = 0L))
 
 cat("\nLane counts (all chr21):\n")
 print(summary_all)
@@ -429,13 +373,13 @@ print(m[Gene_name %in% c("APP", "COL18A1", "OLIG2", "BACE2", "MX1", "CSTB"),
           n_cis_total, n_dir_match, n_supp_with_repro)])
 
 writeLines(capture.output(sessionInfo()),
-           "results/tables/chr21_lane_assignment_session_info.txt")
-stopifnot(file.exists("results/tables/chr21_lane_assignment_session_info.txt"))
+           run$table("chr21_lane_assignment_session_info.txt"))
+stopifnot(file.exists(run$table("chr21_lane_assignment_session_info.txt")))
 
 stopifnot(
-  file.exists("results/tables/chr21_lane_assignments.csv"),
-  file.exists("results/tables/chr21_lane_summary.csv"),
-  file.exists("results/tables/chr21_k_sensitivity.csv")
+  file.exists(run$table("chr21_lane_assignments.csv")),
+  file.exists(run$table("chr21_lane_summary.csv")),
+  file.exists(run$table("chr21_k_sensitivity.csv"))
 )
 
 cat("\n=== Lane assignment complete ===\n")
@@ -533,3 +477,41 @@ cat("\n=== Lane assignment complete ===\n")
 #             distinguished by the new `tier` column. passes_magnitude_filter
 #             therefore reflects the tier-2 threshold. Composition control and
 #             the cis-eQTL permutation run on both tiers.
+# 2026-09-04  WIDENED the chr21 target set to protein-coding, lncRNA and
+#             pseudogene biotypes (TARGET_BIOTYPES, scripts/lib/biotypes.R):
+#             GTEx whole blood tests all of them for cis-eQTLs, so restricting
+#             to protein-coding left a third of the eQTL-testable chr21 genes
+#             out of the question.
+#             REPLACED the q20 baseMean low-expression cutoff with Hunter et
+#             al.'s absolute minimum (LOW_EXPR_BASEMEAN = 30), because a
+#             quantile of the target set moves when the set changes (25.1 ->
+#             4.1 with lncRNA in it). The verification block now prints the
+#             sig_lane x biotype table; the lane table already carries
+#             Gene_type, so no output schema changed.
+# 2026-09-04  RENAMED the composition control to the co-expression
+#             neighborhood check (scripts/lib/neighborhood.R) and its labels
+#             to the descriptive SHARED / PARTLY-SHARED / NOT-SHARED (were
+#             PROGRAM / MIXED / GENE-SPECIFIC). The test is unchanged; the
+#             old names claimed a cause (composition, a program) the test
+#             does not observe. ADDED partner_z and partner_pctl (the
+#             neighborhood shift in SDs and percentile of the matched null)
+#             and carried partner_lfc into the lane table. Columns renamed:
+#             verdict -> neighborhood, residual_lfc -> gene_minus_partner_lfc,
+#             program_share -> share_ratio; output file
+#             chr21_composition_control.csv -> chr21_neighborhood_shift.csv.
+# 2026-09-10  RENAMED the neighborhood labels SHARED / PARTLY-SHARED /
+#             NOT-SHARED to neighbors_shift / neighbors_shift_less /
+#             neighbors_no_shift (scripts/lib/neighborhood.R). The rule is
+#             unchanged; the new names state the observation (did the
+#             partners shift, and by how much relative to the gene) instead
+#             of an adjective that needed the legend to decode.
+# 2026-09-10  RETIRED the co-expression neighborhood check (Step 3b,
+#             scripts/lib/neighborhood.R, chr21_neighborhood_shift.csv, and
+#             the lane-table columns neighborhood / partner_lfc / partner_z /
+#             gene_minus_partner_lfc), together with scripts 08 and 09.
+#             Reason: in whole blood a gene's co-expression partners are
+#             largely a cell-type signature, so the check was a proxy for
+#             composition; the adjusted run now uses measured CyTOF cell
+#             fractions directly, and the neighborhood label had no reading
+#             that the cell fractions do not give more plainly. Lane
+#             classification and eqtl_lane are unchanged.
