@@ -10,7 +10,6 @@ output:
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 suppressPackageStartupMessages({
   library(dplyr)
-  library(tidyr)
   library(knitr)
   library(here)
 })
@@ -51,18 +50,14 @@ themselves are not versioned). This document reads:
 
 - `results/runs/baseline/tables/`: `chr21_lane_assignments.csv` (script
   04) - every number and gene list in the baseline sections;
-  `eqtl_controls_summary.csv`, `eqtl_control_positive.csv` and
-  `eqtl_control_negative.csv` (script 03); `positive_control_matching.csv`
+  `eqtl_controls_summary.csv` (script 03); `positive_control_matching.csv`
   (script 02); `eqtl_best_variant_effects.csv` (script 11).
 - `config/runs/baseline.R` - the control thresholds quoted in the text.
 - `results/runs/adjusted/`: `processed/cohort_roster.csv` (script 01);
-  `tables/chr21_lane_assignments.csv` and `chr21_lane_summary.csv` (script
-  04); `tables/eqtl_controls_summary.csv` (script 03);
-  `tables/lane_transitions_adjusted_vs_baseline.csv` and
-  `run_comparison_adjusted_vs_baseline.csv` (script 10);
-  `tables/S1_attribution.csv` and `S1_covariates_vs_karyotype.csv` (S1).
+  `tables/chr21_lane_assignments.csv` (script 04);
+  `tables/run_comparison_adjusted_vs_baseline.csv` (script 10).
 - `docs/figures/` - the PNGs embedded under Figures and in the adjusted-run
-  section (copies of the outputs of scripts 06, 07, 10, 11 and S1), and
+  section (copies of the outputs of scripts 06, 07, 10, 11, 14 and S1), and
   `Sankey.png`, the SankeyMATIC render of
   `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt` (script 05).
 
@@ -85,37 +80,10 @@ near-threshold (padj < 0.01 and log2(4/3) <= |corrected log2FC| <
 log2(1.5))). Of the deviating genes,
 **`r n_cis`** have a detectable GTEx whole-blood cis-eQTL, **`r n_nocis`**
 were tested and have none, and **`r n_nogtex`** have no GTEx cis coverage.
-
-```{r lane-table}
-lanes %>%
-  count(sig_lane, eqtl_lane) %>%
-  pivot_wider(names_from = eqtl_lane, values_from = n, values_fill = 0) %>%
-  mutate(Total = rowSums(across(where(is.numeric)))) %>%
-  arrange(desc(Total)) %>%
-  kable(caption = "Lane counts by eQTL terminal. cis_eqtl is a detection result (q_gene_bh < 0.05), not an 'explained by eQTL' claim.")
-```
-
-
+A cis-eQTL call is a detection result (q_gene_bh < 0.05), not an
+"explained by eQTL" claim.
 
 ## Deviating genes
-
-```{r dev-table}
-dev %>%
-  transmute(
-    Gene = Gene_name,
-    lane = sig_lane,
-    tier,
-    log2FC = round(norm_log2FC, 2),
-    padj = formatC(norm_padj, format = "e", digits = 1),
-    eqtl = eqtl_lane,
-    q_perm = signif(q_gene_bh, 2)
-  ) %>%
-  arrange(lane, desc(abs(log2FC))) %>%
-  kable(caption = "Ploidy-corrected stats and the gene-level permutation q.
-  eqtl is a detection result; it does not identify what produces the deviation.")
-```
-
-
 
 Deviating genes that carry no detected cis-eQTL. These deviations are not
 accompanied by detectable cis-regulatory variation; the pipeline does not
@@ -131,13 +99,8 @@ attribute them to a mechanism:
 ```{r controls-setup, include=FALSE}
 th     <- source(here("config/runs/baseline.R"))$value$thresholds
 ctrl_b <- read.csv(here("results/runs/baseline/tables/eqtl_controls_summary.csv"))
-ctrl_a <- read.csv(here("results/runs/adjusted/tables/eqtl_controls_summary.csv"))
-ctrl_b$run <- "baseline"; ctrl_a$run <- "adjusted"
-ctrl <- rbind(ctrl_b, ctrl_a)[, c("run", "set", "n_tested", "n_detected", "pct_detected",
-                                  "n_nominal_p05", "expectation")]
-pos_b   <- read.csv(here("results/runs/baseline/tables/eqtl_control_positive.csv"))
 match_b <- read.csv(here("results/runs/baseline/tables/positive_control_matching.csv"))
-neg_b   <- read.csv(here("results/runs/baseline/tables/eqtl_control_negative.csv"))
+cs <- function(set, col) ctrl_b[[col]][ctrl_b$set == set]
 ```
 
 Two standalone gene sets go through the identical gene-level permutation
@@ -170,37 +133,20 @@ deviating gene), never a gene in a GRCh38 false duplication. Each is tested
 on its own cis variants. Most should be detected; if not, the test lacks
 power for effects of the size it is asked to find.
 
-```{r controls-table}
-kable(ctrl, row.names = FALSE, caption = "eQTL test: observed set and the two standalone controls, both runs.")
-```
-
-```{r controls-positive}
-pos_show <- match_b[, c("Gene_name", "target_gene", "abs_afc", "target_abs_afc")] %>%
-  inner_join(pos_b[, c("Gene_name", "gtex_min_p", "n_variants", "p_gene_perm", "q_gene_bh", "detected")],
-             by = "Gene_name") %>%
-  arrange(desc(target_abs_afc)) %>%
-  transmute(Control = Gene_name, `Matched to` = target_gene,
-            `GTEx abs aFC` = round(abs_afc, 2), `matched gene abs aFC` = round(target_abs_afc, 2),
-            `GTEx min p` = formatC(gtex_min_p, format = "e", digits = 1),
-            `n variants` = n_variants, q = signif(q_gene_bh, 2), detected)
-kable(pos_show, row.names = FALSE, caption = "Baseline positive control: one matched GTEx whole-blood eGene per tested deviating gene, tested within T21 on its own cis variants. aFC = GTEx allelic fold change (absolute log2).")
-```
-
-```{r controls-negative}
-neg_show <- neg_b %>%
-  group_by(Gene = Gene_name) %>%
-  summarise(`decoy sets` = n(),
-            `detected (q < 0.05)` = sum(detected %in% TRUE),
-            `nominal p < 0.05` = sum(p_gene_perm < 0.05, na.rm = TRUE),
-            `smallest q` = signif(suppressWarnings(min(q_gene_bh, na.rm = TRUE)), 2),
-            .groups = "drop")
-kable(neg_show, caption = "Baseline negative control, per deviating gene: its expression tested against each of its decoy variant sets. A gene with fewer sets had fewer donors far enough away.")
-```
+In the baseline run, `r cs("negative_unlinked_variants", "n_detected")` of
+`r cs("negative_unlinked_variants", "n_tested")` decoy tests are detected
+at q < `r th$fdr_gene` and `r cs("negative_unlinked_variants", "n_nominal_p05")`
+reach nominal p < 0.05; `r cs("positive_gtex_egenes", "n_detected")` of
+`r cs("positive_gtex_egenes", "n_tested")` matched positive controls are
+detected, beside `r cs("observed_deviating", "n_detected")` of
+`r cs("observed_deviating", "n_tested")` tested deviating genes. Both
+control sets are drawn in the effect-size figure, and the detection rates
+in panel D of the T21-versus-GTEx figure.
 
 ## Figures
 
 Copies of the pipeline figures, tracked under `docs/figures/`. To refresh
-them, re-run scripts 06, 07, 11 and S1 for each run (and re-export the lane flow from
+them, re-run scripts 06, 07, 11, 15, 16, 14 and S1 for each run (and re-export the lane flow from
 SankeyMATIC using `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt`), copy
 the PNGs into `docs/figures/`, and re-render this document.
 
@@ -254,6 +200,20 @@ with no cis link.
 include_graphics("./figures/baseline_eqtl_dosage_panels.png")
 ```
 
+### Allelic effect in T21 versus GTEx, with the test's power and base rate (scripts 14, 15, 16):
+
+Panels A and B ask whether each panel's allele has the same per-copy effect
+in T21, fitted at ploidy 3, as in euploid GTEx whole blood, the assumption
+behind reading a GTEx eQTL into the trisomic cohort. Panel C is the power of
+the gene-level test at each tested deviating gene's own GTEx effect size, by
+spike-in. Panel D is how often the same test detects a cis-eQTL among the
+deviating genes, the matched positive controls and the Expected-dosage
+genes.
+
+```{r fig-t21-vs-gtex, out.width="100%", fig.alt="Four-panel figure. A: scatter of T21 log2 allelic fold change against GTEx whole-blood log2 allelic fold change, per copy of each dosage panel's allele, with 95 percent intervals, for DE high genes (red), DE low genes (blue), positive controls (green triangles) and negative-control decoys (grey diamonds, at GTEx zero); points lie along the dashed identity line. B: the T21-minus-GTEx difference with 95 percent intervals, one row per gene in four groups (DE high, DE low, positive control, negative control), with asterisks where the difference is significant at FDR 0.05. C: spike-in power curves of the gene-level test against the spiked log2 allelic fold change, one curve per tested deviating gene, with a point at the gene's GTEx effect size, filled if detected in T21 and open if not, and a dashed line at 80 percent power. D: fraction of genes with a detected cis-eQTL, with Wilson 95 percent intervals, for deviating genes, matched positive controls, Expected-dosage genes, and Expected-dosage genes in the deviating genes' expression range, with a dashed line at the deviating-gene rate."}
+include_graphics("./figures/baseline_t21_vs_gtex_allelic_effect.png")
+```
+
 ### Deviating genes along chr21 (script 11):
 
 ```{r fig-chr21-map, out.width="100%", fig.alt="Schematic of chromosome 21 as a horizontal bar with the centromere in dark grey. A coloured band marks the transcription start site of each deviating gene: green for cis-eQTL detected, orange for tested without detection, grey for no GTEx coverage. Gene names sit above the bar in red for genes higher than expected and below the bar in blue for genes lower than expected."}
@@ -273,23 +233,13 @@ adj_dir   <- here("results/runs/adjusted")
 roster_a  <- read.csv(file.path(adj_dir, "processed/cohort_roster.csv"))
 roster_a$excluded_reason[roster_a$excluded_reason == ""] <- NA
 cohort_a  <- roster_a[is.na(roster_a$excluded_reason), ]
-excl_a    <- as.data.frame(table(roster_a$excluded_reason))
-names(excl_a) <- c("reason", "n")
 lanes_a   <- read.csv(file.path(adj_dir, "tables/chr21_lane_assignments.csv"))
-summ_a    <- read.csv(file.path(adj_dir, "tables/chr21_lane_summary.csv"))
-summ_a    <- summ_a[summ_a$scope == "all_chr21", ]
-trans     <- read.csv(file.path(adj_dir, "tables/lane_transitions_adjusted_vs_baseline.csv"))
 cmp       <- read.csv(file.path(adj_dir, "tables/run_comparison_adjusted_vs_baseline.csv"))
-attrib    <- read.csv(file.path(adj_dir, "tables/S1_attribution.csv"))
-covA      <- read.csv(file.path(adj_dir, "tables/S1_covariates_vs_karyotype.csv"))
-n_dev_a   <- sum(lanes_a$sig_lane %in% c("DE_high", "DE_low"))
 n_dev_b   <- sum(lanes$sig_lane %in% c("DE_high", "DE_low"))
 kept_both <- cmp$Gene_name[cmp$sig_lane_baseline %in% c("DE_high", "DE_low") & cmp$sig_lane_adjusted %in% c("DE_high", "DE_low")]
 lost      <- cmp$Gene_name[cmp$sig_lane_baseline %in% c("DE_high", "DE_low") & !(cmp$sig_lane_adjusted %in% c("DE_high", "DE_low"))]
 gained    <- cmp$Gene_name[!(cmp$sig_lane_baseline %in% c("DE_high", "DE_low")) & cmp$sig_lane_adjusted %in% c("DE_high", "DE_low")]
 n_outside <- sum(lanes_a$sig_lane == "Not_DE_outside_noise")
-top_attr  <- do.call(rbind, lapply(split(attrib, attrib$Gene_name), function(d) d[which.max(abs(d$contribution)), c("Gene_name", "term", "contribution", "lfc_baseline", "lfc_adjusted")]))
-top_attr  <- top_attr[order(-abs(top_attr$contribution)), ]
 ```
 
 The baseline result above follows Hunter et al.: no covariates. Age, BMI,
@@ -306,15 +256,6 @@ reads the covariate-adjusted expression artifact. It is reported beside the base
 composition are plausibly downstream of trisomy, so this run estimates the
 deviation net of those pathways.
 
-```{r adjusted-excluded}
-kable(excl_a, caption = "Samples excluded from the adjusted run, by reason.")
-```
-
-```{r adjusted-lanes}
-kable(summ_a[, c("sig_lane", "eqtl_lane", "n_genes")],
-      caption = "Adjusted run: chr21 genes by classification lane and eQTL terminal. Not_DE_outside_noise = clears the magnitude cut but not padj < 0.01 in the adjusted model.")
-```
-
 Of the `r n_dev_b` genes deviating in the baseline, `r length(kept_both)`
 still deviate after adjustment (`r paste(kept_both, collapse = ", ")`),
 `r length(lost)` do not (`r paste(lost, collapse = ", ")`), and
@@ -324,32 +265,8 @@ magnitude cut in the adjusted model without reaching padj < 0.01; the
 adjusted model has 24 more parameters and `r 397 - nrow(cohort_a)` fewer
 samples, so its adjusted p-values are less powerful as well as adjusted.
 
-```{r adjusted-transitions}
-kable(trans, caption = "Lane transitions, baseline to adjusted, all chr21 genes.")
-```
-
-```{r adjusted-compare}
-cmp_show <- cmp[, c("Gene_name", "sig_lane_baseline", "sig_lane_adjusted",
-                    "norm_log2FC_baseline", "norm_log2FC_adjusted",
-                    "eqtl_lane_baseline", "eqtl_lane_adjusted")]
-cmp_show$norm_log2FC_baseline <- round(cmp_show$norm_log2FC_baseline, 2)
-cmp_show$norm_log2FC_adjusted <- round(cmp_show$norm_log2FC_adjusted, 2)
-names(cmp_show) <- c("Gene", "lane (baseline)", "lane (adjusted)", "log2FC (baseline)", "log2FC (adjusted)",
-                     "eQTL (baseline)", "eQTL (adjusted)")
-kable(cmp_show, caption = "Genes deviating in either run. Ploidy-corrected DESeq2 log2FC; eQTL columns are empty where a gene was not deviating in that run.")
-```
-
 ```{r fig-run-comparison, out.width="100%", fig.alt="One row per gene deviating in either run: ploidy-corrected log2 fold change under the baseline (orange) and adjusted (purple) runs, joined by a line, with a dotted line at zero."}
 knitr::include_graphics("figures/adjusted_run_comparison_adjusted_vs_baseline.png")
-```
-
-```{r adjusted-attribution}
-top_show <- head(top_attr, 15)
-top_show$contribution <- round(top_show$contribution, 3)
-top_show$lfc_baseline <- round(top_show$lfc_baseline, 2); top_show$lfc_adjusted <- round(top_show$lfc_adjusted, 2)
-names(top_show) <- c("Gene", "largest term", "log2 contribution", "log2FC (baseline)", "log2FC (adjusted)")
-kable(top_show, row.names = FALSE,
-      caption = "Per-covariate attribution of the fold-change shift (S1 panel D, artifact scale): for each deviating gene, the covariate whose product of (coefficient) x (T21 minus control mean) is largest. Descriptive; correlated fractions make single terms less stable than the total.")
 ```
 
 ```{r fig-s1, out.width="100%", fig.alt="Four-panel supplement. A: bar chart of minus log10 p for each candidate covariate against karyotype, coloured by whether it is in the adjusted model. B: number of genes associated with each CyTOF cell fraction within T21 at 5 percent FDR. C: chr21 expression index by karyotype subtype with reference lines at 1 and 1.5; mosaic subjects sit near 1. D: per-covariate contributions to each deviating gene's fold-change shift."}
