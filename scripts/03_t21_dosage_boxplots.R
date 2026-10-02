@@ -344,7 +344,10 @@ ctrl_summary <- data.table(
   n_tested    = c(sum(!is.na(perm_res$p_gene_perm)), sum(!is.na(neg_res$p_gene_perm)),
                   sum(!is.na(pos_res$p_gene_perm))),
   n_detected  = c(sum(perm_res$cis_eqtl_detected), sum(neg_res$detected), sum(pos_res$detected)),
-  expectation = c("the result", sprintf("about %.0f%% (the FDR level)", 100 * FDR_GENE),
+  # Every decoy test is null, so BH should detect none (under a complete null
+  # it holds the chance of any detection to FDR_GENE); only the nominal
+  # p < 0.05 count should run near 5%.
+  expectation = c("the result", "about 0 at q; about 5% at nominal p < 0.05",
                   "most detected"))
 ctrl_summary[, n_nominal_p05 := c(sum(perm_res$p_gene_perm < 0.05, na.rm = TRUE),
                                   sum(neg_res$p_gene_perm < 0.05, na.rm = TRUE),
@@ -472,3 +475,7 @@ cat("\n=== Script 03 complete ===\n")
 #             n_decoy_sets sets (assign_decoy_sets), common decoy variants only
 #             (decoy_min_maf), one row per (gene, set) with decoy_rank; the
 #             positive controls are now script 02's matched eGenes (controls v2).
+# 2026-10-02  CORRECTED the negative control's expectation in
+#             eqtl_controls_summary.csv: about 0 detections at q (BH over an
+#             all-null family), about 5% at nominal p < 0.05; it said "about 5%
+#             (the FDR level)" for the detections (CodeRabbit review, PR #5).

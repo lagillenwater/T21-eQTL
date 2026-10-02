@@ -150,8 +150,9 @@ genes (deviating genes and positive controls) whose TSS is at least
 `r th$decoy_min_distance / 1e6` Mb away, so no decoy set can be in LD with
 the gene's own locus. Sets with the closest variant count are taken first,
 and decoy variants below GTEx MAF `r th$decoy_min_maf` are dropped. Same
-genotypes, same subjects. Detections should sit near the FDR level, and
-about 5% of tests should reach nominal permutation p < 0.05.
+genotypes, same subjects. Every decoy test is null, so BH should detect
+none (with no true effects it holds the chance of any detection to the FDR
+level), and about 5% of tests should reach nominal permutation p < 0.05.
 
 **Positive control, matched GTEx eGenes.** Up to one control per tested
 deviating gene, matched in order of decreasing GTEx effect size until the
