@@ -27,7 +27,10 @@ and retiring the filter removed that mismatch. `DEVIATION_LFC_T2` (with
 The chr21 target set is protein-coding, lncRNA and pseudogene genes
 (`TARGET_BIOTYPES` in `scripts/lib/biotypes.R`, sourced by scripts 02, 04,
 06, 07), because GTEx whole blood tests all three for cis-eQTLs: of the 223
-chr21 genes in the GTEx v10 allpairs file, 137 are protein-coding, 61 lncRNA
+chr21 genes in the GTEx v10 allpairs file (the "allpairs extract": GTEx's
+whole-blood all-associations table for chr21, every variant in each gene's
+1 Mb cis window with its nominal p and slope, significant or not; README,
+"Input data", section 5), 137 are protein-coding, 61 lncRNA
 and 13 pseudogenes in the HTP annotation. An earlier run
 restricted to protein-coding (`RESTRICT_TO_PROTEIN_CODING`, now removed),
 which left the eQTL-testable lncRNAs and pseudogenes out of the question. Widening the set
