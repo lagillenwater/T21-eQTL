@@ -468,8 +468,9 @@ cat("\n=== Script 03 complete ===\n")
 #             from the best variant of the permutation test, with the control
 #             sets alongside. Tables are unchanged.
 # 2026-09-30  ADDED per-minor-allele slopes beside the ALT-coded ones
-#             (gtex_slope_minor, t21_slope_minor, dir_match_minor) and
-#             eqtl_allele_alignment.csv (scripts/lib/alleles.R). Fits, p values
+#             (gtex_slope_minor, t21_slope_minor; script 04 derives
+#             dir_match_minor from them) and eqtl_allele_alignment.csv
+#             (scripts/lib/alleles.R). Fits, p values
 #             and calls are unchanged: re-referencing only flips a slope's sign.
 # 2026-09-30  REPLACED the negative control's single decoy set per gene with
 #             n_decoy_sets sets (assign_decoy_sets), common decoy variants only
