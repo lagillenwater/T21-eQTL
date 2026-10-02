@@ -500,6 +500,51 @@ Genotype PCs are the direct control and are moved to the journal version
 meantime the within-T21 fits adjust the genotype side for the same
 covariates as expression (next entry).
 
+### Covariates on the genotype side of the within-T21 fits (2026-10-02)
+
+Until now the run's covariates were removed from expression only (script
+01's artifact) and genotype dosage entered the within-T21 fits as is
+(Milton, manuscript #31: tensorQTL regresses covariates out of both).
+Every within-T21 fit now projects the run's covariates
+(`run_covariate_matrix`, the same 24 columns script 01 removes) out of
+genotype and expression alike (Frisch-Waugh-Lovell), so each fit is
+expression ~ dosage + covariates on n - 2 - k df (k = 24, df = 248 for
+274 subjects); the permutation null permutes residualised expression and
+refits the same way. Scripts 03 (test and both controls), 11, 13 (partial
+R-squared), 14 (fitted jointly with the aFC curve), 15, 16 and 17.
+Baseline has no covariates and its regenerated tables are identical to
+the previous ones (checked table by table; only the new `t21_df` column
+differs). Adjusted run, before (expression side only, archived in
+`results/archive/2026-10-02_adjusted_expression_side/`) and after:
+
+| | before | after |
+|---|---|---|
+| deviating genes detected | 7 of 10 | 8 of 10 |
+| ABCC13 | p 0.049, q 0.061 | p 0.027, q 0.034, detected |
+| BACE2, OLIG2 | q 0.30, 0.38 | q 0.33, 0.40 |
+| negatives at FDR 0.05 / nominal p < 0.05 | 0 / 6 of 50 | 0 / 7 of 50 |
+| matched positives detected | 8 of 10 | 8 of 10 |
+| base rate, Expected-dosage genes | 56 of 99 | 59 of 99 (Fisher vs deviating p 0.31) |
+| dosage panels reproducing GTEx direction | 20 of 20 | 19 of 20 (NRIP1, an undetected positive control) |
+| distal lambda, chr21 assessable / deviating / chr22 | 1.013 / 1.024 / 1.008 | 1.011 / 1.013 / 1.009 (all inside permutation range) |
+
+- **ABCC13 crosses q < 0.05, but its decoys move with it.** Three of its
+  five decoy sets reach permutation p 0.019-0.032 (were 0.035-0.043), and
+  its per-gene distal lambda is 1.11 (permutation p 0.045; COL6A2 1.15,
+  p 0.025; 2 of 13 deviating genes above their own range against a
+  calibrated median of 0, p 0.16). ABCC13 expression tracks chr21
+  genotype beyond its own locus, and adjusting genotype for the
+  covariates does not remove that, so the new call is not separable from
+  that structure. Reported as detected at the threshold with this
+  caveat; genotype PCs (journal version) are the direct test, and the
+  tensorQTL rerun (#31) removes the permutation resolution limit.
+- **Everything else stands.** The other nine calls are unchanged; aFC
+  agreement with GTEx is unchanged (deviating genes r 0.898, was 0.901;
+  all 10 same sign); the AF bound still has the observed T21-vs-reference
+  allele-frequency difference predicting under 9% of each deviation.
+  Spike-in power falls slightly with the 24 df spent (ABCC13 0.79 at its
+  GTEx aFC, was 0.81; aFC for 80% power up 0.01-0.04 per gene).
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
