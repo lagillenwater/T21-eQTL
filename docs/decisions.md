@@ -439,6 +439,67 @@ detectable cis-eQTL is the norm for an expressed chr21 gene in this
 cohort and does not distinguish the deviating genes. This is the control
 the manuscript's "7 of 10" needs beside it.
 
+### Genotype structure measured directly: distal-variant inflation (2026-10-02)
+
+Manuscript issue #32: the decoy control (50 tests on 10 genes' expression)
+cannot measure calibration, so the structure is measured directly
+(script 17, `scripts/lib/inflation.R`). Each run's T21 expression of every
+assessable chr21 gene (153: not repeat-flagged, not low expression) is
+regressed on every common chr21 variant (T21 MAF >= 0.05, call rate >=
+0.95; 111,101 variants) at least 5 Mb from the gene's TSS, one OLS fit per
+pair (13.1 million), no permutation in the test. Two references read
+lambda:
+
+- **HSA22 genes** (400, target biotypes, baseMean >= 30) on the same
+  variants: ancestry or recruitment inflates them as much as chr21 genes;
+  a chr21-only excess would point at chr21 copy number.
+- **200 joint subject permutations**, which keep co-expression and LD, so
+  their spread is the sampling spread of lambda under these correlated
+  tests: about +/- 0.03 for a gene set, 0.88 to 1.15 for one gene. "Near
+  1" means inside that range.
+
+Results (`tables/distal_inflation_summary.csv`, figure S3):
+
+| run | chr21 assessable | chr21 deviating | chr22 reference |
+|---|---|---|---|
+| baseline (302 T21) | 1.058 (perm 0.962-1.039, p 0.015) | 1.069 (23 genes, p 0.005) | 1.035 (p 0.035) |
+| adjusted (274 T21) | 1.013 (perm 0.971-1.030, p 0.24) | 1.024 (13 genes, p 0.09) | 1.008 (p 0.30) |
+
+- **Baseline is inflated, genome-wide.** chr22 genes as well as chr21
+  genes; dropping the 9 mosaic subjects leaves chr21 lambda at 1.053;
+  33 chr21 genes sit above their own permutation 95th percentile against
+  a permutation median of 6 (95th 20; p 0.015), among them baseline
+  deviating genes TSPEAR (1.48), YBEY, COL6A2 and PDE9A (1.18-1.20).
+- **The adjusted run is inside the permutation range.** The covariates do
+  it, not the subject set: baseline expression on the adjusted run's 274
+  subjects still gives 1.056 (one-off check, observed lambda only);
+  projecting out sample source alone gives 1.039, cell fractions alone
+  1.028, all 24 covariates 1.011. No deviating gene of the adjusted run is
+  outside its own range (ABCC13 1.09, perm p 0.09; COL6A2 1.15, perm p
+  0.03, 1 of 13). The 11 genes past the magnitude cut but not significant
+  give 1.07 (above every permutation), led by TSPEAR.
+- **The covariates carry the structure.** Regressing each adjusted-run
+  covariate on every common chr21 variant
+  (`tables/distal_inflation_covariates.csv`): 5 of 24 sit above their own
+  permutation 95th percentile against a permutation median of 1 (95th 4;
+  p 0.025): NDSC2019 recruitment (1.17), CD27+ B (1.21), CD4+ TCM (1.17),
+  CD27- B and ABC (1.14). No locus explains a cell fraction tracking
+  genotype across a whole chromosome; ancestry or recruitment does. The
+  adjustment removes the structure by proxy, not by design.
+- **The extreme tail is a mapping artifact.** 75 of the 209 pairs at
+  p < 1e-6 pair GATD3A, PWP2, SIK1 or ICOSLG with short-arm variants at
+  5.0-6.1 Mb, the GRCh38 false duplications of 21q22.3: their own cis
+  signal at a false coordinate. lambda is a median and does not move;
+  the q-arm-only rows of the summary give the same reading.
+- **Rank inverse-normal expression** changes nothing (adjusted 1.015), so
+  the inflation is not from outlying expression.
+
+Genotype PCs are the direct control and are moved to the journal version
+(design: Alpine, genome-wide genotypes from the CRAMs, chr21 excluded;
+`docs/superpowers/specs/2026-10-02-genotype-pcs-design.md`, local). In the
+meantime the within-T21 fits adjust the genotype side for the same
+covariates as expression (next entry).
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
