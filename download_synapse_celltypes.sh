@@ -21,8 +21,10 @@
 #                                  line (chmod 600 it), or
 #   ~/.synapseConfig               the Synapse client's own config file with an
 #                                  [authentication] section (read by the client
-#                                  itself; nothing is passed on the command line)
-# Checked in that order; the first one found is used.
+#                                  itself)
+# Checked in that order; the first one found is used. A token is handed to the
+# client in its own environment, never on the command line, where other users
+# of the machine could read it in the process list.
 #
 # Usage (from the repo root):
 #   printf '%s' '<token>' > ~/.synapse_token && chmod 600 ~/.synapse_token
@@ -40,9 +42,12 @@ token="${SYNAPSE_AUTH_TOKEN:-}"
 if [ -z "${token}" ] && [ -f "$HOME/.synapse_token" ]; then
   token="$(head -n 1 "$HOME/.synapse_token" | tr -d '[:space:]')"
 fi
-auth_args=()
+# The client reads ~/.synapseConfig before SYNAPSE_AUTH_TOKEN, so a selected
+# token runs the client with an empty config (-c /dev/null) to keep its
+# precedence over a config file.
+client_args=()
 if [ -n "${token}" ]; then
-  auth_args=(-p "${token}")
+  client_args=(-c /dev/null)
 elif [ -f "$HOME/.synapseConfig" ]; then
   echo "Using credentials from ~/.synapseConfig"
 else
@@ -67,10 +72,11 @@ echo "synapse client: $("${VENV}/bin/synapse" --version 2>/dev/null | head -n 1)
 # --- download ---------------------------------------------------------------
 mkdir -p "${DEST_DIR}"
 echo "Syncing ${SYN_ID} -> ${DEST_DIR}"
-# -r: recursive; --manifest: write the client's manifest beside the files;
-# a token, when given, is passed to the client only (never exported).
-"${VENV}/bin/synapse" "${auth_args[@]}" get -r "${SYN_ID}" \
-  --downloadLocation "${DEST_DIR}" --manifest all
+# -r: recursive; --manifest: write the client's manifest beside the files.
+# The token is set for the client process only (never exported), and
+# ${client_args[@]+...} keeps an empty array legal under set -u on bash 3.2.
+SYNAPSE_AUTH_TOKEN="${token}" "${VENV}/bin/synapse" ${client_args[@]+"${client_args[@]}"} \
+  get -r "${SYN_ID}" --downloadLocation "${DEST_DIR}" --manifest all
 
 # The client names its manifest SYNAPSE_METADATA_MANIFEST.tsv inside the
 # download location; keep a copy beside the folder under a stable name.
