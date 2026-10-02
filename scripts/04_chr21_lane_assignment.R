@@ -275,7 +275,11 @@ best_allele <- unique(per_var[, .(Gene_name, best_variant = variant_id,
                                   best_minor_concordant = minor_concordant,
                                   best_slope_minor_t21  = t21_slope_minor,
                                   best_slope_minor_gtex = gtex_slope_minor)])
+# One row per (gene, variant), or the merge would duplicate lane rows.
+stopifnot(!anyDuplicated(best_allele, by = c("Gene_name", "best_variant")))
+n_m <- nrow(m)
 m <- merge(m, best_allele, by = c("Gene_name", "best_variant"), all.x = TRUE)
+stopifnot(nrow(m) == n_m)
 
 # eQTL lane:
 #   - non-DE lanes: never eQTL-tested (lane = "not_evaluated")
