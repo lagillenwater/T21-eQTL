@@ -1,8 +1,8 @@
 T21-eQTL results summary
 ================
-2026-10-01
+2026-10-02
 
-Rendered at commit `36b3556` (the commit checked out when this document
+Rendered at commit `007f38d` (the commit checked out when this document
 was last knitted; `results/` is gitignored, so the outputs themselves
 are not versioned). This document reads:
 
@@ -103,9 +103,10 @@ expression is tested against 5 cis variant sets of other tested genes
 (deviating genes and positive controls) whose TSS is at least 5 Mb away,
 so no decoy set can be in LD with the gene’s own locus. Sets with the
 closest variant count are taken first, and decoy variants below GTEx MAF
-0.05 are dropped. Same genotypes, same subjects. Detections should sit
-near the FDR level, and about 5% of tests should reach nominal
-permutation p \< 0.05.
+0.05 are dropped. Same genotypes, same subjects. Every decoy test is
+null, so BH should detect none (with no true effects it holds the chance
+of any detection to the FDR level), and about 5% of tests should reach
+nominal permutation p \< 0.05.
 
 **Positive control, matched GTEx eGenes.** Up to one control per tested
 deviating gene, matched in order of decreasing GTEx effect size until
@@ -122,10 +123,10 @@ test lacks power for effects of the size it is asked to find.
 | run | set | n_tested | n_detected | pct_detected | n_nominal_p05 | expectation |
 |:---|:---|---:|---:|---:|---:|:---|
 | baseline | observed_deviating | 20 | 14 | 70.0 | 15 | the result |
-| baseline | negative_unlinked_variants | 100 | 0 | 0.0 | 10 | about 5% (the FDR level) |
+| baseline | negative_unlinked_variants | 100 | 0 | 0.0 | 10 | about 0 at q; about 5% at nominal p \< 0.05 |
 | baseline | positive_gtex_egenes | 13 | 11 | 84.6 | 11 | most detected |
 | adjusted | observed_deviating | 10 | 7 | 70.0 | 8 | the result |
-| adjusted | negative_unlinked_variants | 50 | 0 | 0.0 | 6 | about 5% (the FDR level) |
+| adjusted | negative_unlinked_variants | 50 | 0 | 0.0 | 6 | about 0 at q; about 5% at nominal p \< 0.05 |
 | adjusted | positive_gtex_egenes | 10 | 8 | 80.0 | 8 | most detected |
 
 eQTL test: observed set and the two standalone controls, both runs.
