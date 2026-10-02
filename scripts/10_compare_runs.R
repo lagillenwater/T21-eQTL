@@ -19,7 +19,10 @@ source("scripts/lib/run.R")
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
 this    <- run$name
-against <- if ("--against" %in% args) args[match("--against", args) + 1] else "baseline"
+j       <- match("--against", args)
+if (!is.na(j) && (j == length(args) || startsWith(args[j + 1], "--")))
+  stop("--against needs a run name, e.g. --against baseline", call. = FALSE)
+against <- if (is.na(j)) "baseline" else args[j + 1]
 base    <- load_run(c("--run", against))
 cat(sprintf("=== Run comparison: %s vs %s ===\n\n", this, against))
 
@@ -63,4 +66,8 @@ stem <- run$figure(sprintf("run_comparison_%s_vs_%s", this, against))
 ggsave(paste0(stem, ".pdf"), fig, width = 6, height = 7)
 ggsave(paste0(stem, ".png"), fig, width = 6, height = 7, dpi = 200)
 writeLines(capture.output(sessionInfo()), paste0(stem, "_session_info.txt"))
+outputs <- c(run$table(sprintf("run_comparison_%s_vs_%s.csv", this, against)),
+             run$table(sprintf("lane_transitions_%s_vs_%s.csv", this, against)),
+             paste0(stem, c(".pdf", ".png", "_session_info.txt")))
+if (!all(file.exists(outputs))) stop("failed to write: ", paste(outputs[!file.exists(outputs)], collapse = ", "))
 cat(sprintf("\n  Saved: %s.{pdf,png}\n=== Comparison complete ===\n", stem))
