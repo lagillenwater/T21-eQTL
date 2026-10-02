@@ -55,6 +55,7 @@ source("scripts/lib/eqtl_fit.R")      # expr_from_matrix
 source("scripts/lib/alleles.R")       # minor_dosage, align_slope_to_minor, T21_CHR21_PLOIDY
 source("scripts/lib/eqtl_figures.R")  # panel_variants, orient_panels, panel_dosage
 source("scripts/lib/allelic_fc.R")
+source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 
 EGENES  <- "data/Whole_Blood.v10.eGenes.txt.gz"
@@ -99,6 +100,12 @@ cohort   <- run$cohort()
 E        <- run$expression()
 meta_t21 <- cohort[Karyotype == "T21"]
 meta_t21[, subject_id := subject_id_from_labid(LabID)]
+# Every T21 fit includes the run's covariates on the genotype side as well
+# (projected out of the linear fit; fitted jointly with the aFC curve), as in
+# script 03.
+COV <- run_covariate_matrix(run, meta_t21)
+if (!is.null(COV)) rownames(COV) <- meta_t21$subject_id
+cov_rows <- function(subjects) if (is.null(COV)) NULL else COV[subjects, , drop = FALSE]
 # Joined by Ensembl id: GTEx gene symbols differ from the roster's for some
 # lncRNAs, and every roster gene carries its stable id.
 roster <- fread(run$processed("eqtl_supported_genes.csv"))[, .(Gene_name, ensembl_stable)]
@@ -128,8 +135,9 @@ fit_pairs <- function(pairs) {
   long <- merge(long, expr_tbl, by = c("Gene_name", "subject_id"))[!is.na(expr)]
   long[, dosage := fifelse(flip, T21_CHR21_PLOIDY - alt_dosage, alt_dosage)]
   long[, {
-    f <- fit_afc(dosage, expr, T21_CHR21_PLOIDY)
-    l <- fit_variants(matrix(dosage, ncol = 1), expr)
+    C <- cov_rows(subject_id)
+    f <- fit_afc(dosage, expr, T21_CHR21_PLOIDY, covariates = C)
+    l <- fit_variants(matrix(dosage, ncol = 1), expr, covariates = C)
     list(t21_n = f$n, t21_afc = f$afc, t21_afc_se = f$se, t21_at_bound = f$at_bound,
          t21_slope = l$slope[1], t21_slope_se = l$se[1], t21_p = l$p[1])
   }, by = .(key, Gene_name, variant_id)]

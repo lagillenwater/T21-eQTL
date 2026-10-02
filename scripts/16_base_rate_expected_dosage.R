@@ -31,6 +31,7 @@ suppressPackageStartupMessages({
 source("scripts/lib/cohort.R")
 source("scripts/lib/eqtl_fit.R")
 source("scripts/lib/eqtl_controls.R")
+source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 
 N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "1000"))
@@ -90,6 +91,9 @@ subj  <- gwide$subject_id
 G_all <- as.matrix(gwide[, -1])
 E     <- run$expression()
 expr_of <- function(g) expr_from_matrix(g, subj, E, t21)
+# Script 03's test: the run's covariates projected out of genotype and expression.
+COV <- run_covariate_matrix(run, t21)
+if (!is.null(COV)) { rownames(COV) <- t21$subject_id; COV <- COV[subj, , drop = FALSE] }
 variants_of <- split(tv$variant_id, tv$Gene_name)
 genes <- names(variants_of)
 genes <- genes[genes %in% rownames(E)]
@@ -101,7 +105,8 @@ chunks <- split(genes, ceiling(seq_along(genes) / CHUNK))
 t0 <- Sys.time()
 for (i in seq_along(chunks)) {
   res <- gene_level_tests(chunks[[i]], variants_of, G_all, expr_of,
-                          n_perm = N_PERM, seed_base = 5026L + (i - 1L) * CHUNK, fdr = th$fdr_gene)
+                          n_perm = N_PERM, seed_base = 5026L + (i - 1L) * CHUNK, fdr = th$fdr_gene,
+                          covariates = COV)
   res[, c("q_gene_bh", "detected") := NULL]
   fwrite(res, out_path, append = file.exists(out_path))
   cat(sprintf("  chunk %d/%d done (%d genes, %.1f min elapsed)\n", i, length(chunks),

@@ -84,7 +84,7 @@ cat(sprintf("  Tested deviating genes: %d\n", nrow(dev)))
 
 fits <- fread(run$table("t21_dosage_per_variant.csv"))
 fits <- fits[Gene_name %in% dev$Gene_name & !is.na(t21_slope),
-             .(Gene_name, variant_id, POS, REF, ALT, t21_n, t21_slope, t21_se, t21_t, t21_p,
+             .(Gene_name, variant_id, POS, REF, ALT, t21_n, t21_df, t21_slope, t21_se, t21_t, t21_p,
                gtex_af, gnomad_af, gnomad_af_nfe)]
 cat(sprintf("  (gene, variant) fits: %d over %d variants\n", nrow(fits), uniqueN(fits$variant_id)))
 
@@ -157,14 +157,15 @@ fwrite(background[, primary := reference == PRIMARY], run$table("af_reference_ba
 # STEP 6: Predicted shift, reachable bound and within-T21 R2 per (gene, variant)
 # =============================================================================
 
-vt <- merge(fits[, .(Gene_name, variant_id, t21_n, t21_slope, t21_se, t21_t, t21_p)],
+vt <- merge(fits[, .(Gene_name, variant_id, t21_n, t21_df, t21_slope, t21_se, t21_t, t21_p)],
             vars, by = "variant_id")
 vt <- merge(vt, dev[, .(Gene_name, deviation, best_variant)], by = "Gene_name")
 vt[, p_ref := get(PRIMARY)]
 vt <- vt[!is.na(p_ref)]
 vt[, `:=`(delta_af = t21_af - p_ref,
           r = allelic_r_from_slope(t21_slope, T21_CHR21_PLOIDY),
-          r2_within_t21 = r2_from_t(t21_t, t21_n))]
+          # partial R-squared of the variant given the run's covariates
+          r2_within_t21 = r2_from_t(t21_t, t21_df))]
 vt[, pred_shift := predicted_group_shift(r, t21_af, p_ref)]
 
 # Uncertainty of the predicted shift: slope drawn from its sampling

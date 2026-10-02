@@ -56,6 +56,7 @@ source("scripts/lib/cohort.R")        # subject_id_from_labid
 source("scripts/lib/eqtl_fit.R")      # expr_from_matrix
 source("scripts/lib/alleles.R")       # minor_dosage, T21_CHR21_PLOIDY
 source("scripts/lib/eqtl_figures.R")  # panel_variants, overview_rows, map_bands
+source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 
 FDR_GENE <- run$thresholds$fdr_gene
@@ -142,6 +143,10 @@ cohort   <- run$cohort()
 E        <- run$expression()
 meta_t21 <- cohort[Karyotype == "T21"]
 meta_t21[, subject_id := subject_id_from_labid(LabID)]
+# Script 03 fits expression ~ dosage + the run's covariates (projected out of
+# both sides); the slopes and trend lines here use the same fit.
+COV <- run_covariate_matrix(run, meta_t21)
+if (!is.null(COV)) rownames(COV) <- meta_t21$subject_id
 
 # ---- Which allele each panel is oriented to --------------------------------
 # A deviating gene's panel carries the DEVIATION-MATCHING allele: the allele
@@ -197,7 +202,7 @@ plot_df[, dosage_plot  := panel_dosage(alt_dosage, alt_is_minor, plot_minor, T21
 # ---- Does the within-T21 trend reproduce the canonical GTEx direction? -----
 # Compared on the minor allele, so the answer does not depend on which allele
 # the panel happens to be oriented to.
-effects <- best_variant_effects(plot_df, dosage_col = "dosage_minor")
+effects <- best_variant_effects(plot_df, dosage_col = "dosage_minor", covariates = COV)
 panels[, pg := as.character(panel_group)]
 panels <- merge(panels,
                 effects[, .(Gene_name, pg = panel_group, variant_id, t21_slope_minor = slope)],
@@ -240,6 +245,20 @@ plot_df[, facet := factor(facet, levels = panels$facet)]
 plot_df[, dosage := factor(dosage_plot, levels = 0:3)]
 plot_df[, agree_lab := factor(agree_lab, levels = LAB_AGREE)]
 
+# Trend of the within-T21 fit on the allele each panel shows: script 03's
+# slope (covariates projected out of both sides), drawn through the panel's
+# mean point over its observed dosage range. Without covariates this is the
+# OLS line of the plotted points. The factor x-axis puts dosage d at d + 1.
+trend <- best_variant_effects(plot_df, dosage_col = "dosage_plot", covariates = COV)[!is.na(slope)]
+trend <- merge(trend, plot_df[, .(lo = min(dosage_plot), hi = max(dosage_plot)),
+                              by = .(Gene_name, panel_group = as.character(panel_group), variant_id)],
+               by = c("Gene_name", "panel_group", "variant_id"))
+trend <- merge(trend, unique(plot_df[, .(Gene_name, panel_group = as.character(panel_group), variant_id,
+                                         facet, agree_lab)]),
+               by = c("Gene_name", "panel_group", "variant_id"))
+trend[, `:=`(x = lo + 1, xend = hi + 1,
+             y = mean_expr + slope * (lo - mean_dosage), yend = mean_expr + slope * (hi - mean_dosage))]
+
 # One row per category: a block's panels are laid out in a single row, so the
 # figure grows sideways with the block rather than wrapping. PANEL_W is the
 # width each panel needs for its four-line strip to render without clipping.
@@ -252,12 +271,10 @@ group_plot <- function(df, title, colour, xlab, show_legend) {
   ggplot(df, aes(x = dosage, y = expr)) +
     geom_boxplot(outlier.shape = NA, fill = "grey92", colour = "grey40", linewidth = 0.35) +
     geom_jitter(width = 0.18, size = 0.55, alpha = 0.45, colour = colour) +
-    # Trend of the within-T21 fit on the allele this panel shows. The factor
-    # x-axis is at positions 1..4 for dosage 0..3, a shift that leaves the
-    # line's slope and direction unchanged.
-    geom_smooth(aes(x = as.numeric(dosage), colour = agree_lab, group = 1),
-                method = "lm", formula = y ~ x, se = FALSE, linewidth = 0.55,
-                show.legend = show_legend) +
+    # Trend of the within-T21 fit on the allele this panel shows (`trend`).
+    geom_segment(data = trend[panel_group == df$panel_group[1]],
+                 aes(x = x, xend = xend, y = y, yend = yend, colour = agree_lab),
+                 inherit.aes = FALSE, linewidth = 0.55, show.legend = show_legend) +
     scale_x_discrete(drop = FALSE) +
     scale_colour_manual(values = COL_AGREE, drop = FALSE, name = NULL) +
     # override.aes so the two outcomes absent from a given figure still get a

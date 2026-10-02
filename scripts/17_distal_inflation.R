@@ -4,11 +4,13 @@
 #          relatedness, sequencing or sample batch) that would inflate the
 #          within-T21 eQTL tests? The decoy control of script 03 is too small
 #          to measure calibration (50 tests on 10 genes' expression), so this
-#          measures it directly: the run's covariate-adjusted T21 expression
-#          of every assessable chr21 gene (not repeat-flagged, not low
-#          expression) is regressed on every common chr21 variant at least
+#          measures it directly: the run's T21 expression of every
+#          assessable chr21 gene (not repeat-flagged, not low expression) is
+#          regressed on every common chr21 variant at least
 #          decoy_min_distance (5 Mb) from the gene's TSS, one ordinary
-#          regression per pair with no permutation, as in fit_variants(). At
+#          regression per pair with no permutation, with the run's
+#          covariates projected out of expression and genotype alike, as
+#          script 03's fit_variants() does. At
 #          that distance a variant cannot tag the gene's own cis locus, so
 #          the p-values should be uniform; the genomic inflation factor
 #          lambda and the QQ curve measure any departure.
@@ -63,6 +65,8 @@ suppressPackageStartupMessages({
 })
 source("scripts/lib/cohort.R")
 source("scripts/lib/biotypes.R")
+source("scripts/lib/eqtl_fit.R")      # project_out, covariate_rank
+source("scripts/lib/covariates.R")    # run_covariate_matrix
 source("scripts/lib/inflation.R")
 source("scripts/lib/run.R"); run <- load_run()
 
@@ -175,10 +179,17 @@ set_qq <- function(counts) QQ_GRID[, hist_qq(counts[, VBINS[[variant_set]], SETS
 
 Y  <- t(E[genes$Gene_name, t21$LabID, drop = FALSE])
 stopifnot(!anyNA(Y))
-n  <- nrow(Y); df <- n - 2L
-Ys <- standardise_cols(Y)
-Gs <- standardise_cols(G)
+# The run's covariates are projected out of expression and genotype alike,
+# as in script 03's eQTL fits, so the scan measures the test as it is run:
+# each pair is expression ~ dosage + covariates on n - 2 - k df.
+X  <- run_covariate_matrix(run, t21)
+K  <- if (is.null(X)) 0L else covariate_rank(X)
+n  <- nrow(Y); df <- n - 2L - K
+Yr <- if (is.null(X)) Y else project_out(Y, X)
+Ys <- standardise_cols(Yr)
+Gs <- standardise_cols(G, X)
 bins <- log10p_bins(df)
+cat(sprintf("  Covariates projected out of genotype and expression: %d\n", K))
 
 scan_args <- list(Gs = Gs, gene_tss = gene_tss, pos = pos, gene_group = genes$group,
                   variant_bin = variant_bin, min_dist = MIN_DIST, bins = bins,
@@ -189,7 +200,7 @@ t0 <- Sys.time()
 obs <- do.call(distal_scan, c(list(Ys = Ys, hit_x = HIT_X), scan_args))
 cat(sprintf("  Observed scan: %s distal tests (%.1f min)\n",
             format(sum(obs$counts), big.mark = ","), as.numeric(difftime(Sys.time(), t0, units = "mins"))))
-int <- do.call(distal_scan, c(list(Ys = standardise_cols(inverse_normal_cols(Y))), scan_args))
+int <- do.call(distal_scan, c(list(Ys = standardise_cols(inverse_normal_cols(Yr), X)), scan_args))
 
 # ---- Permutation reference ---------------------------------------------------
 cat(sprintf("  Permutation reference: %d subject permutations on %d workers ...\n", N_PERM, N_CORES))
@@ -197,7 +208,12 @@ t0 <- Sys.time()
 perm <- mclapply(seq_len(N_PERM), function(i) {
   setDTthreads(1L)
   set.seed(SEED + i)
-  s <- do.call(distal_scan, c(list(Ys = Ys[sample.int(n), , drop = FALSE]), scan_args))
+  # Residual expression permuted, then projected again: the permuted vector
+  # is no longer orthogonal to the covariates, and leaving that part in would
+  # bias the reference lambda low by about k / n.
+  Yp <- Yr[sample.int(n), , drop = FALSE]
+  s <- do.call(distal_scan, c(list(Ys = if (is.null(X)) standardise_cols(Yp) else standardise_cols(Yp, X)),
+                              scan_args))
   list(lambda = set_lambdas(s$counts)[, perm := i], qq = set_qq(s$counts)[, perm := i],
        gene_median_r = s$gene_median_r)
 }, mc.cores = N_CORES, mc.preschedule = FALSE)
@@ -268,21 +284,18 @@ fwrite(excess, run$table("distal_inflation_gene_excess.csv"))
 # rule), with the same subject-permutation reference. A covariate associated
 # with genotype across the whole chromosome shares the structure (ancestry,
 # recruitment) that would inflate the eQTL tests; adjusting for it removes that
-# structure by proxy. Runs without covariates skip this.
-X <- if (length(run$covariates)) {
-  model.matrix(~ ., t21[, run$covariates, with = FALSE])[, -1, drop = FALSE]
-} else NULL
-if (!is.null(run$composition)) {
-  comp <- fread(run$processed("composition_fractions.csv"))
-  X <- cbind(X, as.matrix(comp[match(t21$LabID, comp$LabID), !"LabID"]))
-}
+# structure by proxy. Genotype here is NOT adjusted for the covariates (each
+# covariate would be regressed on a genotype already cleared of it). Runs
+# without covariates skip this.
 cov_out <- NULL
 if (!is.null(X)) {
   stopifnot(nrow(X) == n, !anyNA(X))
   Xs <- standardise_cols(X)
+  Gs0 <- standardise_cols(G)
+  bins0 <- log10p_bins(n - 2L)
   cov_lambda <- function(M) lambda_from_abs_r(
-    distal_scan(M, Gs, rep(NA_real_, ncol(M)), pos, rep(1L, ncol(M)), variant_bin, 0, bins,
-                n_groups = 1L, n_maf = 2L * length(MAF_LAB))$gene_median_r, df)
+    distal_scan(M, Gs0, rep(NA_real_, ncol(M)), pos, rep(1L, ncol(M)), variant_bin, 0, bins0,
+                n_groups = 1L, n_maf = 2L * length(MAF_LAB))$gene_median_r, n - 2L)
   cov_obs  <- cov_lambda(Xs)
   cov_perm <- simplify2array(mclapply(seq_len(N_PERM), function(i) {
     set.seed(SEED + 10000L + i)

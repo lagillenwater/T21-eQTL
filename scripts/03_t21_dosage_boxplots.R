@@ -44,6 +44,7 @@ suppressPackageStartupMessages({
 source("scripts/lib/eqtl_fit.R")
 source("scripts/lib/eqtl_controls.R")
 source("scripts/lib/alleles.R")   # minor-allele referencing of slopes and dosage
+source("scripts/lib/covariates.R") # run_covariate_matrix: genotype-side adjustment
 source("scripts/lib/run.R"); run <- load_run()
 
 set.seed(42)
@@ -70,6 +71,17 @@ E       <- run$expression()
 geno_t21 <- geno[karyotype == "T21" & !is.na(alt_dosage)]
 meta_t21 <- meta[Karyotype == "T21"]
 meta_t21[, subject_id := sub("[A-Z][0-9]*$", "", LabID)]
+
+# The run's covariates (the same ones script 01 removed from expression),
+# one row per T21 subject. Every within-T21 fit below projects them out of
+# genotype as well as expression, so each fit is expression ~ dosage +
+# covariates on n - 2 - k residual df. NULL in a run without covariates.
+stopifnot(!anyDuplicated(meta_t21$subject_id))
+COV <- run_covariate_matrix(run, meta_t21)
+if (!is.null(COV)) rownames(COV) <- meta_t21$subject_id
+cov_rows <- function(subjects) if (is.null(COV)) NULL else COV[subjects, , drop = FALSE]
+K_COV <- if (is.null(COV)) 0L else covariate_rank(COV)
+cat(sprintf("  Covariates projected out of genotype and expression: %d\n", K_COV))
 
 # Subject -> LabID used in count matrix (T21 only)
 subj_to_labid <- setNames(meta_t21$LabID, meta_t21$subject_id)
@@ -151,11 +163,12 @@ fit_table <- geno_expr[, {
   y <- expr
   n <- .N
   if (n < 5 || var(x) == 0) {
-    .(t21_n = n, t21_slope = NA_real_, t21_se = NA_real_,
+    .(t21_n = n, t21_df = n - 2L - K_COV, t21_slope = NA_real_, t21_se = NA_real_,
       t21_t = NA_real_, t21_p = NA_real_)
   } else {
-    fit <- fit_variants(matrix(x, ncol = 1), y)
+    fit <- fit_variants(matrix(x, ncol = 1), y, covariates = cov_rows(subject_id))
     .(t21_n     = n,
+      t21_df    = n - 2L - K_COV,
       t21_slope = fit$slope[1],
       t21_se    = fit$se[1],
       t21_t     = fit$t[1],
@@ -259,7 +272,8 @@ variants_of <- split(fit_table$variant_id, fit_table$Gene_name)
 expr_of     <- function(g) expr_from_matrix(g, subj, E, meta_t21)
 
 perm_res <- gene_level_tests(de_genes, variants_of, G_all, expr_of,
-                             n_perm = N_PERM, seed_base = 2026L, fdr = FDR_GENE)
+                             n_perm = N_PERM, seed_base = 2026L, fdr = FDR_GENE,
+                             covariates = cov_rows(subj))
 setnames(perm_res, "detected", "cis_eqtl_detected")
 setorder(perm_res, p_gene_perm)
 print(as.data.frame(perm_res))
@@ -312,7 +326,8 @@ decoys[, key := paste(Gene_name, decoy_gene, sep = "|")]
 decoy_variants <- setNames(lapply(decoys$decoy_gene, function(d) donor_variants[[d]]), decoys$key)
 expr_of_key <- function(k) expr_of(sub("\\|.*$", "", k))
 neg_res <- gene_level_tests(decoys$key, decoy_variants, G_all, expr_of_key,
-                            n_perm = N_PERM, seed_base = 3026L, fdr = FDR_GENE)
+                            n_perm = N_PERM, seed_base = 3026L, fdr = FDR_GENE,
+                            covariates = cov_rows(subj))
 setnames(neg_res, "Gene_name", "key")
 neg_res <- merge(decoys[, .(key, Gene_name, decoy_gene, decoy_rank, distance)], neg_res, by = "key", all.x = TRUE)
 neg_res[is.na(detected), detected := FALSE]
@@ -328,7 +343,8 @@ print(as.data.frame(neg_res[, .(n_sets = .N, n_variants = paste(range(n_variants
                                 n_detected = sum(detected)), by = Gene_name]))
 
 pos_res <- gene_level_tests(pos_genes, pos_variants, G_all, expr_of,
-                            n_perm = N_PERM, seed_base = 4026L, fdr = FDR_GENE)
+                            n_perm = N_PERM, seed_base = 4026L, fdr = FDR_GENE,
+                            covariates = cov_rows(subj))
 pos_res <- merge(genes[gene_set == "positive_control",
                        .(Gene_name, gtex_min_p, norm_log2FC, norm_padj)],
                  pos_res, by = "Gene_name")

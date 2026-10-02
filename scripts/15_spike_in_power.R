@@ -36,6 +36,7 @@ source("scripts/lib/cohort.R")
 source("scripts/lib/eqtl_fit.R")
 source("scripts/lib/alleles.R")
 source("scripts/lib/allelic_fc.R")
+source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 
 N_PERM  <- as.integer(Sys.getenv("T21_N_PERM", "1000"))
@@ -45,22 +46,6 @@ ALPHA_GENE <- c(0.05, 0.01)
 COL_DIR <- c(up = "#B2182B", down = "#2166AC")
 
 cat(sprintf("=== T21-eQTL: spike-in power [run: %s] ===\n\n", run$name))
-
-#' Smallest p across the columns of G for every column of Y (subjects x sims):
-#' the vectorised fit of perm_min_p, applied to arbitrary expression columns.
-min_p_columns <- function(G, Y) {
-  n <- nrow(G)
-  Gc <- center_cols(G); Sgg <- colSums(Gc^2); keep <- Sgg > 0
-  Gc <- Gc[, keep, drop = FALSE]; Sgg <- Sgg[keep]
-  Yc <- sweep(Y, 2, colMeans(Y), "-")
-  Sge <- crossprod(Gc, Yc)
-  See <- matrix(colSums(Yc^2), nrow = nrow(Sge), ncol = ncol(Y), byrow = TRUE)
-  slope <- Sge / Sgg
-  se <- sqrt(((See - Sge^2 / Sgg) / (n - 2)) / Sgg)
-  P <- 2 * pt(-abs(slope / se), df = n - 2)
-  P[!is.finite(P)] <- NA_real_
-  apply(P, 2, function(x) if (all(is.na(x))) NA_real_ else min(x, na.rm = TRUE))
-}
 
 perm  <- fread(run$table("eqtl_gene_level_perm.csv"))[!is.na(p_gene_perm)]
 fits  <- fread(run$table("t21_dosage_per_variant.csv"))[Gene_name %in% perm$Gene_name]
@@ -77,19 +62,24 @@ geno <- geno[karyotype == "T21" & subject_id %in% t21$subject_id & !is.na(alt_do
 gwide <- dcast(geno, subject_id ~ variant_id, value.var = "alt_dosage")
 subj <- gwide$subject_id; G_all <- as.matrix(gwide[, -1])
 E <- run$expression()
+# The test scored here is script 03's: expression ~ dosage + the run's
+# covariates, projected out of both sides, in the observed fit and the null.
+COV <- run_covariate_matrix(run, t21)
+if (!is.null(COV)) rownames(COV) <- t21$subject_id
 
 power_rows <- rbindlist(lapply(perm$Gene_name, function(g) {
   vars <- intersect(fits[Gene_name == g, variant_id], colnames(G_all))
   G <- G_all[, vars, drop = FALSE]
   y <- expr_from_matrix(g, subj, E, t21)
   ok <- !is.na(y); G <- G[ok, , drop = FALSE]; y <- y[ok]; n <- length(y)
+  C <- if (is.null(COV)) NULL else COV[subj[ok], , drop = FALSE]
   lead <- eg[Gene_name == g, lead_variant]
   causal <- if (length(lead) && lead %in% vars) lead else fits[Gene_name == g][which.min(gtex_pval), variant_id]
   # Null: expression permuted (no association left), scored by the min-p null
   # of this gene's own variant set, as script 03 does.
   set.seed(7)
   y_null <- y[sample.int(n)]
-  null_min_p <- perm_min_p(G, y_null, n_perm = N_PERM, seed = 11)
+  null_min_p <- perm_min_p(G, y_null, n_perm = N_PERM, seed = 11, covariates = C)
   # Simulations: fresh permutation of expression per simulation, plus the
   # allelic effect at the causal variant at each aFC of the grid.
   set.seed(13)
@@ -97,7 +87,7 @@ power_rows <- rbindlist(lapply(perm$Gene_name, function(g) {
   g_causal <- G[, causal]
   rbindlist(lapply(AFC_GRID, function(a) {
     Y <- Y0 + afc_curve(g_causal, a, T21_CHR21_PLOIDY)
-    mp <- min_p_columns(G, Y)
+    mp <- min_p_columns(G, Y, covariates = C)
     pp <- vapply(mp, gene_level_p, numeric(1), min_p_perm = null_min_p)
     data.table(Gene_name = g, n_subjects = n, n_variants = length(vars), causal_variant = causal,
                causal_is_lead = identical(causal, lead), afc = a,
