@@ -113,3 +113,14 @@ run_covariate_matrix <- function(run, cohort) {
   if (!is.null(X) && anyNA(X)) stop("missing covariate values in the cohort", call. = FALSE)
   X
 }
+
+#' Display labels for run covariates (columns of run_covariate_matrix): plain
+#' names for the metadata dummies, and Greek letters spelled out, because the
+#' default pdf() device cannot draw them and cairo is not available on every
+#' machine here (scripts/07_three_panel_figure.R).
+display_covariate <- function(x) {
+  x <- sub("^Age_at_visit$", "Age", x)
+  x <- sub("^SexMale$", "Sex (male)", x)
+  x <- sub("^Sample_source", "Source: ", x)
+  gsub("\u03b3\u03b4", "gamma-delta", x)
+}

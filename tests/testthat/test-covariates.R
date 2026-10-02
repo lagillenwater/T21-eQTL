@@ -91,3 +91,9 @@ test_that("run_covariate_matrix builds dummies and fractions in cohort order, NU
   cohort$Age_at_visit[2] <- NA
   expect_error(run_covariate_matrix(run, cohort), "missing")
 })
+
+test_that("display_covariate names the dummies and spells out Greek letters", {
+  expect_equal(display_covariate(c("Age_at_visit", "SexMale", "Sample_sourceNDSC2019",
+                                   "CD8a+ γδ T", "CD27+ B")),
+               c("Age", "Sex (male)", "Source: NDSC2019", "CD8a+ gamma-delta T", "CD27+ B"))
+})

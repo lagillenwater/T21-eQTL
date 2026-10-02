@@ -24,6 +24,7 @@
 #          results/runs/<run>/tables/S3_distal_inflation_lambda.csv
 
 suppressPackageStartupMessages({ library(data.table); library(ggplot2); library(patchwork) })
+source("scripts/lib/covariates.R")    # display_covariate
 source("scripts/lib/run.R")
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
@@ -120,13 +121,7 @@ heights <- c(1.1, 0.6, 0.6)
 cov_path <- run$table("distal_inflation_covariates.csv")
 if (file.exists(cov_path)) {
   cv <- fread(cov_path)
-  pretty <- function(x) {
-    x <- sub("^Age_at_visit$", "Age", x)
-    x <- sub("^SexMale$", "Sex (male)", x)
-    x <- sub("^Sample_source", "Source: ", x)
-    x
-  }
-  cv[, cov_f := factor(pretty(covariate), levels = rev(pretty(covariate)))]
+  cv[, cov_f := factor(display_covariate(covariate), levels = rev(display_covariate(covariate)))]
   pD <- ggplot(cv, aes(lambda, cov_f)) +
     geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
@@ -142,7 +137,7 @@ if (file.exists(cov_path)) {
 
 fig <- panels + plot_layout(heights = heights, guides = "collect") & theme(legend.position = "bottom")
 stem <- run$figure("S3_distal_inflation")
-ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 13, device = cairo_pdf)   # cairo: Greek in cell-type names
+ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 13)
 ggsave(paste0(stem, ".png"), fig, width = 9, height = 13, dpi = 300)
 print(lam[, .(run_label, gene_set, n_genes, lambda, perm_lo, perm_hi, perm_p)])
 cat("\nDone.\n")

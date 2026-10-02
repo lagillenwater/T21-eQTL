@@ -409,7 +409,7 @@ pC <- ggplot(var_tbl, aes(var_f, lambda, colour = chromosome, group = chromosome
 fig <- pA + (pB / pC) + plot_layout(widths = c(1.1, 1))
 fig_h <- 7.5
 if (!is.null(cov_out)) {
-  cov_out[, covariate_f := factor(covariate, levels = rev(covariate))]
+  cov_out[, covariate_f := factor(display_covariate(covariate), levels = rev(display_covariate(covariate)))]
   pD <- ggplot(cov_out, aes(lambda, covariate_f)) +
     geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
@@ -422,7 +422,7 @@ if (!is.null(cov_out)) {
   fig_h <- 12
 }
 stem <- run$figure("distal_inflation")
-ggsave(paste0(stem, ".pdf"), fig, width = 11, height = fig_h, device = cairo_pdf)   # cairo: Greek in cell-type names
+ggsave(paste0(stem, ".pdf"), fig, width = 11, height = fig_h)
 ggsave(paste0(stem, ".png"), fig, width = 11, height = fig_h, dpi = 200)
 
 cat("\n"); print(summary_tbl[variant_set %in% c("all", "q-arm only"),
