@@ -59,7 +59,10 @@ read_both <- function(file) rbind(
 qq <- read_both("distal_inflation_qq.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 qq[, `:=`(set_f = factor(SET_LAB[gene_set], levels = SET_LAB),
           run_f = factor(run_label, levels = RUN_LAB))]
-cap <- ceiling(max(qq$expected, qq$perm_hi, qq$observed)) + 0.5
+# A and B share one x-axis, the full range of expected -log10 p, so the same
+# rank sits at the same horizontal position in both panels.
+X_MAX <- max(qq$expected) * 1.02
+Y_MAX <- max(qq$perm_hi, qq$observed) * 1.02
 pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
   geom_ribbon(aes(ymin = perm_lo, ymax = perm_hi, fill = run_f), colour = NA, alpha = 0.15) +
@@ -67,11 +70,11 @@ pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
   facet_wrap(~ set_f) +
   scale_colour_manual(values = COL_RUN, name = NULL) +
   scale_fill_manual(values = COL_RUN, guide = "none") +
-  coord_cartesian(xlim = c(0, cap), ylim = c(0, cap), expand = FALSE) +
+  coord_cartesian(xlim = c(0, X_MAX), ylim = c(0, Y_MAX), expand = FALSE) +
   labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
        title = "A  T21 expression against common HSA21 long-arm variants >= 5 Mb from each gene",
        subtitle = "One regression per gene-variant pair; shaded: 95% envelope over 200 subject permutations") +
-  th + theme(aspect.ratio = 1)
+  th + theme(panel.spacing.x = unit(1.2, "lines"))
 
 # ---- B: the same curves detrended --------------------------------------------
 # lambda is a median, so a 5% inflation is invisible on the QQ scale; observed
@@ -84,12 +87,13 @@ pB <- ggplot(qq, aes(expected, observed - expected, colour = run_f)) +
   facet_wrap(~ set_f) +
   scale_colour_manual(values = COL_RUN, name = NULL) +
   scale_fill_manual(values = COL_RUN, guide = "none") +
-  coord_cartesian(xlim = c(0, 5), ylim = c(-0.6, 1.2), expand = FALSE) +
+  coord_cartesian(xlim = c(0, X_MAX), ylim = range(c(qq$perm_lo, qq$perm_hi, qq$observed) - qq$expected) * 1.05,
+                  expand = FALSE) +
   labs(x = expression(Expected ~ -log[10] ~ italic(p)),
        y = "Observed - expected",
        title = "B  The same curves, observed minus expected",
-       subtitle = "-log10 p scale, expected up to 5 (the bulk of the tests); shaded: permutation 95% envelope") +
-  th
+       subtitle = "Same x-axis as A, y magnified; shaded: permutation 95% envelope") +
+  th + theme(panel.spacing.x = unit(1.2, "lines"))
 
 # ---- C: lambda per gene set --------------------------------------------------
 lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
