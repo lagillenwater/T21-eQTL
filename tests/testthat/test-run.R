@@ -80,7 +80,7 @@ test_that("run$expression reads the artifact as a genes x samples matrix", {
 test_that("genotype files default to the shared PASS files and a run may override one", {
   root <- make_root("g")
   run <- load_run(c("--run", "g"), root = root)
-  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS.csv"))
+  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS_merged.csv"))
   writeLines(sub("ploidy = 1.5,", 'ploidy = 1.5, genotypes = list(ctrl = "data/other_ctrl.csv"),', cfg_text("h"), fixed = TRUE),
              file.path(root, "config", "runs", "h.R"))
   run <- load_run(c("--run", "h"), root = root)

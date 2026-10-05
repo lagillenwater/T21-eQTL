@@ -36,7 +36,7 @@
 #   - data/Whole_Blood.v10.eGenes.txt.gz                  (positive-control pool)
 #   - data/grch38_false_duplication_genes_chr21.csv       (excluded from that pool)
 #   - the run's genotype PASS files (run$genotypes; defaults
-#     data/chr21_ds_PASS.csv and data/chr21_ctrl_PASS.csv)
+#     data/chr21_ds_PASS.csv and data/chr21_ctrl_PASS_merged.csv)
 #   - data/gnomad/ (gnomAD v4.1 chr21 AF cache, scripts/lib/gnomad.R; positions
 #     not yet cached are fetched by remote tabix and appended)
 #
@@ -358,9 +358,14 @@ cat("\nStep 4: Filtering genotype CSVs (stream via awk)...\n")
 
 geno_out <- run$processed("genotypes_filtered.csv")
 pos_sig  <- run$processed("genotype_target_positions.txt")
-# The cache key covers the target positions AND the cohort subjects, because
-# the stream also column-filters to the run cohort.
-cache_key <- c(as.character(target_pos), "--subjects--", sort(unique(meta$subject_id)))
+# The cache key covers the target positions, the cohort subjects (the stream
+# also column-filters to the run cohort) and the genotype files read, by path,
+# size and modification time, so a run pointed at another call set, or a
+# replaced file, is streamed again rather than served from the old extract.
+geno_files <- unlist(run$genotypes)
+cache_key <- c(as.character(target_pos), "--subjects--", sort(unique(meta$subject_id)),
+               "--files--", sprintf("%s %.0f %s", geno_files, file.size(geno_files),
+                                    format(file.mtime(geno_files), "%Y-%m-%d %H:%M:%S")))
 if (file.exists(geno_out) && file.exists(pos_sig) &&
     identical(readLines(pos_sig), cache_key)) {
   cat("  Genotype extract for these target positions already exists; skipping the stream.\n")

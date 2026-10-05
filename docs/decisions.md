@@ -596,6 +596,30 @@ The set-level lambdas are unchanged. The S3 figure now stacks the HSA21 and
 HSA22 QQ panels at full width, each run's envelope drawn as its two edges,
 with the detrended panel dropped.
 
+### Control genotypes: the merged per-sample call set (2026-10-05)
+
+Manuscript #13. Two chr21 call sets exist for the 14 genotyped controls,
+both from per-sample Octopus calls: the Octopus joint genotyping of the 14
+at their candidate sites (`data/chr21_ctrl_PASS.csv`, Marc's
+`csv/chr21_ctrl.csv`, 178,308 PASS records), which the pipeline had read,
+and the per-sample PASS calls merged with `bcftools merge`, absent calls
+set to reference (`data/chr21_ctrl_PASS_merged.csv`, Marc's
+`csv/chr21_ctrl_PASS.csv`, 189,474 records). The merged set is built the
+way the T21 set is, and its counts are the ones the Methods first gave
+(189,474 records; 142,792 with an SNV, 46,845 with an indel, as
+`verify_callset_counts.R` reproduces with htslib's variant typing). It is
+now the default (`RUN_GENOTYPES`, `scripts/lib/run.R`); runs may name
+other call sets with `genotypes = list(t21 =, ctrl =)`.
+
+Control genotypes enter one place: the HTP-controls reference column of
+the AF bound (script 13), never its primary reference. A full run with the
+merged set (2026-10-05) was identical to `adjusted` in every table but
+that column, which changed at 59 of 2,076 variants (correlation 0.9995;
+median |T21 - controls| 0.0388 to 0.0386); baseline's changed at 91 of
+2,995 rows. Script 02's genotype cache was keyed on positions and subjects
+only and served the old extract after the switch; its key now includes
+each genotype file's path, size and modification time.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing

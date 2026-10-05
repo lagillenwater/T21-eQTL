@@ -8,14 +8,17 @@
 # Shared, run-independent inputs (raw counts, metadata, GTEx, CyTOF,
 # karyotype subtype files) keep their data/ paths. The genotype PASS files
 # default to RUN_GENOTYPES; a run may point either at another call set with
-# an optional `genotypes = list(t21 =, ctrl =)` field (manuscript #13: the
-# merged per-sample control calls against the Octopus joint calls).
+# an optional `genotypes = list(t21 =, ctrl =)` field.
 #
 # The run name comes from `--run <name>` on the command line, then the
 # T21_RUN environment variable, then "baseline".
 
 RUN_COVARIATES <- c("Age_at_visit", "Sex", "BMI", "Sample_source")
-RUN_GENOTYPES  <- list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS.csv")
+# Both call sets are per-sample Octopus calls merged with bcftools merge
+# (missing calls set to reference). The control default is the merged set
+# (manuscript #13); data/chr21_ctrl_PASS.csv is the earlier Octopus joint
+# genotyping of the same 14 controls.
+RUN_GENOTYPES  <- list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS_merged.csv")
 RUN_THRESHOLDS <- c("alpha_de", "deviation_lfc", "deviation_lfc_t2",
                     "low_expr_basemean", "fdr_gene", "gtex_pval_keep",
                     "outlier_fdr", "alpha_repro",
