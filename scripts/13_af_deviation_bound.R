@@ -34,7 +34,7 @@
 #   - tables/deseq2_all_genes_ploidy_normalized.csv (lfcSE)
 #   - tables/t21_dosage_per_variant.csv (within-T21 fits, GTEx/gnomAD AF)
 #   - processed/genotypes_filtered.csv, processed/analysis_cohort.csv
-#   - data/chr21_ctrl_PASS.csv (the 14 genotyped HTP controls)
+#   - the run's control PASS file, run$genotypes$ctrl (the 14 genotyped HTP controls)
 # Outputs (per run):
 #   - tables/af_deviation_bound_variants.csv   every (gene, cis variant)
 #   - tables/af_deviation_bound_genes.csv      per gene: best variant + max over variants
@@ -114,9 +114,10 @@ t21_af <- data.table(variant_id = rownames(D),
 # STEP 4: The 14 genotyped HTP controls (small; a within-study check only)
 # =============================================================================
 
-ctrl_hdr  <- names(fread("data/chr21_ctrl_PASS.csv", nrows = 0))
+cat(sprintf("  Control genotypes: %s\n", run$genotypes$ctrl))
+ctrl_hdr  <- names(fread(run$genotypes$ctrl, nrows = 0))
 ctrl_ids  <- setdiff(ctrl_hdr, c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"))
-ctrl <- fread("data/chr21_ctrl_PASS.csv", select = c("POS", "REF", "ALT", ctrl_ids))
+ctrl <- fread(run$genotypes$ctrl, select = c("POS", "REF", "ALT", ctrl_ids))
 ctrl <- ctrl[POS %in% fits$POS]
 ctrl_gt <- as.matrix(ctrl[, ..ctrl_ids])
 ctrl_gt <- sub(":.*$", "", ctrl_gt)                              # GT field only

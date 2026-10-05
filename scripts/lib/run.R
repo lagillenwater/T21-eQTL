@@ -5,13 +5,17 @@
 # ploidy, classification thresholds). Every script loads it with
 #   source("scripts/lib/run.R"); run <- load_run()
 # and resolves its outputs under results/runs/<name>/{processed,tables,figures}.
-# Shared, run-independent inputs (raw counts, metadata, genotype PASS files,
-# GTEx, CyTOF, karyotype subtype files) keep their data/ paths.
+# Shared, run-independent inputs (raw counts, metadata, GTEx, CyTOF,
+# karyotype subtype files) keep their data/ paths. The genotype PASS files
+# default to RUN_GENOTYPES; a run may point either at another call set with
+# an optional `genotypes = list(t21 =, ctrl =)` field (manuscript #13: the
+# merged per-sample control calls against the Octopus joint calls).
 #
 # The run name comes from `--run <name>` on the command line, then the
 # T21_RUN environment variable, then "baseline".
 
 RUN_COVARIATES <- c("Age_at_visit", "Sex", "BMI", "Sample_source")
+RUN_GENOTYPES  <- list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS.csv")
 RUN_THRESHOLDS <- c("alpha_de", "deviation_lfc", "deviation_lfc_t2",
                     "low_expr_basemean", "fdr_gene", "gtex_pval_keep",
                     "outlier_fdr", "alpha_repro",
@@ -44,6 +48,14 @@ validate_run_config <- function(cfg) {
     if (is.null(cfg$thresholds[[t]])) stop_cfg("missing threshold %s", t)
   extra <- setdiff(names(cfg$thresholds), RUN_THRESHOLDS)
   if (length(extra)) stop_cfg("unknown threshold %s", extra[1])
+  if (!is.null(cfg$genotypes)) {
+    if (!is.list(cfg$genotypes)) stop_cfg("genotypes must be a list")
+    unknown <- setdiff(names(cfg$genotypes), names(RUN_GENOTYPES))
+    if (length(unknown)) stop_cfg("unknown genotype file %s", unknown[1])
+    for (k in names(cfg$genotypes))
+      if (!is.character(cfg$genotypes[[k]]) || length(cfg$genotypes[[k]]) != 1)
+        stop_cfg("genotype file %s must be one path", k)
+  }
   cfg
 }
 
@@ -84,6 +96,7 @@ load_run <- function(args = commandArgs(trailingOnly = TRUE), root = ".") {
   run <- cfg
   run$root      <- root
   run$dirs      <- dirs
+  run$genotypes <- utils::modifyList(RUN_GENOTYPES, if (is.null(cfg$genotypes)) list() else cfg$genotypes)
   run$processed <- function(file) file.path(dirs$processed, file)
   run$table     <- function(file) file.path(dirs$tables, file)
   run$figure    <- function(stem) file.path(dirs$figures, stem)

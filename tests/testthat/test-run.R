@@ -76,3 +76,17 @@ test_that("run$expression reads the artifact as a genes x samples matrix", {
   expect_equal(rownames(E), c("A", "B"))
   expect_equal(unname(E["B", "s2"]), 4)
 })
+
+test_that("genotype files default to the shared PASS files and a run may override one", {
+  root <- make_root("g")
+  run <- load_run(c("--run", "g"), root = root)
+  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS.csv"))
+  writeLines(sub("ploidy = 1.5,", 'ploidy = 1.5, genotypes = list(ctrl = "data/other_ctrl.csv"),', cfg_text("h"), fixed = TRUE),
+             file.path(root, "config", "runs", "h.R"))
+  run <- load_run(c("--run", "h"), root = root)
+  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/other_ctrl.csv"))
+  bad <- base_cfg(); bad$genotypes <- list(controls = "x.csv")
+  expect_error(validate_run_config(bad), "run config: unknown genotype file controls")
+  bad <- base_cfg(); bad$genotypes <- list(ctrl = c("a.csv", "b.csv"))
+  expect_error(validate_run_config(bad), "run config: genotype file ctrl must be one path")
+})

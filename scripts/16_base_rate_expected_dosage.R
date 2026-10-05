@@ -15,7 +15,7 @@
 # Inputs (per run):
 #   - tables/chr21_lane_assignments.csv, eqtl_gene_level_perm.csv
 #   - processed/analysis_cohort.csv, expression_adjusted.csv
-#   - data/GTEx allpairs chr21 parquet, data/chr21_ds_PASS.csv
+#   - data/GTEx allpairs chr21 parquet, the run's T21 PASS file (run$genotypes$t21)
 # Outputs (per run):
 #   - tables/base_rate_expected_dosage.csv        one row per tested gene
 #   - tables/base_rate_summary.csv                 rates: deviating vs expected dosage
@@ -68,8 +68,8 @@ if (file.exists(geno_out)) {
 } else {
   pos_tmp <- tempfile(fileext = ".txt"); writeLines(as.character(unique(tv$POS)), pos_tmp)
   awk_cmd <- sprintf(paste0("awk -F',' 'BEGIN{while((getline l < \"%s\")>0) p[l]=1} ",
-                            "NR==1 || ($2 in p)' %s"), pos_tmp, "data/chr21_ds_PASS.csv")
-  cat("  Streaming data/chr21_ds_PASS.csv ...\n")
+                            "NR==1 || ($2 in p)' %s"), pos_tmp, run$genotypes$t21)
+  cat(sprintf("  Streaming %s ...\n", run$genotypes$t21))
   dt <- fread(cmd = awk_cmd, sep = ",", header = TRUE, showProgress = FALSE)
   meta_cols <- c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")
   geno_cols <- setdiff(names(dt), meta_cols)

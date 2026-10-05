@@ -35,8 +35,8 @@
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
 #   - data/Whole_Blood.v10.eGenes.txt.gz                  (positive-control pool)
 #   - data/grch38_false_duplication_genes_chr21.csv       (excluded from that pool)
-#   - data/chr21_ds_PASS.csv
-#   - data/chr21_ctrl_PASS.csv
+#   - the run's genotype PASS files (run$genotypes; defaults
+#     data/chr21_ds_PASS.csv and data/chr21_ctrl_PASS.csv)
 #   - data/gnomad/ (gnomAD v4.1 chr21 AF cache, scripts/lib/gnomad.R; positions
 #     not yet cached are fetched by remote tabix and appended)
 #
@@ -416,9 +416,9 @@ read_filtered_genotypes <- function(geno_path, pos_file, deseq_subjects,
   long
 }
 
-ds_long   <- read_filtered_genotypes("data/chr21_ds_PASS.csv", pos_tmp,
+ds_long   <- read_filtered_genotypes(run$genotypes$t21, pos_tmp,
                                      deseq_subjects, subject_karyo, "T21")
-ctrl_long <- read_filtered_genotypes("data/chr21_ctrl_PASS.csv", pos_tmp,
+ctrl_long <- read_filtered_genotypes(run$genotypes$ctrl, pos_tmp,
                                      deseq_subjects, subject_karyo, "Control")
 
 geno_long <- rbindlist(list(ds_long, ctrl_long), use.names = TRUE)

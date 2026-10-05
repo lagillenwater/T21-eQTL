@@ -114,6 +114,10 @@ if ("--figure-only" %in% commandArgs(trailingOnly = TRUE)) {
 }
 
 # ---- Genotype cache (run-independent) ----------------------------------------
+# The cache is built from the default T21 PASS file; a run on another T21
+# call set would need its own cache, so refuse rather than reuse this one.
+if (!identical(run$genotypes$t21, RUN_GENOTYPES$t21))
+  stop("the dosage cache is built from ", RUN_GENOTYPES$t21, "; this run uses ", run$genotypes$t21)
 if (!file.exists(DOSAGE_CACHE)) {
   cat("  Streaming data/chr21_ds_PASS.csv to the dosage cache (~3 min) ...\n")
   part <- paste0(DOSAGE_CACHE, ".part")
