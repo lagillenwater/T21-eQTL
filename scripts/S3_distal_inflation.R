@@ -53,24 +53,48 @@ read_both <- function(file) rbind(
   fread(base$table(file))[, run_label := RUN_LAB[[against]]],
   fread(run$table(file))[, run_label := RUN_LAB[[run$name]]])
 
-# ---- A: QQ, one full-width panel per gene set, stacked ----------------------
+# ---- A: QQ per gene set, stacked at full width, zoomed, full-range inset ---
+# Inflation of a few percent lifts the whole curve by a few hundredths of a
+# -log10 p unit, invisible over the full range, so each panel shows expected
+# 0 to ZOOM_X, where the unadjusted curve leaves its permutation range; the
+# full range sits in an inset with the zoomed window outlined.
+ZOOM_X <- 4
 qq <- read_both("distal_inflation_qq.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 qq[, `:=`(set_f = factor(SET_LAB[gene_set], levels = SET_LAB),
           run_f = factor(run_label, levels = RUN_LAB))]
 X_MAX <- max(qq$expected) * 1.02
 Y_MAX <- max(qq$perm_hi, qq$observed) * 1.02
-pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-  geom_ribbon(aes(ymin = perm_lo, ymax = perm_hi, fill = run_f), colour = NA, alpha = 0.15) +
-  geom_line(linewidth = 0.6) +
-  facet_wrap(~ set_f, ncol = 1) +
-  scale_colour_manual(values = COL_RUN, name = NULL) +
-  scale_fill_manual(values = COL_RUN, guide = "none") +
-  coord_cartesian(xlim = c(0, X_MAX), ylim = c(0, Y_MAX), expand = FALSE) +
-  labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
-       title = "A  T21 expression against common HSA21 long-arm variants >= 5 Mb from each gene",
-       subtitle = "One regression per gene-variant pair; shaded: 95% range over 200 subject permutations") +
-  th
+qq_layers <- function(d) list(
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4),
+  geom_ribbon(data = d, aes(ymin = perm_lo, ymax = perm_hi, fill = run_f), colour = NA, alpha = 0.15),
+  geom_line(data = d, linewidth = 0.6),
+  scale_colour_manual(values = COL_RUN, name = NULL),
+  scale_fill_manual(values = COL_RUN, guide = "none"))
+qq_panel <- function(s, title, subtitle = NULL) {
+  d <- qq[set_f == s]
+  zoom_y <- max(d[expected <= ZOOM_X, c(observed, perm_hi)]) * 1.02
+  main <- ggplot(d[expected <= ZOOM_X * 1.05], aes(expected, observed, colour = run_f)) +
+    qq_layers(d[expected <= ZOOM_X * 1.05]) +
+    coord_cartesian(xlim = c(0, ZOOM_X), ylim = c(0, zoom_y), expand = FALSE) +
+    labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
+         title = title, subtitle = subtitle) +
+    th
+  inset <- ggplot(d, aes(expected, observed, colour = run_f)) +
+    qq_layers(d) +
+    annotate("rect", xmin = 0, xmax = ZOOM_X, ymin = 0, ymax = zoom_y, fill = NA, colour = "grey30",
+             linewidth = 0.3) +
+    coord_cartesian(xlim = c(0, X_MAX), ylim = c(0, Y_MAX), expand = FALSE) +
+    guides(colour = "none") +
+    labs(x = NULL, y = NULL, title = "full range") +
+    theme_bw(base_size = 6) +
+    theme(panel.grid = element_blank(), plot.title = element_text(size = 6),
+          plot.background = element_rect(colour = "grey70"))
+  main + inset_element(inset, left = 0.70, bottom = 0.04, right = 0.99, top = 0.62)
+}
+pA <- qq_panel(SET_LAB[["chr21 assessable"]],
+               "A  HSA21 assessable genes",
+               "T21 expression against common HSA21 long-arm variants >= 5 Mb away; shaded: permutation 95% range") /
+  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes")
 
 # ---- B: lambda per gene set --------------------------------------------------
 lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
@@ -96,8 +120,9 @@ pB <- ggplot(lam, aes(lambda, y, colour = run_f)) +
        subtitle = "Grey: permutation 95% range (2.5th-97.5th percentile)") +
   th + theme(panel.grid.major.y = element_blank())
 
+# pA's two stacked panels flatten into the outer layout, so heights are per row.
 panels <- pA / pB
-heights <- c(1.6, 0.6)
+heights <- c(0.8, 0.8, 0.6)
 
 # ---- C: the run's covariates against chr21 genotype --------------------------
 cov_path <- run$table("distal_inflation_covariates.csv")
@@ -115,7 +140,7 @@ if (file.exists(cov_path)) {
          subtitle = "Adjusted run; filled: outside its permutation 95% range") +
     th
   panels <- pA / (pB | pC)
-  heights <- c(1.6, 1)
+  heights <- c(0.8, 0.8, 1)
 }
 
 fig <- panels + plot_layout(heights = heights, guides = "collect") & theme(legend.position = "bottom")
