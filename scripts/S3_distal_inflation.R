@@ -13,10 +13,8 @@
 #
 #   A. QQ of the distal tests, HSA21 assessable genes and the HSA22 reference
 #      genes, each run with its subject-permutation 95% envelope.
-#   B. The same curves as observed minus expected, where an inflation of a
-#      few percent is visible.
-#   C. lambda per gene set with its permutation 95% range, both runs.
-#   D. The --run run's covariates, each regressed on every common chr21
+#   B. lambda per gene set with its permutation 95% range, both runs.
+#   C. The --run run's covariates, each regressed on every common chr21
 #      variant: a covariate that tracks genotype across the chromosome
 #      carries the structure, and adjusting for it removes the structure by
 #      proxy.
@@ -59,8 +57,6 @@ read_both <- function(file) rbind(
 qq <- read_both("distal_inflation_qq.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 qq[, `:=`(set_f = factor(SET_LAB[gene_set], levels = SET_LAB),
           run_f = factor(run_label, levels = RUN_LAB))]
-# A and B share one x-axis, the full range of expected -log10 p, so the same
-# rank sits at the same horizontal position in both panels.
 X_MAX <- max(qq$expected) * 1.02
 Y_MAX <- max(qq$perm_hi, qq$observed) * 1.02
 pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
@@ -76,26 +72,7 @@ pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
        subtitle = "One regression per gene-variant pair; shaded: 95% envelope over 200 subject permutations") +
   th + theme(panel.spacing.x = unit(1.2, "lines"))
 
-# ---- B: the same curves detrended --------------------------------------------
-# lambda is a median, so a 5% inflation is invisible on the QQ scale; observed
-# minus expected shows it against the permutation envelope.
-pB <- ggplot(qq, aes(expected, observed - expected, colour = run_f)) +
-  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-  geom_ribbon(aes(ymin = perm_lo - expected, ymax = perm_hi - expected, fill = run_f),
-              colour = NA, alpha = 0.15) +
-  geom_line(linewidth = 0.6) +
-  facet_wrap(~ set_f) +
-  scale_colour_manual(values = COL_RUN, name = NULL) +
-  scale_fill_manual(values = COL_RUN, guide = "none") +
-  coord_cartesian(xlim = c(0, X_MAX), ylim = range(c(qq$perm_lo, qq$perm_hi, qq$observed) - qq$expected) * 1.05,
-                  expand = FALSE) +
-  labs(x = expression(Expected ~ -log[10] ~ italic(p)),
-       y = "Observed - expected",
-       title = "B  The same curves, observed minus expected",
-       subtitle = "Same x-axis as A, y magnified; shaded: permutation 95% envelope") +
-  th + theme(panel.spacing.x = unit(1.2, "lines"))
-
-# ---- C: lambda per gene set --------------------------------------------------
+# ---- B: lambda per gene set --------------------------------------------------
 lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 lam[, `:=`(set_f = factor(SET_LAB[gene_set], levels = rev(SET_LAB)),
            run_f = factor(run_label, levels = RUN_LAB))]
@@ -104,7 +81,7 @@ fwrite(lam[, .(run = run_label, gene_set, n_genes, n_tests, lambda, perm_lo, per
 # Explicit offsets rather than position_dodge, which does not move text on a
 # discrete y axis: unadjusted below, adjusted above each set's row.
 lam[, y := as.numeric(set_f) + fifelse(run_f == RUN_LAB[[run$name]], 0.15, -0.15)]
-pC <- ggplot(lam, aes(lambda, y, colour = run_f)) +
+pB <- ggplot(lam, aes(lambda, y, colour = run_f)) +
   geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
   geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
   geom_point(size = 2) +
@@ -115,35 +92,35 @@ pC <- ggplot(lam, aes(lambda, y, colour = run_f)) +
   scale_colour_manual(values = COL_RUN, guide = "none") +   # the line legend of A and B names the runs
   scale_x_continuous(expand = expansion(mult = c(0.05, 0.3))) +
   labs(x = expression(lambda ~ "(genomic inflation)"), y = NULL,
-       title = "C  Inflation by gene set",
+       title = "B  Inflation by gene set",
        subtitle = "Grey: permutation 95% range") +
   th + theme(panel.grid.major.y = element_blank())
 
-panels <- pA / pB / pC
-heights <- c(1.1, 0.6, 0.6)
+panels <- pA / pB
+heights <- c(1.1, 0.6)
 
-# ---- D: the run's covariates against chr21 genotype --------------------------
+# ---- C: the run's covariates against chr21 genotype --------------------------
 cov_path <- run$table("distal_inflation_covariates.csv")
 if (file.exists(cov_path)) {
   cv <- fread(cov_path)
   cv[, cov_f := factor(display_covariate(covariate), levels = rev(display_covariate(covariate)))]
-  pD <- ggplot(cv, aes(lambda, cov_f)) +
+  pC <- ggplot(cv, aes(lambda, cov_f)) +
     geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
     # neutral ink: the run colours of A-C would read as a run comparison here
     geom_point(aes(shape = above_own_95), size = 1.8, colour = "grey15") +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
     labs(x = expression(lambda ~ "(covariate on each common HSA21 variant)"), y = NULL,
-         title = "D  Covariates against HSA21 genotype",
+         title = "C  Covariates against HSA21 genotype",
          subtitle = "Adjusted run; filled: above own 95th percentile") +
     th
-  panels <- pA / pB / (pC | pD)
-  heights <- c(1.1, 0.6, 1)
+  panels <- pA / (pB | pC)
+  heights <- c(1.1, 1)
 }
 
 fig <- panels + plot_layout(heights = heights, guides = "collect") & theme(legend.position = "bottom")
 stem <- run$figure("S3_distal_inflation")
-ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 13)
-ggsave(paste0(stem, ".png"), fig, width = 9, height = 13, dpi = 300)
+ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 10.5)
+ggsave(paste0(stem, ".png"), fig, width = 9, height = 10.5, dpi = 300)
 print(lam[, .(run_label, gene_set, n_genes, lambda, perm_lo, perm_hi, perm_p)])
 cat("\nDone.\n")
