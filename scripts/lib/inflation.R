@@ -118,11 +118,13 @@ hist_qq <- function(counts, bins, n_points = 400) {
 #' @param min_dist minimum |pos - TSS| for a pair to count as distal
 #' @param bins log10p_bins() grid
 #' @param hit_x record pairs at -log10 p >= hit_x (NULL: record none)
+#' @param stat_bins variant categories the per-gene median, maximum and test
+#'   count use (NULL: all); the bin counts and hits always cover every category
 #' @return list(counts = array [p bin, maf bin, group], gene_median_r,
 #'   gene_n, gene_max_r, hits = data.table(gene, variant, r) or NULL)
 distal_scan <- function(Ys, Gs, gene_tss, pos, gene_group, variant_bin, min_dist,
                         bins, n_groups = max(gene_group), n_maf = max(variant_bin),
-                        hit_x = NULL, block = 50L) {
+                        hit_x = NULL, block = 50L, stat_bins = NULL) {
   stopifnot(nrow(Ys) == nrow(Gs), length(gene_tss) == ncol(Ys), length(pos) == ncol(Gs))
   nb  <- length(bins$x)
   g   <- ncol(Ys)
@@ -131,6 +133,7 @@ distal_scan <- function(Ys, Gs, gene_tss, pos, gene_group, variant_bin, min_dist
   hits <- list()
   hit_r <- if (is.null(hit_x)) Inf else bins$r[findInterval(hit_x, bins$x)]
   m <- ncol(Gs)
+  in_stat <- if (is.null(stat_bins)) rep(TRUE, m) else variant_bin %in% stat_bins
   for (idx in split(seq_len(g), ceiling(seq_len(g) / block))) {
     A <- abs(crossprod(Ys[, idx, drop = FALSE], Gs))       # |r|, genes x variants
     tss <- gene_tss[idx]
@@ -146,14 +149,15 @@ distal_scan <- function(Ys, Gs, gene_tss, pos, gene_group, variant_bin, min_dist
     cell <- findInterval(a, bins$r) + nb * (vb - 1L) + nb * n_maf * (gb - 1L)
     counts <- counts + tabulate(cell, nbins = length(counts))
     A[!keep] <- NA
-    med[idx]    <- matrixStats::rowMedians(A, na.rm = TRUE)
-    max_r[idx]  <- matrixStats::rowMaxs(A, na.rm = TRUE)
-    n_test[idx] <- rowSums(keep)
     if (is.finite(hit_r)) {
       w <- which(A >= hit_r, arr.ind = TRUE)
       if (nrow(w)) hits[[length(hits) + 1L]] <-
         data.table::data.table(gene = idx[w[, 1]], variant = w[, 2], r = A[w])
     }
+    A[, !in_stat] <- NA
+    med[idx]    <- matrixStats::rowMedians(A, na.rm = TRUE)
+    max_r[idx]  <- matrixStats::rowMaxs(A, na.rm = TRUE)
+    n_test[idx] <- rowSums(keep[, in_stat, drop = FALSE])
   }
   list(counts = array(counts, c(nb, n_maf, n_groups)),
        gene_median_r = med, gene_n = n_test, gene_max_r = max_r,

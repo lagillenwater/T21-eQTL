@@ -101,3 +101,21 @@ test_that("inverse_normal_cols gives a standard normal rank transform per column
   expect_equal(Z[, 1], qnorm((c(3, 1, 2) - 0.5) / 3))
   expect_equal(Z[, 2], qnorm((c(1, 3, 2) - 0.5) / 3))
 })
+
+test_that("distal_scan per-gene statistics can be limited to some variant categories", {
+  set.seed(24)
+  n <- 120
+  G <- matrix(rbinom(n * 60, 3, 0.3), n)
+  Y <- matrix(rnorm(n * 4), n)
+  vb <- rep(1:2, each = 30)
+  Ys <- standardise_cols(Y); Gs <- standardise_cols(G)
+  bins <- log10p_bins(n - 2)
+  all <- distal_scan(Ys, Gs, rep(NA_real_, 4), seq_len(60), rep(1L, 4), vb, 0, bins, hit_x = 0)
+  two <- distal_scan(Ys, Gs, rep(NA_real_, 4), seq_len(60), rep(1L, 4), vb, 0, bins, hit_x = 0,
+                     stat_bins = 2L)
+  A <- abs(crossprod(Ys, Gs))
+  expect_equal(two$gene_median_r, apply(A[, vb == 2], 1, median))
+  expect_equal(two$gene_n, rep(30, 4))
+  expect_equal(two$counts, all$counts)            # bin counts still cover every category
+  expect_equal(nrow(two$hits), nrow(all$hits))    # and so do the hits
+})

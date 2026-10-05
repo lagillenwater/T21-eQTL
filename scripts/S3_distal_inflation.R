@@ -4,6 +4,13 @@
 #          tests: the distal-variant inflation scan (script 17) of two runs
 #          side by side, and the run's covariates against chr21 genotype.
 #
+#   Variants on the long arm only (script 17's "q-arm only" set, >= 13 Mb):
+#   the short arm and pericentromere carry GRCh38's false duplications of
+#   21q22.3, where a variant's coordinate puts a q-arm gene's own cis signal
+#   more than 5 Mb away (GATD3A, PWP2, SIK1, ICOSLG reach p < 1e-40 that
+#   way), so the distance rule cannot be applied there. Script 17 reports
+#   the all-variant numbers beside these.
+#
 #   A. QQ of the distal tests, HSA21 assessable genes and the HSA22 reference
 #      genes, each run with its subject-permutation 95% envelope.
 #   B. The same curves as observed minus expected, where an inflation of a
@@ -36,6 +43,7 @@ base    <- load_run(c("--run", against))
 cat(sprintf("=== S3 distal-variant inflation: %s vs %s ===\n\n", run$name, against))
 
 RUN_LAB  <- setNames(c("Unadjusted", "Adjusted"), c(against, run$name))
+VARIANTS <- "q-arm only"                                   # long-arm variants (>= 13 Mb)
 COL_RUN  <- setNames(c("#C45A00", "#762A83"), RUN_LAB)   # as in 10_compare_runs.R
 SET_LAB  <- c("chr21 assessable" = "HSA21 assessable genes", "chr21 deviating" = "HSA21 deviating genes",
               "chr22 reference" = "HSA22 reference genes")
@@ -48,27 +56,20 @@ read_both <- function(file) rbind(
   fread(run$table(file))[, run_label := RUN_LAB[[run$name]]])
 
 # ---- A: QQ, all variants -----------------------------------------------------
-qq <- read_both("distal_inflation_qq.csv")[variant_set == "all" & gene_set %in% names(SET_LAB)]
+qq <- read_both("distal_inflation_qq.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 qq[, `:=`(set_f = factor(SET_LAB[gene_set], levels = SET_LAB),
           run_f = factor(run_label, levels = RUN_LAB))]
-# The axis is set by the permutation envelopes and the HSA22 curves; the
-# HSA21 curves run off the top through the short-arm false-duplication
-# variants (GRCh38), whose "distal" coordinate is a q-arm gene's own locus.
-cap <- ceiling(max(qq$expected, qq$perm_hi, qq[gene_set == "chr22 reference", observed])) + 1
-off <- unique(qq[observed > cap, .(set_f)])
+cap <- ceiling(max(qq$expected, qq$perm_hi, qq$observed)) + 0.5
 pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
   geom_ribbon(aes(ymin = perm_lo, ymax = perm_hi, fill = run_f), colour = NA, alpha = 0.15) +
   geom_line(linewidth = 0.6) +
-  geom_text(data = off, aes(x = 0.3, y = cap - 0.3,
-                            label = "both curves leave the panel here:\nshort-arm false-duplication variants"),
-            inherit.aes = FALSE, hjust = 0, vjust = 1, size = 2.5, colour = "grey30") +
   facet_wrap(~ set_f) +
   scale_colour_manual(values = COL_RUN, name = NULL) +
   scale_fill_manual(values = COL_RUN, guide = "none") +
   coord_cartesian(xlim = c(0, cap), ylim = c(0, cap), expand = FALSE) +
   labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
-       title = "A  T21 expression against common HSA21 variants >= 5 Mb from each gene",
+       title = "A  T21 expression against common HSA21 long-arm variants >= 5 Mb from each gene",
        subtitle = "One regression per gene-variant pair; shaded: 95% envelope over 200 subject permutations") +
   th + theme(aspect.ratio = 1)
 
@@ -91,7 +92,7 @@ pB <- ggplot(qq, aes(expected, observed - expected, colour = run_f)) +
   th
 
 # ---- C: lambda per gene set --------------------------------------------------
-lam <- read_both("distal_inflation_summary.csv")[variant_set == "all" & gene_set %in% names(SET_LAB)]
+lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 lam[, `:=`(set_f = factor(SET_LAB[gene_set], levels = rev(SET_LAB)),
            run_f = factor(run_label, levels = RUN_LAB))]
 fwrite(lam[, .(run = run_label, gene_set, n_genes, n_tests, lambda, perm_lo, perm_hi, perm_p,
@@ -125,10 +126,11 @@ if (file.exists(cov_path)) {
   pD <- ggplot(cv, aes(lambda, cov_f)) +
     geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
-    geom_point(aes(shape = above_own_95), size = 1.8, colour = COL_RUN[["Adjusted"]]) +
+    # neutral ink: the run colours of A-C would read as a run comparison here
+    geom_point(aes(shape = above_own_95), size = 1.8, colour = "grey15") +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
     labs(x = expression(lambda ~ "(covariate on each common HSA21 variant)"), y = NULL,
-         title = "D  Covariates against HSA21 genotype",
+         title = "D  Adjusted-analysis covariates against HSA21 genotype",
          subtitle = "Filled: above own permutation 95th percentile") +
     th
   panels <- pA / pB / (pC | pD)

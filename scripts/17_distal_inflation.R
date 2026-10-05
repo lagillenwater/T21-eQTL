@@ -42,12 +42,13 @@
 #     ALT dosage of every biallelic PASS variant at file-wide MAF >= 0.02
 #   - tables/distal_inflation_summary.csv  lambda per gene set and MAF bin,
 #     with the permutation reference and the inverse-normal sensitivity
-#   - tables/distal_inflation_genes.csv    per gene: lambda, its own
-#     permutation range, smallest distal p
+#   - tables/distal_inflation_genes.csv    per gene (long-arm variants):
+#     lambda, its own permutation range, smallest distal p
 #   - tables/distal_inflation_gene_excess.csv  genes above their own
 #     permutation 95th percentile, against the permutation count
 #   - tables/distal_inflation_covariates.csv   runs with covariates: each
-#     covariate regressed on every common variant (does it track genotype?)
+#     covariate regressed on every common long-arm variant (does it track
+#     genotype?)
 #   - tables/distal_inflation_qq.csv       QQ curves with permutation envelope
 #   - tables/distal_inflation_top_pairs.csv distal pairs at p < 1e-6
 #   - figures/distal_inflation.{pdf,png}
@@ -191,9 +192,14 @@ Gs <- standardise_cols(G, X)
 bins <- log10p_bins(df)
 cat(sprintf("  Covariates projected out of genotype and expression: %d\n", K))
 
+# Per-gene lambda, the count of genes above their own range and the
+# covariate section use long-arm variants only: short-arm coordinates are
+# unreliable (false duplications), so the distance rule cannot be applied
+# there. The bin counts, and so the summary rows, still cover every variant.
+LONG_ARM <- VBINS[["q-arm only"]]
 scan_args <- list(Gs = Gs, gene_tss = gene_tss, pos = pos, gene_group = genes$group,
                   variant_bin = variant_bin, min_dist = MIN_DIST, bins = bins,
-                  n_groups = length(GROUPS), n_maf = 2L * length(MAF_LAB))
+                  n_groups = length(GROUPS), n_maf = 2L * length(MAF_LAB), stat_bins = LONG_ARM)
 
 # ---- Observed scan, and the inverse-normal sensitivity -----------------------
 t0 <- Sys.time()
@@ -295,7 +301,7 @@ if (!is.null(X)) {
   bins0 <- log10p_bins(n - 2L)
   cov_lambda <- function(M) lambda_from_abs_r(
     distal_scan(M, Gs0, rep(NA_real_, ncol(M)), pos, rep(1L, ncol(M)), variant_bin, 0, bins0,
-                n_groups = 1L, n_maf = 2L * length(MAF_LAB))$gene_median_r, n - 2L)
+                n_groups = 1L, n_maf = 2L * length(MAF_LAB), stat_bins = LONG_ARM)$gene_median_r, n - 2L)
   cov_obs  <- cov_lambda(Xs)
   cov_perm <- simplify2array(mclapply(seq_len(N_PERM), function(i) {
     set.seed(SEED + 10000L + i)
