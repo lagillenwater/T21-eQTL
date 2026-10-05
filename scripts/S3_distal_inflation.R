@@ -130,8 +130,8 @@ if (file.exists(cov_path)) {
     geom_point(aes(shape = above_own_95), size = 1.8, colour = "grey15") +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
     labs(x = expression(lambda ~ "(covariate on each common HSA21 variant)"), y = NULL,
-         title = "D  Adjusted-analysis covariates against HSA21 genotype",
-         subtitle = "Filled: above own permutation 95th percentile") +
+         title = "D  Covariates against HSA21 genotype",
+         subtitle = "Adjusted run; filled: above own 95th percentile") +
     th
   panels <- pA / pB / (pC | pD)
   heights <- c(1.1, 0.6, 1)

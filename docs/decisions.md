@@ -545,6 +545,36 @@ differs). Adjusted run, before (expression side only, archived in
   Spike-in power falls slightly with the 24 df spent (ABCC13 0.79 at its
   GTEx aFC, was 0.81; aFC for 80% power up 0.01-0.04 per gene).
 
+### Inflation scan read on long-arm variants (2026-10-05)
+
+The HSA21 QQ curves ran vertical at the extreme tail. The 40 most
+significant distal pairs are GATD3A, PWP2, SIK1 and ICOSLG (43.4-44.2 Mb)
+against short-arm variants at 5.03-6.13 Mb, the GRCh38 false copies of
+their own region (GATD3B, SIK1B; U2AF1 against U2AF1L5 further down), down
+to p 1e-46; no long-arm pair reaches p < 1e-8. On the short arm and
+pericentromere the distance rule cannot be applied, so script 17 now reads
+per-gene lambda, the gene-excess count and the covariate section on
+long-arm variants (>= 13 Mb; 97,438 of 111,101 common variants;
+`distal_scan(stat_bins =)`), its summary keeps all-variant and long-arm
+rows, and S3 draws the long-arm curves. Excluding the short arm raises
+lambda slightly (adjusted 1.011 to 1.020) rather than lowering it. Current
+numbers, genotype-side adjustment in place:
+
+| | unadjusted (302 T21) | adjusted (274 T21) |
+|---|---|---|
+| chr21 assessable lambda | 1.074 (perm 0.962-1.042, p 0.010) | 1.020 (0.966-1.031, p 0.15) |
+| chr21 deviating lambda | 1.080 (23 genes, p 0.005) | 1.016 (13 genes, p 0.18) |
+| chr22 reference lambda | 1.044 (p 0.020) | 1.017 (p 0.12) |
+| chr21 genes above own range | 40; perm median 6, 95th 18; p 0.010 | 18; median 7, 95th 17; p 0.050 |
+| deviating genes above own range | 5 of 23 (TSPEAR 1.57, YBEY 1.25, COL6A2 1.22, PDE9A 1.17, ...) | 2 of 13 (COL6A2 p 0.020, ABCC13 p 0.025); median 0; p 0.15 |
+
+- Covariates against genotype (long arm): 5 of 24 above their own range
+  against a permutation median of 1 (95th 4; p 0.020): CD27+ B (1.18),
+  CD4+ TCM (1.18), NDSC2019 recruitment (1.16), BMI (1.13), ABC (1.12).
+- The adjusted gene-level count sits at the edge (18 against 7, p 0.050):
+  the set-level lambda is inside its range, but some residual gene-level
+  structure is not excluded. Genotype PCs remain the direct test.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
