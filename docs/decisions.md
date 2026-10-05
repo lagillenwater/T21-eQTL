@@ -575,6 +575,27 @@ numbers, genotype-side adjustment in place:
   the set-level lambda is inside its range, but some residual gene-level
   structure is not excluded. Genotype PCs remain the direct test.
 
+### "Outside its permutation range" means above the 97.5th percentile (2026-10-05)
+
+The S3 figure draws each permutation range as the 2.5th to 97.5th
+percentile, but script 17 flagged a gene or covariate above its own 95th
+percentile, so BMI and ABC were filled while sitting inside their drawn
+bars. One threshold (`OUTSIDE_Q` = 0.975) now serves the flags, the counts
+and the counts' permutation null, and the per-gene permutation lambdas are
+saved (`processed/distal_inflation_perm_gene_lambda.csv`). The counts in the
+long-arm entry above are superseded by:
+
+| | unadjusted (302 T21) | adjusted (274 T21) |
+|---|---|---|
+| chr21 genes outside own range | 26 of 153; perm median 3, 97.5th 13; p 0.010 | 11 of 153; median 3, 97.5th 12; p 0.040 |
+| deviating genes outside own range | 4 of 23 (TSPEAR, YBEY, COL6A2, PDE9A); median 0; p 0.010 | 2 of 13 (COL6A2, ABCC13); median 0; p 0.055 |
+| chr22 genes outside own range | 43 of 400; median 7; p 0.020 | 25 of 400; median 7; p 0.090 |
+| covariates outside own range | - | 3 of 24 (CD27+ B 1.18, CD4+ TCM 1.18, NDSC2019 1.16); median 0, 97.5th 3; p 0.050 |
+
+The set-level lambdas are unchanged. The S3 figure now stacks the HSA21 and
+HSA22 QQ panels at full width, each run's envelope drawn as its two edges,
+with the detrended panel dropped.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
