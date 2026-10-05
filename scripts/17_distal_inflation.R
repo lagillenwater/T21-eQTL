@@ -45,7 +45,9 @@
 #   - tables/distal_inflation_genes.csv    per gene (long-arm variants):
 #     lambda, its own permutation range, smallest distal p
 #   - tables/distal_inflation_gene_excess.csv  genes above their own
-#     permutation 95th percentile, against the permutation count
+#     permutation range (97.5th percentile), against the permutation count
+#   - processed/distal_inflation_perm_gene_lambda.csv  per-gene lambda in
+#     every permutation
 #   - tables/distal_inflation_covariates.csv   runs with covariates: each
 #     covariate regressed on every common long-arm variant (does it track
 #     genotype?)
@@ -80,6 +82,9 @@ MIN_MAF  <- th$decoy_min_maf        # "common": the decoy MAF floor, here in the
 MIN_CALL <- 0.95
 MAF_BREAKS <- c(0.05, 0.10, 0.20, 0.50)
 HIT_X    <- 6                       # record distal pairs at p < 1e-6
+# "Outside its permutation range": above the 97.5th percentile, the upper end
+# of the permutation 95% range every table and figure draws (perm_lo-perm_hi).
+OUTSIDE_Q <- 0.975
 PARM_END <- 13e6                    # end of the chr21 short arm and centromere (GRCh38 cen 10.9-12.9 Mb)
 CONTROL_CHR  <- "chr22"
 CONTROL_SET  <- "chr22 reference"
@@ -254,7 +259,7 @@ fwrite(summary_tbl, run$table("distal_inflation_summary.csv"))
 # ---- Per-gene table ----------------------------------------------------------
 gene_lambda_obs  <- lambda_from_abs_r(obs$gene_median_r, df)
 gene_lambda_perm <- matrix(lambda_from_abs_r(perm_gene, df), nrow(genes))
-thr95 <- apply(gene_lambda_perm, 1, quantile, 0.95)
+thr_out <- apply(gene_lambda_perm, 1, quantile, OUTSIDE_Q)
 genes[, `:=`(
   n_tests = obs$gene_n,
   lambda = round(gene_lambda_obs, 4),
@@ -262,25 +267,29 @@ genes[, `:=`(
   perm_lo = round(apply(gene_lambda_perm, 1, quantile, 0.025), 4),
   perm_hi = round(apply(gene_lambda_perm, 1, quantile, 0.975), 4),
   perm_p  = signif((1 + rowSums(gene_lambda_perm >= gene_lambda_obs)) / (N_PERM + 1), 3),
-  above_own_95 = gene_lambda_obs > thr95,
+  above_range = gene_lambda_obs > thr_out,
   min_distal_p = signif(p_from_abs_r(obs$gene_max_r, df), 3))]
 gene_out <- genes[, .(Gene_name, ensembl_stable, chromosome, gene_set, sig_lane, baseMean = round(baseMean, 1),
-                      tss, n_tests, lambda, perm_lo, perm_hi, perm_p, above_own_95,
+                      tss, n_tests, lambda, perm_lo, perm_hi, perm_p, above_range,
                       lambda_inverse_normal, min_distal_p)]
 setorder(gene_out, -lambda)
 fwrite(gene_out, run$table("distal_inflation_genes.csv"))
+# Per-gene permutation lambdas, so a threshold can be revisited without
+# rerunning the permutations.
+fwrite(data.table(Gene_name = genes$Gene_name, round(gene_lambda_perm, 5)),
+       run$processed("distal_inflation_perm_gene_lambda.csv"))
 
 # ---- Excess of genes above their own permutation range -----------------------
-# Each gene is compared with its own 95th permutation percentile; the null
-# spread of the count comes from applying the same thresholds to every
+# Each gene is compared with the upper end of its own permutation range; the
+# null spread of the count comes from applying the same thresholds to every
 # permutation, which keeps co-expression (a binomial would not).
-above_perm <- gene_lambda_perm > thr95
+above_perm <- gene_lambda_perm > thr_out
 excess <- rbindlist(lapply(names(SETS), function(s) {
   w <- genes$group %in% SETS[[s]]
   cnt <- colSums(above_perm[w, , drop = FALSE])
-  k <- sum(genes$above_own_95[w])
-  data.table(gene_set = s, n_genes = sum(w), n_above_own_95 = k,
-             perm_median = median(cnt), perm_hi = unname(quantile(cnt, 0.95)),
+  k <- sum(genes$above_range[w])
+  data.table(gene_set = s, n_genes = sum(w), n_above_range = k,
+             perm_median = median(cnt), perm_hi = unname(quantile(cnt, OUTSIDE_Q)),
              perm_p = signif((1 + sum(cnt >= k)) / (N_PERM + 1), 3))
 }))
 fwrite(excess, run$table("distal_inflation_gene_excess.csv"))
@@ -307,19 +316,19 @@ if (!is.null(X)) {
     set.seed(SEED + 10000L + i)
     cov_lambda(Xs[sample.int(n), , drop = FALSE])
   }, mc.cores = N_CORES))                                     # covariates x perms
-  cov_thr95 <- apply(cov_perm, 1, quantile, 0.95)
+  cov_thr <- apply(cov_perm, 1, quantile, OUTSIDE_Q)
   cov_out <- data.table(covariate = colnames(X), lambda = round(cov_obs, 4),
                         perm_lo = round(apply(cov_perm, 1, quantile, 0.025), 4),
                         perm_hi = round(apply(cov_perm, 1, quantile, 0.975), 4),
                         perm_p = signif((1 + rowSums(cov_perm >= cov_obs)) / (N_PERM + 1), 3),
-                        above_own_95 = cov_obs > cov_thr95)
+                        above_range = cov_obs > cov_thr)
   setorder(cov_out, -lambda)
   fwrite(cov_out, run$table("distal_inflation_covariates.csv"))
-  cnt <- colSums(cov_perm > cov_thr95)
+  cnt <- colSums(cov_perm > cov_thr)
   excess <- rbind(excess, data.table(
-    gene_set = "run covariates (not genes)", n_genes = ncol(X), n_above_own_95 = sum(cov_out$above_own_95),
-    perm_median = median(cnt), perm_hi = unname(quantile(cnt, 0.95)),
-    perm_p = signif((1 + sum(cnt >= sum(cov_out$above_own_95))) / (N_PERM + 1), 3)))
+    gene_set = "run covariates (not genes)", n_genes = ncol(X), n_above_range = sum(cov_out$above_range),
+    perm_median = median(cnt), perm_hi = unname(quantile(cnt, OUTSIDE_Q)),
+    perm_p = signif((1 + sum(cnt >= sum(cov_out$above_range))) / (N_PERM + 1), 3)))
   fwrite(excess, run$table("distal_inflation_gene_excess.csv"))
 }
 
