@@ -73,7 +73,7 @@ qq_layers <- function(d) list(
   geom_line(data = d, linewidth = 0.6),
   scale_colour_manual(values = COL_RUN, name = NULL),
   scale_fill_manual(values = COL_RUN, guide = "none"))
-qq_panel <- function(s, title, subtitle = NULL) {
+qq_panel <- function(s, title, subtitle = NULL, legend = TRUE) {
   d <- qq[set_f == s]
   zoom_y <- max(d[expected <= ZOOM_X, c(observed, perm_hi)]) * 1.02
   main <- ggplot(d[expected <= ZOOM_X * 1.05], aes(expected, observed, colour = run_f)) +
@@ -81,7 +81,7 @@ qq_panel <- function(s, title, subtitle = NULL) {
     coord_cartesian(xlim = c(0, ZOOM_X), ylim = c(0, zoom_y), expand = FALSE) +
     labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
          title = title, subtitle = subtitle) +
-    th
+    th + theme(legend.position = if (legend) "right" else "none")
   inset <- ggplot(d, aes(expected, observed, colour = run_f)) +
     qq_layers(d) +
     annotate("rect", xmin = 0, xmax = ZOOM_X, ymin = 0, ymax = zoom_y, fill = NA, colour = "grey30",
@@ -97,7 +97,7 @@ qq_panel <- function(s, title, subtitle = NULL) {
 pA <- qq_panel(SET_LAB[["chr21 assessable"]],
                "A  HSA21 assessable genes",
                "T21 expression against common HSA21 long-arm variants >= 5 Mb away; shaded: permutation 95% range") /
-  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes")
+  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes", legend = FALSE)
 
 # ---- B: lambda per gene set --------------------------------------------------
 lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
@@ -116,19 +116,19 @@ pB <- ggplot(lam, aes(lambda, y, colour = run_f)) +
             size = 2.4, colour = "grey30", show.legend = FALSE) +
   scale_y_continuous(breaks = seq_along(levels(lam$set_f)), labels = levels(lam$set_f),
                      expand = expansion(add = 0.4)) +
-  scale_colour_manual(values = COL_RUN, guide = "none") +   # the line legend of A and B names the runs
+  scale_colour_manual(values = COL_RUN, name = NULL) +
   scale_x_continuous(expand = expansion(mult = c(0.05, 0.3))) +
   labs(x = expression(lambda ~ "(genomic inflation)"), y = NULL,
        title = "B  Inflation by gene set",
-       subtitle = "Grey: permutation 95% range (2.5th-97.5th percentile)") +
-  th + theme(panel.grid.major.y = element_blank())
+       subtitle = "Grey: permutation 95% range") +
+  th + theme(panel.grid.major.y = element_blank(), legend.position = "right")
 
 # ---- C: per-gene lambda of the --run run --------------------------------------
 pC <- per_gene_lambda_panel(fread(run$table("distal_inflation_genes.csv")),
                             c(chr21 = SET_LAB[["chr21 assessable"]], chr22 = SET_LAB[["chr22 reference"]]),
-                            "C  Per-gene lambda", "Adjusted run; filled: outside its own permutation range",
-                            label_outside = FALSE) +
-  th + theme(legend.direction = "vertical")
+                            "C  Per-gene lambda", "Adjusted run",
+                            label = "deviating_outside") +
+  th + theme(legend.position = "right", legend.direction = "vertical")
 
 # pA's two stacked panels flatten into the outer layout, so heights are per row.
 panels <- pA / (pB | pC)
@@ -144,16 +144,18 @@ if (file.exists(cov_path)) {
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
     # neutral ink: the run colours of A-C would read as a run comparison here
     geom_point(aes(shape = above_range), size = 1.8, colour = "grey15") +
-    scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
+    scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+                       labels = c(`TRUE` = "Outside its own\npermutation range",
+                                  `FALSE` = "Inside its own\npermutation range"), name = NULL) +
     labs(x = expression(lambda ~ "(covariate on each common HSA21 variant)"), y = NULL,
          title = "D  Covariates against HSA21 genotype",
-         subtitle = "Adjusted run; filled: outside its permutation 95% range") +
-    th
+         subtitle = "Adjusted run; grey: permutation 95% range") +
+    th + theme(legend.position = "right")
   panels <- pA / (pB | pC) / pD
   heights <- c(0.8, 0.8, 1, 0.9)
 }
 
-fig <- panels + plot_layout(heights = heights, guides = "collect") & theme(legend.position = "bottom")
+fig <- panels + plot_layout(heights = heights)   # each panel keeps its own legend
 stem <- run$figure("S3_distal_inflation")
 ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 16)
 ggsave(paste0(stem, ".png"), fig, width = 9, height = 16, dpi = 300)

@@ -21,15 +21,20 @@ INFLATION_COL_DEV <- "#1B9E77"   # deviating genes; distinct from the run colour
 #' has its own range, so no shared band is drawn). Shared by script 17 and S3.
 #' @param gene_out script 17's distal_inflation_genes.csv
 #' @param col_labels column label per chromosome, c(chr21 =, chr22 =)
-#' @param label_outside also label chr21 genes outside their own range
-per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 1717L, label_outside = TRUE) {
+#' @param label which genes to label besides the five highest lambdas:
+#'   "deviating" (all deviating genes and the chr21 genes outside their own
+#'   range) or "deviating_outside" (only deviating genes outside their range)
+#' @param legend_position passed to theme(legend.position)
+per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 1717L,
+                                  label = c("deviating", "deviating_outside"), legend_position = "bottom") {
+  label <- match.arg(label)
   g <- data.table::copy(data.table::as.data.table(gene_out))
   g[, col_f := factor(col_labels[chromosome], levels = col_labels)]
   g[, deviating := gene_set == "Deviating"]
-  # Label the deviating genes, the five highest lambdas overall and, if
-  # asked, the chr21 genes outside their own range.
-  g[, label := ifelse(deviating | (label_outside & above_range & chromosome == "chr21") |
-                        rank(-lambda, ties.method = "first") <= 5, Gene_name, "")]
+  top <- rank(-g$lambda, ties.method = "first") <= 5
+  keep <- if (label == "deviating") g$deviating | (g$above_range & g$chromosome == "chr21") else
+    g$deviating & g$above_range
+  g[, label := ifelse(top | keep, Gene_name, "")]
   data.table::setorder(g, deviating)                 # deviating genes drawn on top
   jit <- position_jitter(width = 0.3, height = 0, seed = seed)
   ggplot(g, aes(col_f, lambda)) +
@@ -41,12 +46,13 @@ per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 
     scale_colour_manual(values = c(`TRUE` = INFLATION_COL_DEV, `FALSE` = "grey55"),
                         labels = c(`TRUE` = "Deviating gene", `FALSE` = "Other gene"), name = NULL) +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
-                       labels = c(`TRUE` = "Outside its own permutation range",
-                                  `FALSE` = "Inside its own permutation range"), name = NULL) +
+                       labels = c(`TRUE` = "Outside its own\npermutation range",
+                                  `FALSE` = "Inside its own\npermutation range"), name = NULL) +
     scale_size_manual(values = c(`TRUE` = 2.3, `FALSE` = 1.2), guide = "none") +
+    scale_x_discrete(labels = function(x) sub(" ", "\n", x)) +   # e.g. "HSA21\nassessable genes"
     labs(x = NULL, y = "Per-gene lambda", title = title, subtitle = subtitle) +
     theme_bw(base_size = 9) +
-    theme(panel.grid.minor = element_blank(), legend.position = "bottom", legend.direction = "vertical")
+    theme(panel.grid.minor = element_blank(), legend.position = legend_position, legend.direction = "vertical")
 }
 
 #' @param summary_tbl,qq_tbl,gene_out,cov_out the tables script 17 writes
