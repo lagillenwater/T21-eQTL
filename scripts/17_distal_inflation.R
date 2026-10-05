@@ -98,7 +98,7 @@ cat(sprintf("=== T21-eQTL: distal-variant inflation [run: %s] ===\n\n", run$name
 
 GROUPS <- c("Deviating", "Expected dosage", "Past magnitude, padj >= alpha", CONTROL_SET)
 draw_figure <- function(summary_tbl, qq_tbl, gene_out, cov_out) {
-  f <- distal_inflation_figure(summary_tbl, qq_tbl, gene_out, cov_out, GROUPS, CONTROL_SET, MIN_DIST, SEED)
+  f <- distal_inflation_figure(summary_tbl, qq_tbl, gene_out, cov_out, CONTROL_SET, MIN_DIST, SEED)
   stem <- run$figure("distal_inflation")
   ggsave(paste0(stem, ".pdf"), f$fig, width = 11, height = f$height)
   ggsave(paste0(stem, ".png"), f$fig, width = 11, height = f$height, dpi = 200)

@@ -14,7 +14,9 @@
 #   A. QQ of the distal tests, HSA21 assessable genes and the HSA22 reference
 #      genes, each run with its subject-permutation 95% envelope.
 #   B. lambda per gene set with its permutation 95% range, both runs.
-#   C. The --run run's covariates, each regressed on every common chr21
+#   C. Per-gene lambda of the --run run, HSA21 and HSA22 columns, deviating
+#      genes in their own colour; filled = outside the gene's own range.
+#   D. The --run run's covariates, each regressed on every common chr21
 #      variant: a covariate that tracks genotype across the chromosome
 #      carries the structure, and adjusting for it removes the structure by
 #      proxy.
@@ -30,6 +32,7 @@
 
 suppressPackageStartupMessages({ library(data.table); library(ggplot2); library(patchwork) })
 source("scripts/lib/covariates.R")    # display_covariate
+source("scripts/lib/inflation_figure.R")  # per_gene_lambda_panel
 source("scripts/lib/run.R")
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
@@ -120,32 +123,39 @@ pB <- ggplot(lam, aes(lambda, y, colour = run_f)) +
        subtitle = "Grey: permutation 95% range (2.5th-97.5th percentile)") +
   th + theme(panel.grid.major.y = element_blank())
 
-# pA's two stacked panels flatten into the outer layout, so heights are per row.
-panels <- pA / pB
-heights <- c(0.8, 0.8, 0.6)
+# ---- C: per-gene lambda of the --run run --------------------------------------
+pC <- per_gene_lambda_panel(fread(run$table("distal_inflation_genes.csv")),
+                            c(chr21 = SET_LAB[["chr21 assessable"]], chr22 = SET_LAB[["chr22 reference"]]),
+                            "C  Per-gene lambda", "Adjusted run; filled: outside its own permutation range",
+                            label_outside = FALSE) +
+  th + theme(legend.direction = "vertical")
 
-# ---- C: the run's covariates against chr21 genotype --------------------------
+# pA's two stacked panels flatten into the outer layout, so heights are per row.
+panels <- pA / (pB | pC)
+heights <- c(0.8, 0.8, 1)
+
+# ---- D: the run's covariates against chr21 genotype --------------------------
 cov_path <- run$table("distal_inflation_covariates.csv")
 if (file.exists(cov_path)) {
   cv <- fread(cov_path)
   cv[, cov_f := factor(display_covariate(covariate), levels = rev(display_covariate(covariate)))]
-  pC <- ggplot(cv, aes(lambda, cov_f)) +
+  pD <- ggplot(cv, aes(lambda, cov_f)) +
     geom_vline(xintercept = 1, colour = "grey55", linewidth = 0.3) +
     geom_linerange(aes(xmin = perm_lo, xmax = perm_hi), linewidth = 2.2, colour = "grey80") +
     # neutral ink: the run colours of A-C would read as a run comparison here
     geom_point(aes(shape = above_range), size = 1.8, colour = "grey15") +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
     labs(x = expression(lambda ~ "(covariate on each common HSA21 variant)"), y = NULL,
-         title = "C  Covariates against HSA21 genotype",
+         title = "D  Covariates against HSA21 genotype",
          subtitle = "Adjusted run; filled: outside its permutation 95% range") +
     th
-  panels <- pA / (pB | pC)
-  heights <- c(0.8, 0.8, 1)
+  panels <- pA / (pB | pC) / pD
+  heights <- c(0.8, 0.8, 1, 0.9)
 }
 
 fig <- panels + plot_layout(heights = heights, guides = "collect") & theme(legend.position = "bottom")
 stem <- run$figure("S3_distal_inflation")
-ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 13)
-ggsave(paste0(stem, ".png"), fig, width = 9, height = 13, dpi = 300)
+ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 16)
+ggsave(paste0(stem, ".png"), fig, width = 9, height = 16, dpi = 300)
 print(lam[, .(run_label, gene_set, n_genes, lambda, perm_lo, perm_hi, perm_p)])
 cat("\nDone.\n")

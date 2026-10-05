@@ -7,20 +7,53 @@
 #   A. QQ of the distal tests on long-arm variants, chr21 assessable genes and
 #      the chr22 reference, shaded permutation range, zoomed to expected 0-4
 #      with the full range inset (as in the S3 supplement figure).
-#   B. Per-gene lambda by gene set; filled = outside the gene's own
-#      permutation 95% range (each gene has its own range, so no shared band
-#      is drawn).
+#   B. Per-gene lambda, chr21 and chr22 columns, deviating genes in their own
+#      colour; filled = outside the gene's own permutation 95% range.
 #   C. lambda by variant set, adjusted and rank inverse-normal expression.
 #   D. Runs with covariates: each covariate against chr21 genotype; filled =
 #      outside its own permutation 95% range.
 
 INFLATION_COL_CHR <- c(chr21 = "#B2182B", chr22 = "#2166AC")
+INFLATION_COL_DEV <- "#1B9E77"   # deviating genes; distinct from the run colours of S3
+
+#' Per-gene lambda, one column per chromosome, deviating genes in their own
+#' colour; filled = outside the gene's own permutation 95% range (each gene
+#' has its own range, so no shared band is drawn). Shared by script 17 and S3.
+#' @param gene_out script 17's distal_inflation_genes.csv
+#' @param col_labels column label per chromosome, c(chr21 =, chr22 =)
+#' @param label_outside also label chr21 genes outside their own range
+per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 1717L, label_outside = TRUE) {
+  g <- data.table::copy(data.table::as.data.table(gene_out))
+  g[, col_f := factor(col_labels[chromosome], levels = col_labels)]
+  g[, deviating := gene_set == "Deviating"]
+  # Label the deviating genes, the five highest lambdas overall and, if
+  # asked, the chr21 genes outside their own range.
+  g[, label := ifelse(deviating | (label_outside & above_range & chromosome == "chr21") |
+                        rank(-lambda, ties.method = "first") <= 5, Gene_name, "")]
+  data.table::setorder(g, deviating)                 # deviating genes drawn on top
+  jit <- position_jitter(width = 0.3, height = 0, seed = seed)
+  ggplot(g, aes(col_f, lambda)) +
+    geom_hline(yintercept = 1, colour = "grey55", linewidth = 0.3) +
+    geom_point(aes(colour = deviating, shape = above_range, size = deviating), position = jit, alpha = 0.9,
+               stroke = 0.6) +
+    ggrepel::geom_text_repel(aes(label = label), position = jit, size = 2.3, colour = "grey15",
+                             max.overlaps = 40, segment.size = 0.2, min.segment.length = 0) +
+    scale_colour_manual(values = c(`TRUE` = INFLATION_COL_DEV, `FALSE` = "grey55"),
+                        labels = c(`TRUE` = "Deviating gene", `FALSE` = "Other gene"), name = NULL) +
+    scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+                       labels = c(`TRUE` = "Outside its own permutation range",
+                                  `FALSE` = "Inside its own permutation range"), name = NULL) +
+    scale_size_manual(values = c(`TRUE` = 2.3, `FALSE` = 1.2), guide = "none") +
+    labs(x = NULL, y = "Per-gene lambda", title = title, subtitle = subtitle) +
+    theme_bw(base_size = 9) +
+    theme(panel.grid.minor = element_blank(), legend.position = "bottom", legend.direction = "vertical")
+}
 
 #' @param summary_tbl,qq_tbl,gene_out,cov_out the tables script 17 writes
 #'   (cov_out NULL for a run without covariates)
-#' @param groups gene-set order for panel B; control_set the chr22 set name
+#' @param control_set the chr22 set name
 #' @return list(fig, height)
-distal_inflation_figure <- function(summary_tbl, qq_tbl, gene_out, cov_out, groups, control_set,
+distal_inflation_figure <- function(summary_tbl, qq_tbl, gene_out, cov_out, control_set,
                                     min_dist, seed = 1717L, zoom_x = 4) {
   # Panel A matches the S3 supplement figure: long-arm variants (the short
   # arm holds GRCh38's false duplications), shaded permutation range, zoomed
@@ -66,26 +99,9 @@ distal_inflation_figure <- function(summary_tbl, qq_tbl, gene_out, cov_out, grou
           plot.background = element_rect(colour = "grey70"))
   pA <- main + inset_element(inset, left = 0.55, bottom = 0.03, right = 0.98, top = 0.45)
 
-  g <- data.table::copy(data.table::as.data.table(gene_out))
-  g[, set_f := factor(gene_set, levels = groups[groups %in% gene_set])]
-  # Label the deviating genes, the chr21 genes outside their own range, and
-  # the five highest lambdas overall.
-  g[, label := ifelse(gene_set == "Deviating" | (above_range & chromosome == "chr21") |
-                        rank(-lambda, ties.method = "first") <= 5, Gene_name, "")]
-  pB <- ggplot(g, aes(set_f, lambda, colour = chromosome)) +
-    geom_hline(yintercept = 1, colour = "grey55", linewidth = 0.3) +
-    geom_point(aes(shape = above_range), position = position_jitter(width = 0.25, height = 0, seed = seed),
-               size = 1.3, alpha = 0.85) +
-    ggrepel::geom_text_repel(aes(label = label), size = 2.3, colour = "grey15", max.overlaps = 40,
-                             position = position_jitter(width = 0.25, height = 0, seed = seed),
-                             segment.size = 0.2, min.segment.length = 0) +
-    scale_colour_manual(values = INFLATION_COL_CHR, guide = "none") +
-    scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), guide = "none") +
-    scale_x_discrete(labels = function(x) sub(", ", ",\n", x)) +
-    labs(x = NULL, y = "Per-gene lambda (long-arm variants)",
-         title = "B  Per-gene lambda",
-         subtitle = "Filled: outside the gene's own permutation 95% range") +
-    theme_bw(base_size = 9) + theme(panel.grid.minor = element_blank())
+  pB <- per_gene_lambda_panel(gene_out, c(chr21 = "chr21 assessable", chr22 = control_set),
+                              "B  Per-gene lambda",
+                              "Long-arm variants; filled: outside the gene's own permutation 95% range", seed)
 
   var_tbl <- summary_tbl[gene_set %in% c("chr21 assessable", control_set)]
   var_tbl[, var_f := factor(variant_set, levels = unique(summary_tbl$variant_set))]
