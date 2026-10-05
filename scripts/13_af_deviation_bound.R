@@ -34,7 +34,7 @@
 #   - tables/deseq2_all_genes_ploidy_normalized.csv (lfcSE)
 #   - tables/t21_dosage_per_variant.csv (within-T21 fits, GTEx/gnomAD AF)
 #   - processed/genotypes_filtered.csv, processed/analysis_cohort.csv
-#   - data/chr21_ctrl_PASS.csv (the 14 genotyped HTP controls)
+#   - the run's control PASS file, run$genotypes$ctrl (the 14 genotyped HTP controls)
 # Outputs (per run):
 #   - tables/af_deviation_bound_variants.csv   every (gene, cis variant)
 #   - tables/af_deviation_bound_genes.csv      per gene: best variant + max over variants
@@ -84,7 +84,7 @@ cat(sprintf("  Tested deviating genes: %d\n", nrow(dev)))
 
 fits <- fread(run$table("t21_dosage_per_variant.csv"))
 fits <- fits[Gene_name %in% dev$Gene_name & !is.na(t21_slope),
-             .(Gene_name, variant_id, POS, REF, ALT, t21_n, t21_slope, t21_se, t21_t, t21_p,
+             .(Gene_name, variant_id, POS, REF, ALT, t21_n, t21_df, t21_slope, t21_se, t21_t, t21_p,
                gtex_af, gnomad_af, gnomad_af_nfe)]
 cat(sprintf("  (gene, variant) fits: %d over %d variants\n", nrow(fits), uniqueN(fits$variant_id)))
 
@@ -114,9 +114,10 @@ t21_af <- data.table(variant_id = rownames(D),
 # STEP 4: The 14 genotyped HTP controls (small; a within-study check only)
 # =============================================================================
 
-ctrl_hdr  <- names(fread("data/chr21_ctrl_PASS.csv", nrows = 0))
+cat(sprintf("  Control genotypes: %s\n", run$genotypes$ctrl))
+ctrl_hdr  <- names(fread(run$genotypes$ctrl, nrows = 0))
 ctrl_ids  <- setdiff(ctrl_hdr, c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"))
-ctrl <- fread("data/chr21_ctrl_PASS.csv", select = c("POS", "REF", "ALT", ctrl_ids))
+ctrl <- fread(run$genotypes$ctrl, select = c("POS", "REF", "ALT", ctrl_ids))
 ctrl <- ctrl[POS %in% fits$POS]
 ctrl_gt <- as.matrix(ctrl[, ..ctrl_ids])
 ctrl_gt <- sub(":.*$", "", ctrl_gt)                              # GT field only
@@ -157,14 +158,15 @@ fwrite(background[, primary := reference == PRIMARY], run$table("af_reference_ba
 # STEP 6: Predicted shift, reachable bound and within-T21 R2 per (gene, variant)
 # =============================================================================
 
-vt <- merge(fits[, .(Gene_name, variant_id, t21_n, t21_slope, t21_se, t21_t, t21_p)],
+vt <- merge(fits[, .(Gene_name, variant_id, t21_n, t21_df, t21_slope, t21_se, t21_t, t21_p)],
             vars, by = "variant_id")
 vt <- merge(vt, dev[, .(Gene_name, deviation, best_variant)], by = "Gene_name")
 vt[, p_ref := get(PRIMARY)]
 vt <- vt[!is.na(p_ref)]
 vt[, `:=`(delta_af = t21_af - p_ref,
           r = allelic_r_from_slope(t21_slope, T21_CHR21_PLOIDY),
-          r2_within_t21 = r2_from_t(t21_t, t21_n))]
+          # partial R-squared of the variant given the run's covariates
+          r2_within_t21 = r2_from_t(t21_t, t21_df))]
 vt[, pred_shift := predicted_group_shift(r, t21_af, p_ref)]
 
 # Uncertainty of the predicted shift: slope drawn from its sampling

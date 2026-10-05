@@ -89,3 +89,38 @@ attribution <- function(y, karyotype, X) {
   data.frame(term = colnames(X), coef = b, group_diff = unname(d),
              contribution = b * unname(d), stringsAsFactors = FALSE)
 }
+
+#' The run's covariates as a numeric matrix (no intercept), one row per row of
+#' `cohort`: model.matrix() dummies for the metadata covariates
+#' (run$covariates) and, in composition runs, the cell fractions of
+#' processed/composition_fractions.csv matched by LabID. The same covariates
+#' script 01 removes from expression; the within-T21 fits project them out of
+#' genotype too. NULL when the run has none.
+run_covariate_matrix <- function(run, cohort) {
+  cohort <- as.data.frame(cohort)
+  X <- NULL
+  if (length(run$covariates)) {
+    vals <- cohort[, run$covariates, drop = FALSE]
+    if (anyNA(vals)) stop("missing covariate values in the cohort", call. = FALSE)
+    X <- stats::model.matrix(~ ., vals)[, -1, drop = FALSE]
+  }
+  if (!is.null(run$composition)) {
+    comp <- data.table::fread(run$processed("composition_fractions.csv"))
+    rows <- match(cohort$LabID, comp$LabID)
+    if (anyNA(rows)) stop("cohort samples without composition fractions", call. = FALSE)
+    X <- cbind(X, as.matrix(comp[rows, setdiff(names(comp), "LabID"), with = FALSE]))
+  }
+  if (!is.null(X) && anyNA(X)) stop("missing covariate values in the cohort", call. = FALSE)
+  X
+}
+
+#' Display labels for run covariates (columns of run_covariate_matrix): plain
+#' names for the metadata dummies, and Greek letters spelled out, because the
+#' default pdf() device cannot draw them and cairo is not available on every
+#' machine here (scripts/07_three_panel_figure.R).
+display_covariate <- function(x) {
+  x <- sub("^Age_at_visit$", "Age", x)
+  x <- sub("^SexMale$", "Sex (male)", x)
+  x <- sub("^Sample_source", "Source: ", x)
+  gsub("\u03b3\u03b4", "gamma-delta", x)
+}

@@ -4,10 +4,10 @@ base_cfg <- function() list(
   thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5),
                     deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30,
                     fdr_gene = 0.05, gtex_pval_keep = 1e-4,
-                    outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6, positive_egene_qval = 0.05, positive_min_separation = 1e6, positive_dev_separation = 1e5, positive_min_variants = 10, n_decoy_sets = 5, decoy_min_maf = 0.05))
+                    outlier_fdr = 0.10, alpha_repro = 0.05, distal_min_distance = 5e6, distal_min_maf = 0.05))
 
 cfg_text <- function(name) sprintf(
-  'list(name = "%s", covariates = character(0), composition = NULL, exclude = list(), ploidy = 1.5, thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5), deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30, fdr_gene = 0.05, gtex_pval_keep = 1e-4, outlier_fdr = 0.10, alpha_repro = 0.05, n_positive_controls = 10, decoy_min_distance = 5e6, positive_egene_qval = 0.05, positive_min_separation = 1e6, positive_dev_separation = 1e5, positive_min_variants = 10, n_decoy_sets = 5, decoy_min_maf = 0.05))',
+  'list(name = "%s", covariates = character(0), composition = NULL, exclude = list(), ploidy = 1.5, thresholds = list(alpha_de = 0.01, deviation_lfc = log2(1.5), deviation_lfc_t2 = log2(4/3), low_expr_basemean = 30, fdr_gene = 0.05, gtex_pval_keep = 1e-4, outlier_fdr = 0.10, alpha_repro = 0.05, distal_min_distance = 5e6, distal_min_maf = 0.05))',
   name)
 
 make_root <- function(names) {
@@ -75,4 +75,18 @@ test_that("run$expression reads the artifact as a genes x samples matrix", {
   expect_equal(dim(E), c(2, 2))
   expect_equal(rownames(E), c("A", "B"))
   expect_equal(unname(E["B", "s2"]), 4)
+})
+
+test_that("genotype files default to the shared PASS files and a run may override one", {
+  root <- make_root("g")
+  run <- load_run(c("--run", "g"), root = root)
+  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/chr21_ctrl_PASS_merged.csv"))
+  writeLines(sub("ploidy = 1.5,", 'ploidy = 1.5, genotypes = list(ctrl = "data/other_ctrl.csv"),', cfg_text("h"), fixed = TRUE),
+             file.path(root, "config", "runs", "h.R"))
+  run <- load_run(c("--run", "h"), root = root)
+  expect_equal(run$genotypes, list(t21 = "data/chr21_ds_PASS.csv", ctrl = "data/other_ctrl.csv"))
+  bad <- base_cfg(); bad$genotypes <- list(controls = "x.csv")
+  expect_error(validate_run_config(bad), "run config: unknown genotype file controls")
+  bad <- base_cfg(); bad$genotypes <- list(ctrl = c("a.csv", "b.csv"))
+  expect_error(validate_run_config(bad), "run config: genotype file ctrl must be one path")
 })

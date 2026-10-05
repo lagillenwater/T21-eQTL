@@ -84,3 +84,145 @@ test_that("expr_from_matrix aligns artifact rows to subject ids without re-loggi
   expect_equal(expr_from_matrix("GENEA", c("HTP0003", "HTP0001", "HTP0999"), E, meta), c(3.5, 1.5, NA))
   expect_true(all(is.na(expr_from_matrix("NOPE", "HTP0001", E, meta))))
 })
+
+# --- covariates on both sides (genotype-side adjustment) ----------------------
+
+sim_cov <- function(n, m, seed) {
+  set.seed(seed)
+  C <- cbind(age = rnorm(n), male = rbinom(n, 1, 0.5), frac = runif(n))
+  G <- matrix(rbinom(n * m, 3, 0.3), ncol = m) + round(C[, "frac"] * 0)   # integer dosages
+  G[, 1] <- pmin(3, G[, 1] + (C[, "frac"] > 0.6))                         # one variant tracks a covariate
+  list(C = C, G = G)
+}
+
+test_that("fit_variants with covariates matches lm(e ~ g + C) for every variant", {
+  s <- sim_cov(n = 160, m = 4, seed = 21)
+  e <- 0.5 * s$G[, 2] + s$C %*% c(0.8, -0.4, 1.5) + rnorm(160)
+  got <- fit_variants(s$G, as.vector(e), covariates = s$C)
+  ref <- t(vapply(seq_len(4), function(j)
+    summary(lm(e ~ s$G[, j] + s$C))$coefficients[2, c(1, 2, 4)], numeric(3)))
+  expect_equal(got$slope, unname(ref[, 1]), tolerance = 1e-8)
+  expect_equal(got$se,    unname(ref[, 2]), tolerance = 1e-8)
+  expect_equal(got$p,     unname(ref[, 3]), tolerance = 1e-8)
+})
+
+test_that("fit_variants returns NA for a variant the covariates explain completely", {
+  s <- sim_cov(n = 100, m = 2, seed = 22)
+  C <- cbind(s$C, s$G[, 2])
+  got <- fit_variants(s$G, rnorm(100), covariates = C)
+  expect_false(is.na(got$p[1]))
+  expect_true(is.na(got$p[2]))
+})
+
+test_that("fit_variants refuses missing values when covariates are given", {
+  s <- sim_cov(n = 50, m = 2, seed = 23)
+  e <- rnorm(50); e[3] <- NA
+  expect_error(fit_variants(s$G, e, covariates = s$C), "missing")
+})
+
+test_that("min_p_columns is the per-column minimum of fit_variants p", {
+  s <- sim_cov(n = 120, m = 5, seed = 24)
+  Y <- matrix(rnorm(120 * 3), ncol = 3)
+  for (C in list(NULL, s$C)) {
+    ref <- apply(Y, 2, function(y) min(fit_variants(s$G, y, covariates = C)$p, na.rm = TRUE))
+    expect_equal(min_p_columns(s$G, Y, covariates = C), ref, tolerance = 1e-10)
+  }
+})
+
+test_that("perm_min_p without covariates is unchanged by the refactor", {
+  set.seed(25)
+  n <- 90
+  G <- matrix(rbinom(n * 6, 3, 0.3), ncol = 6)
+  e <- rnorm(n)
+  # the pre-refactor computation, inline
+  set.seed(31)
+  E   <- matrix(e[as.vector(replicate(40, sample.int(n)))], nrow = n)
+  Gc  <- center_cols(G); Sgg <- colSums(Gc^2)
+  Ec  <- sweep(E, 2, colMeans(E), "-")
+  Sge <- crossprod(Gc, Ec)
+  See <- matrix(colSums(Ec^2), nrow = nrow(Sge), ncol = 40, byrow = TRUE)
+  P   <- 2 * pt(-abs((Sge / Sgg) / sqrt(((See - Sge^2 / Sgg) / (n - 2)) / Sgg)), df = n - 2)
+  expect_equal(perm_min_p(G, e, n_perm = 40, seed = 31), apply(P, 2, min))
+})
+
+test_that("perm_min_p with covariates permutes the residualised expression", {
+  s <- sim_cov(n = 110, m = 4, seed = 26)
+  e <- rnorm(110) + s$C[, 1]
+  got <- perm_min_p(s$G, e, n_perm = 30, seed = 3, covariates = s$C)
+  e_res <- as.vector(project_out(matrix(e), s$C))
+  set.seed(3)
+  E <- matrix(e_res[as.vector(replicate(30, sample.int(110)))], nrow = 110)
+  expect_equal(got, min_p_columns(s$G, E, covariates = s$C), tolerance = 1e-10)
+})
+
+# Moved from test-eqtl-controls.R when the standalone controls were retired.
+library(data.table)
+
+# --- gene_tss -----------------------------------------------------------------
+
+test_that("gene_tss recovers the TSS as position minus tss_distance, per gene", {
+  ap <- data.table(ensembl_stable = c("g1", "g1", "g2"),
+                   POS = c(1000L, 1500L, 9000L),
+                   tss_distance = c(-200L, 300L, 1000L))
+  got <- gene_tss(ap)
+  expect_equal(got[ensembl_stable == "g1", tss], 1200)
+  expect_equal(got[ensembl_stable == "g2", tss], 8000)
+})
+
+# --- gene_level_tests -----------------------------------------------------------
+
+sim_genotypes <- function(n, m, seed) {
+  set.seed(seed)
+  G <- matrix(rbinom(n * m, 3, 0.3), nrow = n)
+  colnames(G) <- paste0("v", seq_len(m))
+  G
+}
+
+test_that("gene_level_tests detects a spiked cis effect and not a null gene", {
+  G <- sim_genotypes(n = 200, m = 6, seed = 1)
+  set.seed(2)
+  e_signal <- 0.8 * G[, "v3"] + rnorm(200)
+  e_null   <- rnorm(200)
+  expr_of  <- function(g) if (g == "SIG") e_signal else e_null
+  variants_of <- list(SIG = colnames(G), NUL = colnames(G))
+  got <- gene_level_tests(c("SIG", "NUL"), variants_of, G, expr_of,
+                          n_perm = 200, seed_base = 100L, fdr = 0.05)
+  expect_equal(got$Gene_name, c("SIG", "NUL"))
+  expect_equal(got[Gene_name == "SIG", best_variant], "v3")
+  expect_true(got[Gene_name == "SIG", detected])
+  expect_false(got[Gene_name == "NUL", detected])
+  expect_equal(got$n_variants, c(6L, 6L))
+})
+
+test_that("gene_level_tests emits an all-NA row for a gene with no usable variants", {
+  G <- sim_genotypes(n = 50, m = 2, seed = 3)
+  got <- gene_level_tests("X", list(X = character(0)), G, function(g) rnorm(50),
+                          n_perm = 50, seed_base = 1L, fdr = 0.05)
+  expect_equal(got$n_variants, 0L)
+  expect_true(is.na(got$p_gene_perm))
+  expect_false(got$detected)
+})
+
+test_that("gene_level_tests is reproducible for a fixed seed_base", {
+  G <- sim_genotypes(n = 80, m = 4, seed = 4)
+  set.seed(5); e <- rnorm(80)
+  a <- gene_level_tests("A", list(A = colnames(G)), G, function(g) e,
+                        n_perm = 100, seed_base = 7L, fdr = 0.05)
+  b <- gene_level_tests("A", list(A = colnames(G)), G, function(g) e,
+                        n_perm = 100, seed_base = 7L, fdr = 0.05)
+  expect_equal(a$p_gene_perm, b$p_gene_perm)
+})
+
+test_that("gene_level_tests passes covariates to the observed fit", {
+  set.seed(41)
+  n <- 150
+  C <- cbind(rnorm(n), rnorm(n))
+  G <- matrix(rbinom(n * 5, 3, 0.3), nrow = n); colnames(G) <- paste0("v", 1:5)
+  e <- 0.4 * G[, 2] + C %*% c(1, -1) + rnorm(n)
+  got <- gene_level_tests("A", list(A = colnames(G)), G, function(g) as.vector(e),
+                          n_perm = 50, seed_base = 1L, fdr = 0.05, covariates = C)
+  expect_equal(got$min_p_obs, min(fit_variants(G, as.vector(e), covariates = C)$p))
+  base <- gene_level_tests("A", list(A = colnames(G)), G, function(g) as.vector(e),
+                           n_perm = 50, seed_base = 1L, fdr = 0.05)
+  expect_equal(base$min_p_obs, min(fit_variants(G, as.vector(e))$p))
+})

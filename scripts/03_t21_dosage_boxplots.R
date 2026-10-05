@@ -3,11 +3,12 @@
 # Purpose: Within-T21 cis-eQTL test. For each target gene, regress expression
 #          on alt-allele dosage in T21 subjects only (per variant), re-express
 #          every slope per copy of the minor allele in the reference
-#          population (scripts/lib/alleles.R), run the
-#          gene-level permutation test that classifies the gene, and run the
-#          standalone negative and positive controls of that test. The
-#          representative supportive variant per gene is kept as a legacy
-#          table.
+#          population (scripts/lib/alleles.R), and run the gene-level
+#          permutation test that classifies the gene. The representative
+#          supportive variant per gene is kept as a legacy table. The test's
+#          reference sets are elsewhere: every Expected-dosage gene through
+#          the same test (script 16), spike-in power per gene (script 15),
+#          and distal variants as the negative control (script 17).
 #
 # Usage:  Rscript scripts/03_t21_dosage_boxplots.R --run <name>
 #
@@ -25,10 +26,6 @@
 #   - <run>/tables/eqtl_allele_alignment.csv        (minor-allele reference
 #                                                    per variant, three populations)
 #   - <run>/tables/eqtl_gene_level_perm.csv         (the classification test)
-#   - <run>/tables/eqtl_control_negative.csv        (decoy variant sets, one row
-#                                                    per gene and set)
-#   - <run>/tables/eqtl_control_positive.csv        (matched GTEx eGenes)
-#   - <run>/tables/eqtl_controls_summary.csv
 #   - <run>/tables/t21_representative_variants.csv  (legacy, archive/14)
 #   - <run>/tables/t21_dosage_session_info.txt
 #   Per-gene dosage panels are drawn by scripts/11_eqtl_figures.R from these
@@ -42,8 +39,8 @@ suppressPackageStartupMessages({
 })
 
 source("scripts/lib/eqtl_fit.R")
-source("scripts/lib/eqtl_controls.R")
 source("scripts/lib/alleles.R")   # minor-allele referencing of slopes and dosage
+source("scripts/lib/covariates.R") # run_covariate_matrix: genotype-side adjustment
 source("scripts/lib/run.R"); run <- load_run()
 
 set.seed(42)
@@ -70,6 +67,17 @@ E       <- run$expression()
 geno_t21 <- geno[karyotype == "T21" & !is.na(alt_dosage)]
 meta_t21 <- meta[Karyotype == "T21"]
 meta_t21[, subject_id := sub("[A-Z][0-9]*$", "", LabID)]
+
+# The run's covariates (the same ones script 01 removed from expression),
+# one row per T21 subject. Every within-T21 fit below projects them out of
+# genotype as well as expression, so each fit is expression ~ dosage +
+# covariates on n - 2 - k residual df. NULL in a run without covariates.
+stopifnot(!anyDuplicated(meta_t21$subject_id))
+COV <- run_covariate_matrix(run, meta_t21)
+if (!is.null(COV)) rownames(COV) <- meta_t21$subject_id
+cov_rows <- function(subjects) if (is.null(COV)) NULL else COV[subjects, , drop = FALSE]
+K_COV <- if (is.null(COV)) 0L else covariate_rank(COV)
+cat(sprintf("  Covariates projected out of genotype and expression: %d\n", K_COV))
 
 # Subject -> LabID used in count matrix (T21 only)
 subj_to_labid <- setNames(meta_t21$LabID, meta_t21$subject_id)
@@ -151,11 +159,12 @@ fit_table <- geno_expr[, {
   y <- expr
   n <- .N
   if (n < 5 || var(x) == 0) {
-    .(t21_n = n, t21_slope = NA_real_, t21_se = NA_real_,
+    .(t21_n = n, t21_df = n - 2L - K_COV, t21_slope = NA_real_, t21_se = NA_real_,
       t21_t = NA_real_, t21_p = NA_real_)
   } else {
-    fit <- fit_variants(matrix(x, ncol = 1), y)
+    fit <- fit_variants(matrix(x, ncol = 1), y, covariates = cov_rows(subject_id))
     .(t21_n     = n,
+      t21_df    = n - 2L - K_COV,
       t21_slope = fit$slope[1],
       t21_se    = fit$se[1],
       t21_t     = fit$t[1],
@@ -198,12 +207,6 @@ htp_af[, `:=`(htp_maf = maf_from_af(htp_alt_af), htp_alt_is_minor = alt_is_minor
 fit_table <- merge(fit_table, htp_af, by = "variant_id", all.x = TRUE)
 fit_table[, htp_concordant := minor_allele_agrees(gtex_af, htp_alt_af)]
 
-# Positive-control genes (script 02) ride along in the fits for the control
-# test below but stay out of every main-result table: script 04 reads
-# t21_dosage_per_variant.csv for its locus-level columns.
-fit_pos   <- fit_table[gene_set == "positive_control"]
-fit_table <- fit_table[gene_set != "positive_control"]
-
 cat(sprintf("  Variants tested: %d  Supportive: %d\n",
             nrow(fit_table), sum(fit_table$supportive, na.rm = TRUE)))
 
@@ -217,7 +220,7 @@ stopifnot(file.exists(run$table("t21_dosage_per_variant.csv")))
 # frequency sits near 0.5 in one population and across it in another, so the
 # reported direction depends on which population is used; the flags make that
 # visible instead of leaving it inside one column.
-align_qc <- unique(rbind(fit_table, fit_pos)[
+align_qc <- unique(fit_table[
   , .(variant_id, POS, REF, ALT, minor_allele, major_allele, alt_is_minor, maf_tie,
       gtex_af, gtex_maf, gnomad_af, gnomad_af_nfe, gnomad_maf, gnomad_alt_is_minor,
       gnomad_filter, htp_alt_af, htp_maf, htp_alt_is_minor,
@@ -243,12 +246,11 @@ cat("  Wrote", run$table("eqtl_allele_alignment.csv"), "\n")
 # builds the null of the BEST variant, handling multiplicity and LD together.
 # Unlike picking the lead variant this does not assume the top association is
 # causal - in LD the lead variant is frequently only a tag.
-# The runner (scripts/lib/eqtl_controls.R::gene_level_tests) is shared with
-# the two standalone controls below, so all three sets get the identical test.
+# The runner (scripts/lib/eqtl_fit.R::gene_level_tests) is shared with
+# script 16, so the Expected-dosage genes get the identical test.
 
 N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "1000"))
 FDR_GENE <- run$thresholds$fdr_gene
-DECOY_MIN_DISTANCE <- run$thresholds$decoy_min_distance
 cat(sprintf("\n=== Gene-level permutation (%d permutations) ===\n", N_PERM))
 
 gwide <- dcast(geno_t21, subject_id ~ variant_id, value.var = "alt_dosage")
@@ -259,7 +261,8 @@ variants_of <- split(fit_table$variant_id, fit_table$Gene_name)
 expr_of     <- function(g) expr_from_matrix(g, subj, E, meta_t21)
 
 perm_res <- gene_level_tests(de_genes, variants_of, G_all, expr_of,
-                             n_perm = N_PERM, seed_base = 2026L, fdr = FDR_GENE)
+                             n_perm = N_PERM, seed_base = 2026L, fdr = FDR_GENE,
+                             covariates = cov_rows(subj))
 setnames(perm_res, "detected", "cis_eqtl_detected")
 setorder(perm_res, p_gene_perm)
 print(as.data.frame(perm_res))
@@ -269,95 +272,6 @@ if (!file.exists(run$table("eqtl_gene_level_perm.csv"))) {
   stop("failed to write ", run$table("eqtl_gene_level_perm.csv"))
 }
 cat("  Wrote", run$table("eqtl_gene_level_perm.csv"), "\n")
-
-# =============================================================================
-# STANDALONE CONTROLS for the gene-level test
-# =============================================================================
-# Negative: each deviating gene's expression against several cis variant sets
-# of other tested genes at least DECOY_MIN_DISTANCE away (no LD with its own
-# locus), closest variant counts first, common variants only. Real genotypes,
-# the same subjects, the same test; the detection rate over all decoy tests
-# is the null rate of the best-variant search.
-# Positive: GTEx whole-blood eGenes matched to the deviating genes on allelic
-# fold change and expression, one per locus, non-deviating, outside GRCh38
-# false duplications (script 02, gene_set == "positive_control"), tested on
-# their own cis variants. Most should be detected; if not, the test lacks
-# power for effects of this size and "tested, not detected" carries no weight.
-
-cat("\n=== Standalone controls ===\n")
-
-# Controls v2: n_decoy_sets decoy sets per deviating gene rather than one,
-# drawn from every tested gene's cis variant set (deviating genes and
-# positive controls alike) at least DECOY_MIN_DISTANCE away, closest variant
-# count first. Decoy variants below decoy_min_maf (GTEx MAF) are dropped, so
-# a decoy "effect" cannot come from a handful of carriers. With k sets per
-# gene the decoys estimate the null detection rate of the best-variant search
-# rather than only illustrating it. Script 11 draws the rank-1 decoy.
-N_DECOY_SETS  <- run$thresholds$n_decoy_sets
-DECOY_MIN_MAF <- run$thresholds$decoy_min_maf
-pos_genes     <- genes[gene_set == "positive_control", Gene_name]
-pos_variants  <- split(fit_pos$variant_id, fit_pos$Gene_name)
-maf_of <- unique(rbind(fit_table[, .(variant_id, gtex_maf)], fit_pos[, .(variant_id, gtex_maf)]), by = "variant_id")
-maf_of <- setNames(maf_of$gtex_maf, maf_of$variant_id)
-common_only <- function(v) v[!is.na(maf_of[v]) & maf_of[v] >= DECOY_MIN_MAF]
-donor_variants <- lapply(c(variants_of, pos_variants), common_only)
-donor_variants <- donor_variants[lengths(donor_variants) > 0]   # a set with no common variant cannot serve
-
-tss_vec   <- genes[Gene_name %in% de_genes & !is.na(tss), setNames(tss, Gene_name)]
-nvar_vec  <- vapply(variants_of[names(tss_vec)], length, integer(1))
-donor_tss <- genes[Gene_name %in% names(donor_variants) & !is.na(tss), setNames(tss, Gene_name)]
-donor_nv  <- vapply(donor_variants[names(donor_tss)], length, integer(1))
-decoys <- assign_decoy_sets(tss_vec, nvar_vec, donor_tss, donor_nv, DECOY_MIN_DISTANCE, N_DECOY_SETS)
-decoys[, key := paste(Gene_name, decoy_gene, sep = "|")]
-decoy_variants <- setNames(lapply(decoys$decoy_gene, function(d) donor_variants[[d]]), decoys$key)
-expr_of_key <- function(k) expr_of(sub("\\|.*$", "", k))
-neg_res <- gene_level_tests(decoys$key, decoy_variants, G_all, expr_of_key,
-                            n_perm = N_PERM, seed_base = 3026L, fdr = FDR_GENE)
-setnames(neg_res, "Gene_name", "key")
-neg_res <- merge(decoys[, .(key, Gene_name, decoy_gene, decoy_rank, distance)], neg_res, by = "key", all.x = TRUE)
-neg_res[is.na(detected), detected := FALSE]
-neg_res[, key := NULL]
-setorder(neg_res, Gene_name, decoy_rank)
-fwrite(neg_res, run$table("eqtl_control_negative.csv"))
-cat(sprintf("  Negative (unlinked decoy variants, %d sets per gene, MAF >= %.2f): %d of %d detected at q < %.2f; %d of %d at nominal permutation p < 0.05\n",
-            N_DECOY_SETS, DECOY_MIN_MAF, sum(neg_res$detected), sum(!is.na(neg_res$p_gene_perm)), FDR_GENE,
-            sum(neg_res$p_gene_perm < 0.05, na.rm = TRUE), sum(!is.na(neg_res$p_gene_perm))))
-print(as.data.frame(neg_res[, .(n_sets = .N, n_variants = paste(range(n_variants), collapse = "-"),
-                                min_p_perm = min(p_gene_perm, na.rm = TRUE),
-                                n_nominal_p05 = sum(p_gene_perm < 0.05, na.rm = TRUE),
-                                n_detected = sum(detected)), by = Gene_name]))
-
-pos_res <- gene_level_tests(pos_genes, pos_variants, G_all, expr_of,
-                            n_perm = N_PERM, seed_base = 4026L, fdr = FDR_GENE)
-pos_res <- merge(genes[gene_set == "positive_control",
-                       .(Gene_name, gtex_min_p, norm_log2FC, norm_padj)],
-                 pos_res, by = "Gene_name")
-setorder(pos_res, gtex_min_p)
-fwrite(pos_res, run$table("eqtl_control_positive.csv"))
-cat(sprintf("  Positive (matched GTEx eGenes, one per locus): %d of %d detected at q < %.2f\n",
-            sum(pos_res$detected), sum(!is.na(pos_res$p_gene_perm)), FDR_GENE))
-print(as.data.frame(pos_res[, .(Gene_name, gtex_min_p = signif(gtex_min_p, 2),
-                                n_variants, p_gene_perm, q_gene_bh, detected)]))
-
-ctrl_summary <- data.table(
-  set         = c("observed_deviating", "negative_unlinked_variants", "positive_gtex_egenes"),
-  n_tested    = c(sum(!is.na(perm_res$p_gene_perm)), sum(!is.na(neg_res$p_gene_perm)),
-                  sum(!is.na(pos_res$p_gene_perm))),
-  n_detected  = c(sum(perm_res$cis_eqtl_detected), sum(neg_res$detected), sum(pos_res$detected)),
-  # Every decoy test is null, so BH should detect none (under a complete null
-  # it holds the chance of any detection to FDR_GENE); only the nominal
-  # p < 0.05 count should run near 5%.
-  expectation = c("the result", "about 0 at q; about 5% at nominal p < 0.05",
-                  "most detected"))
-ctrl_summary[, n_nominal_p05 := c(sum(perm_res$p_gene_perm < 0.05, na.rm = TRUE),
-                                  sum(neg_res$p_gene_perm < 0.05, na.rm = TRUE),
-                                  sum(pos_res$p_gene_perm < 0.05, na.rm = TRUE))]
-ctrl_summary[, pct_detected := round(100 * n_detected / n_tested, 1)]
-fwrite(ctrl_summary, run$table("eqtl_controls_summary.csv"))
-stopifnot(file.exists(run$table("eqtl_control_negative.csv")),
-          file.exists(run$table("eqtl_control_positive.csv")),
-          file.exists(run$table("eqtl_controls_summary.csv")))
-print(as.data.frame(ctrl_summary))
 
 # =============================================================================
 # STEP 4: Pick representative variant per gene (most sig supportive eQTL)
@@ -480,3 +394,11 @@ cat("\n=== Script 03 complete ===\n")
 #             eqtl_controls_summary.csv: about 0 detections at q (BH over an
 #             all-null family), about 5% at nominal p < 0.05; it said "about 5%
 #             (the FDR level)" for the detections (CodeRabbit review, PR #5).
+# 2026-10-05  RETIRED the standalone controls (decoy variant sets, matched
+#             positive eGenes; eqtl_control_negative.csv, eqtl_control_positive.csv,
+#             eqtl_controls_summary.csv). The gene-level test is now read
+#             against every Expected-dosage gene through the same runner
+#             (script 16), at matched GTEx effect size (script 18), with
+#             spike-in power per gene (script 15); the distal-variant scan
+#             (script 17) is the negative control. The observed test is
+#             unchanged: same variants, seeds and BH.

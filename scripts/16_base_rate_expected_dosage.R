@@ -1,7 +1,7 @@
 # 16_base_rate_expected_dosage.R
 #
 # Purpose: Base rate for the cis-eQTL detection result (manuscript review,
-#          concern 2). "7 of 10 deviating genes have a detected cis-eQTL"
+#          concern 2). "N of 10 deviating genes have a detected cis-eQTL"
 #          can only be read against how often the identical test detects one
 #          for a chr21 gene that sits at the expected dosage. This script runs
 #          the same gene-level permutation test (same variant universe, same
@@ -15,7 +15,7 @@
 # Inputs (per run):
 #   - tables/chr21_lane_assignments.csv, eqtl_gene_level_perm.csv
 #   - processed/analysis_cohort.csv, expression_adjusted.csv
-#   - data/GTEx allpairs chr21 parquet, data/chr21_ds_PASS.csv
+#   - data/GTEx allpairs chr21 parquet, the run's T21 PASS file (run$genotypes$t21)
 # Outputs (per run):
 #   - tables/base_rate_expected_dosage.csv        one row per tested gene
 #   - tables/base_rate_summary.csv                 rates: deviating vs expected dosage
@@ -30,7 +30,7 @@ suppressPackageStartupMessages({
 })
 source("scripts/lib/cohort.R")
 source("scripts/lib/eqtl_fit.R")
-source("scripts/lib/eqtl_controls.R")
+source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 
 N_PERM   <- as.integer(Sys.getenv("T21_N_PERM", "1000"))
@@ -67,8 +67,8 @@ if (file.exists(geno_out)) {
 } else {
   pos_tmp <- tempfile(fileext = ".txt"); writeLines(as.character(unique(tv$POS)), pos_tmp)
   awk_cmd <- sprintf(paste0("awk -F',' 'BEGIN{while((getline l < \"%s\")>0) p[l]=1} ",
-                            "NR==1 || ($2 in p)' %s"), pos_tmp, "data/chr21_ds_PASS.csv")
-  cat("  Streaming data/chr21_ds_PASS.csv ...\n")
+                            "NR==1 || ($2 in p)' %s"), pos_tmp, run$genotypes$t21)
+  cat(sprintf("  Streaming %s ...\n", run$genotypes$t21))
   dt <- fread(cmd = awk_cmd, sep = ",", header = TRUE, showProgress = FALSE)
   meta_cols <- c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT")
   geno_cols <- setdiff(names(dt), meta_cols)
@@ -90,6 +90,9 @@ subj  <- gwide$subject_id
 G_all <- as.matrix(gwide[, -1])
 E     <- run$expression()
 expr_of <- function(g) expr_from_matrix(g, subj, E, t21)
+# Script 03's test: the run's covariates projected out of genotype and expression.
+COV <- run_covariate_matrix(run, t21)
+if (!is.null(COV)) { rownames(COV) <- t21$subject_id; COV <- COV[subj, , drop = FALSE] }
 variants_of <- split(tv$variant_id, tv$Gene_name)
 genes <- names(variants_of)
 genes <- genes[genes %in% rownames(E)]
@@ -101,7 +104,8 @@ chunks <- split(genes, ceiling(seq_along(genes) / CHUNK))
 t0 <- Sys.time()
 for (i in seq_along(chunks)) {
   res <- gene_level_tests(chunks[[i]], variants_of, G_all, expr_of,
-                          n_perm = N_PERM, seed_base = 5026L + (i - 1L) * CHUNK, fdr = th$fdr_gene)
+                          n_perm = N_PERM, seed_base = 5026L + (i - 1L) * CHUNK, fdr = th$fdr_gene,
+                          covariates = COV)
   res[, c("q_gene_bh", "detected") := NULL]
   fwrite(res, out_path, append = file.exists(out_path))
   cat(sprintf("  chunk %d/%d done (%d genes, %.1f min elapsed)\n", i, length(chunks),

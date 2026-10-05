@@ -141,7 +141,8 @@ if (!dir.exists("results/tables")) {
 # WGS roster from the PASS file headers only - cheap, and needed here because
 # script 01 must run DE on the analysis cohort, before script 02 processes any
 # genotypes.
-wgs <- wgs_subjects(c("data/chr21_ds_PASS.csv", "data/chr21_ctrl_PASS.csv"))
+# Headers only: which subjects carry chr21 genotypes (RUN_GENOTYPES, scripts/lib/run.R).
+wgs <- wgs_subjects(c("data/chr21_ds_PASS.csv", "data/chr21_ctrl_PASS_merged.csv"))
 cat(sprintf("  Subjects with chr21 WGS (from headers): %d\n", length(wgs)))
 
 metadata_matched <- metadata_matched %>%

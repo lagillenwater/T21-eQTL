@@ -73,7 +73,7 @@ under permutation of genotype-to-expression assignment, giving
 `p_gene_perm`; BH-adjusted across deviating genes to `q_gene_bh`, with
 `eqtl_lane = cis_eqtl` when `q_gene_bh < FDR_GENE` (0.05).
 
-### Standalone controls for the eQTL test (2026-09-10)
+### Standalone controls for the eQTL test (2026-09-10; retired 2026-10-05)
 
 The permutation null inside the gene-level test shuffles expression across
 subjects, which is a negative-control operation, but it is the machinery
@@ -354,7 +354,7 @@ independent), and an independent null called almost any partner shift
 significant. `partner_p()` reports the one-sided empirical p as
 `(1 + k) / (n_draw + 1)`, so it is never exactly 0.
 
-### eQTL controls v2: matched positive controls, several decoy sets per gene (2026-09-30)
+### eQTL controls v2: matched positive controls, several decoy sets per gene (2026-09-30; retired 2026-10-05)
 
 Both standalone controls of the gene-level test were rebuilt after a
 review of what the first versions showed.
@@ -438,6 +438,234 @@ Expected-dosage genes in the deviating genes' baseMean range. Having a
 detectable cis-eQTL is the norm for an expressed chr21 gene in this
 cohort and does not distinguish the deviating genes. This is the control
 the manuscript's "7 of 10" needs beside it.
+
+### Genotype structure measured directly: distal-variant inflation (2026-10-02)
+
+Manuscript issue #32: the decoy control (50 tests on 10 genes' expression)
+cannot measure calibration, so the structure is measured directly
+(script 17, `scripts/lib/inflation.R`). Each run's T21 expression of every
+assessable chr21 gene (153: not repeat-flagged, not low expression) is
+regressed on every common chr21 variant (T21 MAF >= 0.05, call rate >=
+0.95; 111,101 variants) at least 5 Mb from the gene's TSS, one OLS fit per
+pair (13.1 million), no permutation in the test. Two references read
+lambda:
+
+- **HSA22 genes** (400, target biotypes, baseMean >= 30) on the same
+  variants: ancestry or recruitment inflates them as much as chr21 genes;
+  a chr21-only excess would point at chr21 copy number.
+- **200 joint subject permutations**, which keep co-expression and LD, so
+  their spread is the sampling spread of lambda under these correlated
+  tests: about +/- 0.03 for a gene set, 0.88 to 1.15 for one gene. "Near
+  1" means inside that range.
+
+Results (`tables/distal_inflation_summary.csv`, figure S3):
+
+| run | chr21 assessable | chr21 deviating | chr22 reference |
+|---|---|---|---|
+| baseline (302 T21) | 1.058 (perm 0.962-1.039, p 0.015) | 1.069 (23 genes, p 0.005) | 1.035 (p 0.035) |
+| adjusted (274 T21) | 1.013 (perm 0.971-1.030, p 0.24) | 1.024 (13 genes, p 0.09) | 1.008 (p 0.30) |
+
+- **Baseline is inflated, genome-wide.** chr22 genes as well as chr21
+  genes; dropping the 9 mosaic subjects leaves chr21 lambda at 1.053;
+  33 chr21 genes sit above their own permutation 95th percentile against
+  a permutation median of 6 (95th 20; p 0.015), among them baseline
+  deviating genes TSPEAR (1.48), YBEY, COL6A2 and PDE9A (1.18-1.20).
+- **The adjusted run is inside the permutation range.** The covariates do
+  it, not the subject set: baseline expression on the adjusted run's 274
+  subjects still gives 1.056 (one-off check, observed lambda only);
+  projecting out sample source alone gives 1.039, cell fractions alone
+  1.028, all 24 covariates 1.011. No deviating gene of the adjusted run is
+  outside its own range (ABCC13 1.09, perm p 0.09; COL6A2 1.15, perm p
+  0.03, 1 of 13). The 11 genes past the magnitude cut but not significant
+  give 1.07 (above every permutation), led by TSPEAR.
+- **The covariates carry the structure.** Regressing each adjusted-run
+  covariate on every common chr21 variant
+  (`tables/distal_inflation_covariates.csv`): 5 of 24 sit above their own
+  permutation 95th percentile against a permutation median of 1 (95th 4;
+  p 0.025): NDSC2019 recruitment (1.17), CD27+ B (1.21), CD4+ TCM (1.17),
+  CD27- B and ABC (1.14). No locus explains a cell fraction tracking
+  genotype across a whole chromosome; ancestry or recruitment does. The
+  adjustment removes the structure by proxy, not by design.
+- **The extreme tail is a mapping artifact.** 75 of the 209 pairs at
+  p < 1e-6 pair GATD3A, PWP2, SIK1 or ICOSLG with short-arm variants at
+  5.0-6.1 Mb, the GRCh38 false duplications of 21q22.3: their own cis
+  signal at a false coordinate. lambda is a median and does not move;
+  the q-arm-only rows of the summary give the same reading.
+- **Rank inverse-normal expression** changes nothing (adjusted 1.015), so
+  the inflation is not from outlying expression.
+
+Genotype PCs are the direct control and are moved to the journal version
+(design: Alpine, genome-wide genotypes from the CRAMs, chr21 excluded;
+`docs/superpowers/specs/2026-10-02-genotype-pcs-design.md`, local). In the
+meantime the within-T21 fits adjust the genotype side for the same
+covariates as expression (next entry).
+
+### Covariates on the genotype side of the within-T21 fits (2026-10-02)
+
+Until now the run's covariates were removed from expression only (script
+01's artifact) and genotype dosage entered the within-T21 fits as is
+(Milton, manuscript #31: tensorQTL regresses covariates out of both).
+Every within-T21 fit now projects the run's covariates
+(`run_covariate_matrix`, the same 24 columns script 01 removes) out of
+genotype and expression alike (Frisch-Waugh-Lovell), so each fit is
+expression ~ dosage + covariates on n - 2 - k df (k = 24, df = 248 for
+274 subjects); the permutation null permutes residualised expression and
+refits the same way. Scripts 03 (test and both controls), 11, 13 (partial
+R-squared), 14 (fitted jointly with the aFC curve), 15, 16 and 17.
+Baseline has no covariates and its regenerated tables are identical to
+the previous ones (checked table by table; only the new `t21_df` column
+differs). Adjusted run, before (expression side only, archived in
+`results/archive/2026-10-02_adjusted_expression_side/`) and after:
+
+| | before | after |
+|---|---|---|
+| deviating genes detected | 7 of 10 | 8 of 10 |
+| ABCC13 | p 0.049, q 0.061 | p 0.027, q 0.034, detected |
+| BACE2, OLIG2 | q 0.30, 0.38 | q 0.33, 0.40 |
+| negatives at FDR 0.05 / nominal p < 0.05 | 0 / 6 of 50 | 0 / 7 of 50 |
+| matched positives detected | 8 of 10 | 8 of 10 |
+| base rate, Expected-dosage genes | 56 of 99 | 59 of 99 (Fisher vs deviating p 0.31) |
+| dosage panels reproducing GTEx direction | 20 of 20 | 19 of 20 (NRIP1, an undetected positive control) |
+| distal lambda, chr21 assessable / deviating / chr22 | 1.013 / 1.024 / 1.008 | 1.011 / 1.013 / 1.009 (all inside permutation range) |
+
+- **ABCC13 crosses q < 0.05, but its decoys move with it.** Three of its
+  five decoy sets reach permutation p 0.019-0.032 (were 0.035-0.043), and
+  its per-gene distal lambda is 1.11 (permutation p 0.045; COL6A2 1.15,
+  p 0.025; 2 of 13 deviating genes above their own range against a
+  calibrated median of 0, p 0.16). ABCC13 expression tracks chr21
+  genotype beyond its own locus, and adjusting genotype for the
+  covariates does not remove that, so the new call is not separable from
+  that structure. Reported as detected at the threshold with this
+  caveat; genotype PCs (journal version) are the direct test, and the
+  tensorQTL rerun (#31) removes the permutation resolution limit.
+- **Everything else stands.** The other nine calls are unchanged; aFC
+  agreement with GTEx is unchanged (deviating genes r 0.898, was 0.901;
+  all 10 same sign); the AF bound still has the observed T21-vs-reference
+  allele-frequency difference predicting under 9% of each deviation.
+  Spike-in power falls slightly with the 24 df spent (ABCC13 0.79 at its
+  GTEx aFC, was 0.81; aFC for 80% power up 0.01-0.04 per gene).
+
+### Inflation scan read on long-arm variants (2026-10-05)
+
+The HSA21 QQ curves ran vertical at the extreme tail. The 40 most
+significant distal pairs are GATD3A, PWP2, SIK1 and ICOSLG (43.4-44.2 Mb)
+against short-arm variants at 5.03-6.13 Mb, the GRCh38 false copies of
+their own region (GATD3B, SIK1B; U2AF1 against U2AF1L5 further down), down
+to p 1e-46; no long-arm pair reaches p < 1e-8. On the short arm and
+pericentromere the distance rule cannot be applied, so script 17 now reads
+per-gene lambda, the gene-excess count and the covariate section on
+long-arm variants (>= 13 Mb; 97,438 of 111,101 common variants;
+`distal_scan(stat_bins =)`), its summary keeps all-variant and long-arm
+rows, and S3 draws the long-arm curves. Excluding the short arm raises
+lambda slightly (adjusted 1.011 to 1.020) rather than lowering it. Current
+numbers, genotype-side adjustment in place:
+
+| | unadjusted (302 T21) | adjusted (274 T21) |
+|---|---|---|
+| chr21 assessable lambda | 1.074 (perm 0.962-1.042, p 0.010) | 1.020 (0.966-1.031, p 0.15) |
+| chr21 deviating lambda | 1.080 (23 genes, p 0.005) | 1.016 (13 genes, p 0.18) |
+| chr22 reference lambda | 1.044 (p 0.020) | 1.017 (p 0.12) |
+| chr21 genes above own range | 40; perm median 6, 95th 18; p 0.010 | 18; median 7, 95th 17; p 0.050 |
+| deviating genes above own range | 5 of 23 (TSPEAR 1.57, YBEY 1.25, COL6A2 1.22, PDE9A 1.17, ...) | 2 of 13 (COL6A2 p 0.020, ABCC13 p 0.025); median 0; p 0.15 |
+
+- Covariates against genotype (long arm): 5 of 24 above their own range
+  against a permutation median of 1 (95th 4; p 0.020): CD27+ B (1.18),
+  CD4+ TCM (1.18), NDSC2019 recruitment (1.16), BMI (1.13), ABC (1.12).
+- The adjusted gene-level count sits at the edge (18 against 7, p 0.050):
+  the set-level lambda is inside its range, but some residual gene-level
+  structure is not excluded. Genotype PCs remain the direct test.
+
+### "Outside its permutation range" means above the 97.5th percentile (2026-10-05)
+
+The S3 figure draws each permutation range as the 2.5th to 97.5th
+percentile, but script 17 flagged a gene or covariate above its own 95th
+percentile, so BMI and ABC were filled while sitting inside their drawn
+bars. One threshold (`OUTSIDE_Q` = 0.975) now serves the flags, the counts
+and the counts' permutation null, and the per-gene permutation lambdas are
+saved (`processed/distal_inflation_perm_gene_lambda.csv`). The counts in the
+long-arm entry above are superseded by:
+
+| | unadjusted (302 T21) | adjusted (274 T21) |
+|---|---|---|
+| chr21 genes outside own range | 26 of 153; perm median 3, 97.5th 13; p 0.010 | 11 of 153; median 3, 97.5th 12; p 0.040 |
+| deviating genes outside own range | 4 of 23 (TSPEAR, YBEY, COL6A2, PDE9A); median 0; p 0.010 | 2 of 13 (COL6A2, ABCC13); median 0; p 0.055 |
+| chr22 genes outside own range | 43 of 400; median 7; p 0.020 | 25 of 400; median 7; p 0.090 |
+| covariates outside own range | - | 3 of 24 (CD27+ B 1.18, CD4+ TCM 1.18, NDSC2019 1.16); median 0, 97.5th 3; p 0.050 |
+
+The set-level lambdas are unchanged. The S3 figure now stacks the HSA21 and
+HSA22 QQ panels at full width, each run's envelope drawn as its two edges,
+with the detrended panel dropped.
+
+### Control genotypes: the merged per-sample call set (2026-10-05)
+
+Manuscript #13. Two chr21 call sets exist for the 14 genotyped controls,
+both from per-sample Octopus calls: the Octopus joint genotyping of the 14
+at their candidate sites (`data/chr21_ctrl_PASS.csv`, Marc's
+`csv/chr21_ctrl.csv`, 178,308 PASS records), which the pipeline had read,
+and the per-sample PASS calls merged with `bcftools merge`, absent calls
+set to reference (`data/chr21_ctrl_PASS_merged.csv`, Marc's
+`csv/chr21_ctrl_PASS.csv`, 189,474 records). The merged set is built the
+way the T21 set is, and its counts are the ones the Methods first gave
+(189,474 records; 142,792 with an SNV, 46,845 with an indel, as
+`verify_callset_counts.R` reproduces with htslib's variant typing). It is
+now the default (`RUN_GENOTYPES`, `scripts/lib/run.R`); runs may name
+other call sets with `genotypes = list(t21 =, ctrl =)`.
+
+Control genotypes enter one place: the HTP-controls reference column of
+the AF bound (script 13), never its primary reference. A full run with the
+merged set (2026-10-05) was identical to `adjusted` in every table but
+that column, which changed at 59 of 2,076 variants (correlation 0.9995;
+median |T21 - controls| 0.0388 to 0.0386); baseline's changed at 91 of
+2,995 rows. Script 02's genotype cache was keyed on positions and subjects
+only and served the old extract after the switch; its key now includes
+each genotype file's path, size and modification time.
+
+### Standalone controls retired; the eQTL test read against every Expected-dosage gene (2026-10-05)
+
+The decoy variant sets and the matched positive eGenes (controls v2,
+above) are retired, with script 14. Each was replaced by a reference that
+uses the whole of chr21 rather than a hand-picked handful:
+
+- **Positive set: every Expected-dosage GTEx eGene.** Script 16 already runs
+  the identical test on every Expected-dosage gene with GTEx cis variants;
+  97 of them are GTEx whole-blood eGenes (q < 0.05). Ten matched controls
+  could only illustrate the test on effects of the deviating genes' size;
+  the 97 measure it. Script 18 fits detection on log2 GTEx |aFC| over that
+  set and reads off each deviating gene's probability at its own aFC.
+  Adjusted run: 8 deviating genes detected against 7.4 expected
+  (Poisson-binomial P(>= 8) = 0.49); odds ratio at matched effect size 1.5
+  (0.3 to 10.5).
+- **Power: spike-in per gene (script 15),** now reported in the main text:
+  1.00 for BACE2 and 0.99 for OLIG2 at their GTEx aFC.
+- **Negative control: the distal-variant scan (script 17).** Every
+  assessable gene against every common chr21 variant at least 5 Mb away
+  measures calibration directly; 50 decoy tests on 10 genes' expression
+  could not (issue #32). Its two thresholds lost their decoy names:
+  `distal_min_distance`, `distal_min_maf`.
+
+**Effect sizes: each dataset's own top variant.** Script 14 compared T21
+and GTEx aFC at the T21 best variant, converting GTEx's slope there with
+its lead variant's aFC-to-slope ratio. The T21 side was the variant the
+T21 test selected, and so carried the winner's curse, while the GTEx side
+at that variant did not. Taking T21 at the GTEx lead instead removes the
+T21 selection but leaves the GTEx lead's own. Script 18 puts both on the
+same footing: T21 aFC at the T21 best variant, signed by GTEx's direction
+at that variant (the two top variants often tag one signal in opposite
+phase), over GTEx |aFC| at its lead. Neither ratio reads as "the share of
+the GTEx effect seen in T21"; both are read only between sets with the
+same selection. Adjusted run, Expected-dosage eGenes with GTEx |aFC| in the
+deviating genes' range (0.32 to 1.39): median ratio 0.73 for the 10
+deviating genes against 0.76 for 49 matched genes (Wilcoxon p = 0.64);
+with T21 also at the GTEx lead, 0.71 against 0.70. BACE2 (0.33) and OLIG2
+(0.36) sit with the undetected Expected-dosage genes.
+
+Removed: `eqtl_control_negative.csv`, `eqtl_control_positive.csv`,
+`eqtl_controls_summary.csv`, `positive_control_matching.csv`, the
+`eqtl_dosage_controls` and `eqtl_effect_sizes` figures, script 14 and its
+tables, `scripts/lib/eqtl_controls.R` (`gene_tss` and `gene_level_tests`
+moved to `eqtl_fit.R`), and the `n_positive_controls`, `positive_*`,
+`n_decoy_sets` thresholds. The deviating genes' test is unchanged: same
+variants, seeds and BH.
 
 ## Legacy GTEx source
 

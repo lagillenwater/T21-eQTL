@@ -1,23 +1,24 @@
 T21-eQTL results summary
 ================
-2026-10-02
+2026-10-05
 
-Rendered at commit `b10d3d3` (the commit checked out when this document
+Rendered at commit `51a0361` (the commit checked out when this document
 was last knitted; `results/` is gitignored, so the outputs themselves
 are not versioned). This document reads:
 
 - `results/runs/baseline/tables/`: `chr21_lane_assignments.csv` (script
   04\) - every number and gene list in the baseline sections;
-  `eqtl_controls_summary.csv` (script 03);
-  `positive_control_matching.csv` (script 02);
-  `eqtl_best_variant_effects.csv` (script 11).
-- `config/runs/baseline.R` - the control thresholds quoted in the text.
+  `base_rate_summary.csv` (script 16); `spike_in_power_genes.csv`
+  (script 15); `distal_inflation_summary.csv` (script 17);
+  `detection_vs_effect_size_summary.csv` and
+  `top_variant_effect_ratio_summary.csv` (script 18).
+- `config/runs/baseline.R` - the thresholds quoted in the text.
 - `results/runs/adjusted/`: `processed/cohort_roster.csv` (script 01);
   `tables/chr21_lane_assignments.csv` (script 04);
   `tables/run_comparison_adjusted_vs_baseline.csv` (script 10).
 - `docs/figures/` - the PNGs embedded under Figures and in the
   adjusted-run section (copies of the outputs of scripts 06, 07, 10, 11,
-  14 and S1), and `Sankey.png`, the SankeyMATIC render of
+  18 and S1), and `Sankey.png`, the SankeyMATIC render of
   `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt` (script
   05).
 
@@ -50,43 +51,42 @@ does not attribute them to a mechanism:
   PAXBP1-AS1, RBM11, TEKT4P2**
 - No GTEx cis coverage, untestable here (3): **AP001610.2, ERG, ZBTB21**
 
-## Controls for the eQTL test
+## Reference sets for the eQTL test
 
-Two standalone gene sets go through the identical gene-level permutation
-test (same runner, 1000 permutations, BH within the set, q \< 0.05).
+The gene-level test is read against references that use the whole of
+chr21 (the standalone decoy and matched positive controls were retired
+on 2026-10-05; `docs/decisions.md`).
 
-**Negative control, unlinked variants.** Each deviating gene’s
-expression is tested against 5 cis variant sets of other tested genes
-(deviating genes and positive controls) whose TSS is at least 5 Mb away,
-so no decoy set can be in LD with the gene’s own locus. Sets with the
-closest variant count are taken first, and decoy variants below GTEx MAF
-0.05 are dropped. Same genotypes, same subjects. Every decoy test is
-null, so BH should detect none (with no true effects it holds the chance
-of any detection to the FDR level), and about 5% of tests should reach
-nominal permutation p \< 0.05.
+**Every Expected-dosage gene (script 16).** The identical test on every
+Expected-dosage gene with GTEx cis variants detects a cis-eQTL for 53 of
+98 (54.1%), against 14 of 20 deviating genes.
 
-**Positive control, matched GTEx eGenes.** Up to one control per tested
-deviating gene, matched in order of decreasing GTEx effect size until
-the one-per-locus rule below has used up the candidates (here 13 of the
-20 tested genes), drawn from the GTEx whole-blood eGenes (q \< 0.0001,
-with at least 10 variants at the GTEx pval cut) among expressed,
-non-repeat, non-deviating chr21 genes: the candidate nearest the
-deviating gene in GTEx allelic fold change and expression level, one per
-locus (TSS at least 1 Mb from every other control and 100 kb from any
-deviating gene), never a gene in a GRCh38 false duplication. Each is
-tested on its own cis variants. Most should be detected; if not, the
-test lacks power for effects of the size it is asked to find.
+**At matched effect size (script 18).** Detection rises with GTEx effect
+size, so the deviating genes are compared with the 96 Expected-dosage
+GTEx eGenes at their own GTEx \|aFC\|: 13.13 detections expected, 14
+observed (Poisson-binomial P(\>= observed) = 0.437; odds ratio at
+matched effect size 1.23, 0.42 to 3.92). Each dataset’s own top cis-eQTL
+effect, T21 aFC at the T21 best variant over GTEx aFC at its lead
+variant, has median 0.75 for the deviating genes and 0.84 for the 65
+Expected-dosage eGenes in the same GTEx \|aFC\| range (Wilcoxon p =
+0.95).
 
-In the baseline run, 0 of 100 decoy tests are detected at q \< 0.05 and
-10 reach nominal p \< 0.05; 11 of 13 matched positive controls are
-detected, beside 14 of 20 tested deviating genes. Both control sets are
-drawn in the effect-size figure, and the detection rates in panel D of
-the T21-versus-GTEx figure.
+**Power (script 15).** Spiking each tested deviating gene’s GTEx aFC
+into its own permuted expression, the test reaches gene-level p \< 0.05
+in 34% to 100% of simulations; 14 of 20 genes are at 80% power or more.
+
+**Negative control (script 17).** Every assessable gene’s expression
+against every common chr21 long-arm variant at least 5 Mb from its TSS:
+lambda 1.0739 for chr21 genes (permutation range 0.9616 to 1.0424) and
+1.0444 for chr22 genes. The baseline run has no covariates, and its
+tests carry genotype structure on both chromosomes; the adjusted run’s
+covariates bring lambda within its permutation range
+(`docs/decisions.md`).
 
 ## Figures
 
 Copies of the pipeline figures, tracked under `docs/figures/`. To
-refresh them, re-run scripts 06, 07, 11, 15, 16, 14 and S1 for each run
+refresh them, re-run scripts 06, 07, 11, 15, 16, 18 and S1 for each run
 (and re-export the lane flow from SankeyMATIC using
 `results/runs/<run>/tables/chr21_lane_sankeymatic_input.txt`), copy the
 PNGs into `docs/figures/`, and re-render this document.
@@ -103,37 +103,20 @@ PNGs into `docs/figures/`, and re-render this document.
 
 <img src="./figures/baseline_volcano_chr21.png" alt="Two volcano plots restricted to chr21 genes, uncorrected on the left and ploidy-corrected on the right. Deviating genes are labelled and coloured by direction, red for higher than expected and blue for lower than expected, with tier 1 genes in bold; all other chr21 genes are grey." width="100%" />
 
-### cis-eQTL effect size per gene, with its controls (script 11):
-
-<img src="./figures/baseline_eqtl_effect_sizes.png" alt="Scatter plot with the within-T21 slope of expression per copy of the minor allele at the best variant on the x-axis and minus log10 of the gene-level permutation q on the y-axis, with a dashed line at q = 0.05. Green triangles are the matched positive-control GTEx eGenes, most on or near the top row with slopes from about -0.25 to 0.6, two below the line. Red and blue circles are deviating genes higher and lower than expected; most sit above the dashed line with slopes within about 0.45 of zero, and six sit below it. Grey diamonds are the decoy variant sets, all near the bottom, well below the line. The subtitle names the deviating genes with no GTEx variants." width="90%" />
-
-Each point is one gene’s best variant: its within-T21 slope on the
-x-axis (per copy of the minor allele) and the gene-level permutation q
-on the y-axis, the value that decides detection. The dashed line is q =
-0.05. The median absolute slope is 0.22 log2-CPM per allele on the
-deviating genes’ own variants, 0.09 on their decoy sets, and 0.23 for
-the positive controls. With 1000 permutations q cannot fall much below
-0.001, so the strongest genes share the top row and differ only in
-slope. Genes with no GTEx variants have neither value and are named in
-the subtitle. Every slope is the best of many variants, so it is
-inflated by that selection; the decoys show that a large best-variant
-slope can occur with no cis link.
-
-### Expression by genotype for every tested deviating gene (script 11; the controls are drawn the same way in `eqtl_dosage_controls`):
+### Expression by genotype for every tested deviating gene (script 11):
 
 <img src="./figures/baseline_eqtl_dosage_panels.png" alt="Two rows of box-and-jitter panels, one per tested deviating gene, showing expression in T21 subjects against the dosage (0 to 3 copies) at the gene's best variant of the allele whose GTEx effect runs the way the gene deviates. Row A, DE high genes in red, is drawn on the expression-raising allele, so a panel that reproduces GTEx trends up; row B, DE low genes in blue, on the expression-lowering allele, so it trends down. Each strip names the gene, the permutation q, the variant, the plotted allele, the minor allele and its MAF, the GTEx direction and whether the within-T21 trend agrees. Every trend line is green, meaning the within-T21 trend matches the GTEx direction." width="100%" />
 
-### Allelic effect in T21 versus GTEx, with the test’s power and base rate (scripts 14, 15, 16):
+### Top cis-eQTL effect against matched Expected-dosage genes, and power (scripts 15, 16, 18):
 
-Panels A and B ask whether each panel’s allele has the same per-copy
-effect in T21, fitted at ploidy 3, as in euploid GTEx whole blood, the
-assumption behind reading a GTEx eQTL into the trisomic cohort. Panel C
-is the power of the gene-level test at each tested deviating gene’s own
-GTEx effect size, by spike-in. Panel D is how often the same test
-detects a cis-eQTL among the deviating genes, the matched positive
-controls and the Expected-dosage genes.
+Panel A is each gene’s T21 allelic fold change at its T21 best variant,
+signed by GTEx’s direction there, over the GTEx allelic fold change at
+its lead variant, for the deviating genes and the Expected-dosage GTEx
+eGenes in the same GTEx \|aFC\| range. Panel B is the power of the
+gene-level test at each tested deviating gene’s own GTEx effect size, by
+spike-in.
 
-<img src="./figures/baseline_t21_vs_gtex_allelic_effect.png" alt="Four-panel figure. A: scatter of T21 log2 allelic fold change against GTEx whole-blood log2 allelic fold change, per copy of each dosage panel's allele, with 95 percent intervals, for DE high genes (red), DE low genes (blue), positive controls (green triangles) and negative-control decoys (grey diamonds, at GTEx zero); points lie along the dashed identity line. B: the T21-minus-GTEx difference with 95 percent intervals, one row per gene in four groups (DE high, DE low, positive control, negative control), with asterisks where the difference is significant at FDR 0.05. C: spike-in power curves of the gene-level test against the spiked log2 allelic fold change, one curve per tested deviating gene, with a point at the gene's GTEx effect size, filled if detected in T21 and open if not, and a dashed line at 80 percent power. D: fraction of genes with a detected cis-eQTL, with Wilson 95 percent intervals, for deviating genes, matched positive controls, Expected-dosage genes, and Expected-dosage genes in the deviating genes' expression range, with a dashed line at the deviating-gene rate." width="100%" />
+<img src="./figures/baseline_eqtl_detection_overview.png" alt="Two-panel figure. A: violin plots with jittered points of the ratio of T21 to GTEx log2 allelic fold change, each at its own top variant, for deviating genes (red if higher than expected, blue if lower) and Expected-dosage GTEx eGenes matched on GTEx effect size (grey), with filled points for genes with a detected cis-eQTL and open points for genes without, a dashed line at 1, a dotted line at 0 and a bar at each median; the two distributions overlap. B: spike-in power curves of the gene-level test against the spiked absolute log2 allelic fold change, one curve per tested deviating gene coloured by direction, with a point at the gene's GTEx effect size, filled if detected in T21 and open if not, and a dashed line at 80 percent power." width="100%" />
 
 ### Deviating genes along chr21 (script 11):
 

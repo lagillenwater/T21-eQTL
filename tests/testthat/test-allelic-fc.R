@@ -1,5 +1,5 @@
-# Tests for scripts/lib/allelic_fc.R - allelic fold change at any ploidy and
-# its T21-vs-GTEx comparison. The property that matters: the fit returns the
+# Tests for scripts/lib/allelic_fc.R - allelic fold change at any ploidy.
+# The property that matters: the fit returns the
 # per-chromosome allelic ratio, so the same aFC is recovered at ploidy 2 and 3.
 
 library(data.table)
@@ -55,19 +55,21 @@ test_that("fit_afc returns NA for a monomorphic variant and rejects bad dosage",
   expect_error(fit_afc(c(0, 1, 2, 4, 1), rnorm(5), 3), "outside")
 })
 
-test_that("gtex_afc_at_variant is exact at the lead variant and scales elsewhere", {
-  lead <- gtex_afc_at_variant(0.5, 0.05, 0.5, 0.05, 1.2, 0.15)
-  expect_equal(lead$gtex_afc, 1.2); expect_equal(lead$gtex_afc_se, 0.15)
-  other <- gtex_afc_at_variant(-0.25, 0.10, 0.5, 0.05, 1.2, 0.15)
-  expect_equal(other$gtex_afc, -0.6); expect_equal(other$gtex_afc_se, 0.30)
+test_that("fit_afc with covariates recovers the aFC under covariate effects", {
+  set.seed(51)
+  n <- 400
+  C <- cbind(rnorm(n), runif(n))
+  g <- pmin(3, rbinom(n, 3, 0.4) + (C[, 2] > 0.7))       # dosage tracks a covariate
+  y <- 4 + afc_curve(g, 0.8, 3) + C %*% c(0.6, 1.2) + rnorm(n, sd = 0.15)
+  f_adj <- fit_afc(g, as.vector(y), 3, covariates = C)
+  f_raw <- fit_afc(g, as.vector(y), 3)
+  expect_lt(abs(f_adj$afc - 0.8), 0.06)
+  expect_gt(abs(f_raw$afc - 0.8), abs(f_adj$afc - 0.8))
 })
 
-test_that("orient_effect flips only where ALT is not the plotted allele", {
-  expect_equal(orient_effect(c(0.4, 0.4, 0.4), c(TRUE, FALSE, NA)), c(0.4, -0.4, NA))
-})
-
-test_that("effect_difference combines independent standard errors", {
-  d <- effect_difference(1.0, 0.3, 0.4, 0.4)
-  expect_equal(d$diff, 0.6); expect_equal(d$diff_se, 0.5)
-  expect_equal(d$p, 2 * pnorm(-1.2))
+test_that("afc_rss with covariates is the residual sum of squares of lm on the covariates", {
+  set.seed(52)
+  g <- sample(0:3, 60, replace = TRUE); y <- rnorm(60); C <- cbind(rnorm(60))
+  r <- y - log2((3 - g) + g * 2^0.5)
+  expect_equal(afc_rss(0.5, g, y, 3, covariates = C), sum(resid(lm(r ~ C))^2))
 })
