@@ -54,26 +54,22 @@ read_both <- function(file) rbind(
   fread(run$table(file))[, run_label := RUN_LAB[[run$name]]])
 
 # ---- A: QQ, one full-width panel per gene set, stacked ----------------------
-# Each run's permutation envelope is drawn as its two edges in the run's
-# colour, so the two runs' envelopes do not overlap.
 qq <- read_both("distal_inflation_qq.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
 qq[, `:=`(set_f = factor(SET_LAB[gene_set], levels = SET_LAB),
           run_f = factor(run_label, levels = RUN_LAB))]
 X_MAX <- max(qq$expected) * 1.02
 Y_MAX <- max(qq$perm_hi, qq$observed) * 1.02
-env <- melt(qq, id.vars = c("set_f", "run_f", "expected"), measure.vars = c("perm_lo", "perm_hi"),
-            variable.name = "edge", value.name = "bound")
 pA <- ggplot(qq, aes(expected, observed, colour = run_f)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-  geom_line(data = env, aes(y = bound, group = interaction(run_f, edge)), linewidth = 0.3, alpha = 0.8,
-            linetype = "22") +
-  geom_line(linewidth = 0.7) +
+  geom_ribbon(aes(ymin = perm_lo, ymax = perm_hi, fill = run_f), colour = NA, alpha = 0.15) +
+  geom_line(linewidth = 0.6) +
   facet_wrap(~ set_f, ncol = 1) +
   scale_colour_manual(values = COL_RUN, name = NULL) +
+  scale_fill_manual(values = COL_RUN, guide = "none") +
   coord_cartesian(xlim = c(0, X_MAX), ylim = c(0, Y_MAX), expand = FALSE) +
   labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
        title = "A  T21 expression against common HSA21 long-arm variants >= 5 Mb from each gene",
-       subtitle = "One regression per gene-variant pair; solid: observed; dashed: 95% range over 200 subject permutations") +
+       subtitle = "One regression per gene-variant pair; shaded: 95% range over 200 subject permutations") +
   th
 
 # ---- B: lambda per gene set --------------------------------------------------
