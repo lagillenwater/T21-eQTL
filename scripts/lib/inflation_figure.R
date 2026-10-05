@@ -4,9 +4,9 @@
 # redrawn (Rscript scripts/17_distal_inflation.R --run <name> --figure-only)
 # without rerunning the permutations.
 #
-#   A. QQ of the distal tests, all variants (solid, shaded permutation range)
-#      and long-arm variants (dashed), chr21 assessable genes and the chr22
-#      reference.
+#   A. QQ of the distal tests on long-arm variants, chr21 assessable genes and
+#      the chr22 reference, shaded permutation range, zoomed to expected 0-4
+#      with the full range inset (as in the S3 supplement figure).
 #   B. Per-gene lambda by gene set; filled = outside the gene's own
 #      permutation 95% range (each gene has its own range, so no shared band
 #      is drawn).
@@ -21,41 +21,50 @@ INFLATION_COL_CHR <- c(chr21 = "#B2182B", chr22 = "#2166AC")
 #' @param groups gene-set order for panel B; control_set the chr22 set name
 #' @return list(fig, height)
 distal_inflation_figure <- function(summary_tbl, qq_tbl, gene_out, cov_out, groups, control_set,
-                                    min_dist, seed = 1717L) {
+                                    min_dist, seed = 1717L, zoom_x = 4) {
+  # Panel A matches the S3 supplement figure: long-arm variants (the short
+  # arm holds GRCh38's false duplications), shaded permutation range, zoomed
+  # to expected 0 to zoom_x where any inflation shows, full range inset.
   key <- c("gene_set", "variant_set")
-  qq_tbl <- merge(data.table::as.data.table(qq_tbl),
-                  summary_tbl[, .(gene_set, variant_set, n_genes, lambda, perm_lo_l = perm_lo,
-                                  perm_hi_l = perm_hi)], by = key)
-  qq_tbl[, curve := sprintf("%s (%d genes), %s variants: lambda %.3f (permutation 95%% %.3f-%.3f)",
-                            gene_set, n_genes, sub(" only", "", variant_set), lambda, perm_lo_l, perm_hi_l)]
-  curves <- unique(qq_tbl[, .(curve, gene_set, variant_set)])
+  qq_tbl <- merge(data.table::as.data.table(qq_tbl)[variant_set == "q-arm only"],
+                  summary_tbl[variant_set == "q-arm only",
+                              .(gene_set, variant_set, n_genes, lambda, perm_lo_l = perm_lo, perm_hi_l = perm_hi)],
+                  by = key)
+  qq_tbl[, curve := sprintf("%s (%d genes): lambda %.3f (permutation 95%% %.3f-%.3f)",
+                            gene_set, n_genes, lambda, perm_lo_l, perm_hi_l)]
+  curves <- unique(qq_tbl[, .(curve, gene_set)])
   col_curve <- setNames(INFLATION_COL_CHR[ifelse(curves$gene_set == control_set, "chr22", "chr21")], curves$curve)
-  lty_curve <- setNames(ifelse(curves$variant_set == "all", "solid", "22"), curves$curve)
-  # The axis is set by the long-arm curves and the envelopes; the short-arm
-  # false-duplication tail of the all-variant chr21 curve runs off the top.
-  y_cap <- ceiling(max(qq_tbl[variant_set == "q-arm only" | gene_set == control_set, observed],
-                       qq_tbl$perm_hi, qq_tbl$expected)) + 1
-  off_top <- qq_tbl[observed > y_cap, max(observed)]
-  pA <- ggplot(qq_tbl, aes(expected, observed, colour = curve, linetype = curve)) +
-    geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-    geom_ribbon(data = qq_tbl[variant_set == "all"], aes(ymin = perm_lo, ymax = perm_hi, fill = curve),
-                colour = NA, alpha = 0.18, show.legend = FALSE) +
-    geom_line(linewidth = 0.6) +
-    scale_colour_manual(values = col_curve, name = NULL) +
-    scale_fill_manual(values = col_curve, guide = "none") +
-    scale_linetype_manual(values = lty_curve, name = NULL) +
-    coord_cartesian(xlim = c(0, y_cap), ylim = c(0, y_cap), expand = FALSE) +
+  x_max <- max(qq_tbl$expected) * 1.02
+  y_max <- max(qq_tbl$perm_hi, qq_tbl$observed) * 1.02
+  zoom_y <- max(qq_tbl[expected <= zoom_x, c(observed, perm_hi)]) * 1.02
+  qq_layers <- function(d) list(
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55", linewidth = 0.4),
+    geom_ribbon(data = d, aes(ymin = perm_lo, ymax = perm_hi, fill = curve), colour = NA, alpha = 0.18),
+    geom_line(data = d, linewidth = 0.6),
+    scale_colour_manual(values = col_curve, name = NULL),
+    scale_fill_manual(values = col_curve, guide = "none"))
+  zoomed <- qq_tbl[expected <= zoom_x * 1.05]
+  main <- ggplot(zoomed, aes(expected, observed, colour = curve)) +
+    qq_layers(zoomed) +
+    coord_cartesian(xlim = c(0, zoom_x), ylim = c(0, zoom_y), expand = FALSE) +
     labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
          title = "A  Distal genotype-expression tests, T21 subjects",
-         subtitle = sprintf("Common chr21 variants >= %.0f Mb from each TSS; shaded: permutation 95%% range",
+         subtitle = sprintf("Common chr21 long-arm variants >= %.0f Mb from each TSS; shaded: permutation 95%% range",
                             min_dist / 1e6)) +
     theme_bw(base_size = 9) +
-    theme(legend.position = "bottom", legend.direction = "vertical", legend.key.width = unit(1.4, "lines"),
-          panel.grid.minor = element_blank(), aspect.ratio = 1)
-  if (length(off_top) && is.finite(off_top)) {
-    pA <- pA + annotate("text", x = 0.3, y = y_cap - 0.4, hjust = 0, vjust = 1, size = 2.5, colour = "grey25",
-                        label = "chr21, all variants: leaves the panel here\n(short-arm false-duplication variants)")
-  }
+    theme(legend.position = "bottom", legend.direction = "vertical", panel.grid.minor = element_blank(),
+          aspect.ratio = 1)
+  inset <- ggplot(qq_tbl, aes(expected, observed, colour = curve)) +
+    qq_layers(qq_tbl) +
+    annotate("rect", xmin = 0, xmax = zoom_x, ymin = 0, ymax = zoom_y, fill = NA, colour = "grey30",
+             linewidth = 0.3) +
+    coord_cartesian(xlim = c(0, x_max), ylim = c(0, y_max), expand = FALSE) +
+    guides(colour = "none") +
+    labs(x = NULL, y = NULL, title = "full range") +
+    theme_bw(base_size = 6) +
+    theme(panel.grid = element_blank(), plot.title = element_text(size = 6),
+          plot.background = element_rect(colour = "grey70"))
+  pA <- main + inset_element(inset, left = 0.55, bottom = 0.03, right = 0.98, top = 0.45)
 
   g <- data.table::copy(data.table::as.data.table(gene_out))
   g[, set_f := factor(gene_set, levels = groups[groups %in% gene_set])]
