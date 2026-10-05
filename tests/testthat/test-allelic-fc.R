@@ -1,5 +1,5 @@
-# Tests for scripts/lib/allelic_fc.R - allelic fold change at any ploidy and
-# its T21-vs-GTEx comparison. The property that matters: the fit returns the
+# Tests for scripts/lib/allelic_fc.R - allelic fold change at any ploidy.
+# The property that matters: the fit returns the
 # per-chromosome allelic ratio, so the same aFC is recovered at ploidy 2 and 3.
 
 library(data.table)
@@ -53,23 +53,6 @@ test_that("fit_afc standard error matches its sampling spread", {
 test_that("fit_afc returns NA for a monomorphic variant and rejects bad dosage", {
   expect_true(is.na(fit_afc(rep(1, 20), rnorm(20), 3)$afc))
   expect_error(fit_afc(c(0, 1, 2, 4, 1), rnorm(5), 3), "outside")
-})
-
-test_that("gtex_afc_at_variant is exact at the lead variant and scales elsewhere", {
-  lead <- gtex_afc_at_variant(0.5, 0.05, 0.5, 0.05, 1.2, 0.15)
-  expect_equal(lead$gtex_afc, 1.2); expect_equal(lead$gtex_afc_se, 0.15)
-  other <- gtex_afc_at_variant(-0.25, 0.10, 0.5, 0.05, 1.2, 0.15)
-  expect_equal(other$gtex_afc, -0.6); expect_equal(other$gtex_afc_se, 0.30)
-})
-
-test_that("orient_effect flips only where ALT is not the plotted allele", {
-  expect_equal(orient_effect(c(0.4, 0.4, 0.4), c(TRUE, FALSE, NA)), c(0.4, -0.4, NA))
-})
-
-test_that("effect_difference combines independent standard errors", {
-  d <- effect_difference(1.0, 0.3, 0.4, 0.4)
-  expect_equal(d$diff, 0.6); expect_equal(d$diff_se, 0.5)
-  expect_equal(d$p, 2 * pnorm(-1.2))
 })
 
 test_that("fit_afc with covariates recovers the aFC under covariate effects", {

@@ -73,7 +73,7 @@ under permutation of genotype-to-expression assignment, giving
 `p_gene_perm`; BH-adjusted across deviating genes to `q_gene_bh`, with
 `eqtl_lane = cis_eqtl` when `q_gene_bh < FDR_GENE` (0.05).
 
-### Standalone controls for the eQTL test (2026-09-10)
+### Standalone controls for the eQTL test (2026-09-10; retired 2026-10-05)
 
 The permutation null inside the gene-level test shuffles expression across
 subjects, which is a negative-control operation, but it is the machinery
@@ -354,7 +354,7 @@ independent), and an independent null called almost any partner shift
 significant. `partner_p()` reports the one-sided empirical p as
 `(1 + k) / (n_draw + 1)`, so it is never exactly 0.
 
-### eQTL controls v2: matched positive controls, several decoy sets per gene (2026-09-30)
+### eQTL controls v2: matched positive controls, several decoy sets per gene (2026-09-30; retired 2026-10-05)
 
 Both standalone controls of the gene-level test were rebuilt after a
 review of what the first versions showed.
@@ -619,6 +619,53 @@ median |T21 - controls| 0.0388 to 0.0386); baseline's changed at 91 of
 2,995 rows. Script 02's genotype cache was keyed on positions and subjects
 only and served the old extract after the switch; its key now includes
 each genotype file's path, size and modification time.
+
+### Standalone controls retired; the eQTL test read against every Expected-dosage gene (2026-10-05)
+
+The decoy variant sets and the matched positive eGenes (controls v2,
+above) are retired, with script 14. Each was replaced by a reference that
+uses the whole of chr21 rather than a hand-picked handful:
+
+- **Positive set: every Expected-dosage GTEx eGene.** Script 16 already runs
+  the identical test on every Expected-dosage gene with GTEx cis variants;
+  97 of them are GTEx whole-blood eGenes (q < 0.05). Ten matched controls
+  could only illustrate the test on effects of the deviating genes' size;
+  the 97 measure it. Script 18 fits detection on log2 GTEx |aFC| over that
+  set and reads off each deviating gene's probability at its own aFC.
+  Adjusted run: 8 deviating genes detected against 7.4 expected
+  (Poisson-binomial P(>= 8) = 0.49); odds ratio at matched effect size 1.5
+  (0.3 to 10.5).
+- **Power: spike-in per gene (script 15),** now reported in the main text:
+  1.00 for BACE2 and 0.99 for OLIG2 at their GTEx aFC.
+- **Negative control: the distal-variant scan (script 17).** Every
+  assessable gene against every common chr21 variant at least 5 Mb away
+  measures calibration directly; 50 decoy tests on 10 genes' expression
+  could not (issue #32). Its two thresholds lost their decoy names:
+  `distal_min_distance`, `distal_min_maf`.
+
+**Effect sizes: each dataset's own top variant.** Script 14 compared T21
+and GTEx aFC at the T21 best variant, converting GTEx's slope there with
+its lead variant's aFC-to-slope ratio. The T21 side was the variant the
+T21 test selected, and so carried the winner's curse, while the GTEx side
+at that variant did not. Taking T21 at the GTEx lead instead removes the
+T21 selection but leaves the GTEx lead's own. Script 18 puts both on the
+same footing: T21 aFC at the T21 best variant, signed by GTEx's direction
+at that variant (the two top variants often tag one signal in opposite
+phase), over GTEx |aFC| at its lead. Neither ratio reads as "the share of
+the GTEx effect seen in T21"; both are read only between sets with the
+same selection. Adjusted run, Expected-dosage eGenes with GTEx |aFC| in the
+deviating genes' range (0.32 to 1.39): median ratio 0.73 for the 10
+deviating genes against 0.76 for 49 matched genes (Wilcoxon p = 0.64);
+with T21 also at the GTEx lead, 0.71 against 0.70. BACE2 (0.33) and OLIG2
+(0.36) sit with the undetected Expected-dosage genes.
+
+Removed: `eqtl_control_negative.csv`, `eqtl_control_positive.csv`,
+`eqtl_controls_summary.csv`, `positive_control_matching.csv`, the
+`eqtl_dosage_controls` and `eqtl_effect_sizes` figures, script 14 and its
+tables, `scripts/lib/eqtl_controls.R` (`gene_tss` and `gene_level_tests`
+moved to `eqtl_fit.R`), and the `n_positive_controls`, `positive_*`,
+`n_decoy_sets` thresholds. The deviating genes' test is unchanged: same
+variants, seeds and BH.
 
 ## Legacy GTEx source
 

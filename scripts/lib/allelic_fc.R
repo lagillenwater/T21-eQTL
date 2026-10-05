@@ -1,9 +1,8 @@
 # allelic_fc.R
 #
-# Allelic fold change (aFC) on a chromosome of any ploidy, and its comparison
-# between the T21 cohort and GTEx (manuscript review, concern 1 follow-up: does
-# an allele have the same per-copy effect on a trisomic background as in
-# euploid blood?).
+# Allelic fold change (aFC) on a chromosome of any ploidy, so a T21 effect is
+# on the scale GTEx reports (manuscript review, concern 1 follow-up). Used by
+# the spike-in power (script 15) and the effect-size comparison (script 18).
 #
 # aFC is the log2 ratio of the expression of a chromosome carrying allele A to
 # one carrying the other allele (Mohammadi et al. 2017; the `afc` column of
@@ -71,35 +70,4 @@ fit_afc <- function(g, y, ploidy, bound = AFC_BOUND, grid_n = 401L, covariates =
   d2 <- (r3[1] - 2 * r3[2] + r3[3]) / h^2
   se <- if (at_bound || !is.finite(d2) || d2 <= 0) NA_real_ else sqrt(2 * (r3[2] / (n - 2 - k)) / d2)
   list(afc = a, se = se, intercept = mean(y - afc_curve(g, a, ploidy)), n = n, at_bound = at_bound)
-}
-
-#' GTEx aFC at a variant other than the gene's lead variant.
-#'
-#' GTEx reports aFC only at each gene's lead variant; every other variant has
-#' just a slope on normalised expression. Both scales measure the same gene,
-#' so the lead variant's own aFC-to-slope ratio converts a slope to aFC units,
-#' and its aFC-SE-to-slope-SE ratio converts the SE. Exact at the lead variant
-#' itself; an approximation elsewhere (it assumes aFC is proportional to the
-#' normalised slope within a gene).
-#' @return data.table(gtex_afc, gtex_afc_se)
-gtex_afc_at_variant <- function(slope, slope_se, lead_slope, lead_slope_se, lead_afc, lead_afc_se) {
-  data.table::data.table(gtex_afc    = slope * lead_afc / lead_slope,
-                         gtex_afc_se = slope_se * lead_afc_se / lead_slope_se)
-}
-
-#' Re-reference an ALT-coded effect to the allele a panel is drawn on.
-#' Swapping the reference allele negates an aFC (and any slope).
-orient_effect <- function(effect, alt_is_plot_allele) {
-  ifelse(is.na(alt_is_plot_allele), NA_real_, effect * ifelse(alt_is_plot_allele, 1, -1))
-}
-
-#' Difference of two independent estimates with a z test.
-#' @return data.table(diff, diff_se, diff_lo, diff_hi, z, p)
-effect_difference <- function(est1, se1, est2, se2) {
-  d  <- est1 - est2
-  se <- sqrt(se1^2 + se2^2)
-  z  <- d / se
-  data.table::data.table(diff = d, diff_se = se, diff_lo = d - stats::qnorm(0.975) * se,
-                         diff_hi = d + stats::qnorm(0.975) * se, z = z,
-                         p = 2 * stats::pnorm(-abs(z)))
 }

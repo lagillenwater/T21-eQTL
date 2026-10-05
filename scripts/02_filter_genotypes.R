@@ -33,16 +33,13 @@
 #   - <run>/processed/analysis_cohort.csv                 (script 01)
 #   - data/processed/blacklisted_genes.csv
 #   - data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL_all_associations_Whole_Blood.v10.allpairs.chr21.parquet
-#   - data/Whole_Blood.v10.eGenes.txt.gz                  (positive-control pool)
-#   - data/grch38_false_duplication_genes_chr21.csv       (excluded from that pool)
 #   - the run's genotype PASS files (run$genotypes; defaults
 #     data/chr21_ds_PASS.csv and data/chr21_ctrl_PASS_merged.csv)
 #   - data/gnomad/ (gnomAD v4.1 chr21 AF cache, scripts/lib/gnomad.R; positions
 #     not yet cached are fetched by remote tabix and appended)
 #
 # Outputs:
-#   - <run>/processed/eqtl_supported_genes.csv      (target gene roster, positive
-#                                                    controls included)
+#   - <run>/processed/eqtl_supported_genes.csv      (target gene roster)
 #   - <run>/processed/eqtl_target_variants.csv      (cis variants per gene, with
 #                                                    the minor-allele reference:
 #                                                    GTEx af and gnomAD v4.1 AF)
@@ -50,8 +47,6 @@
 #                                                    variants, T21+Control)
 #   - <run>/processed/genotype_target_positions.txt (cache key for the stream)
 #   - <run>/processed/genotype_filter_session_info.txt
-#   - <run>/tables/positive_control_matching.csv    (each control's matched
-#                                                    deviating gene)
 #
 # Date: 2026-05-04
 
@@ -171,69 +166,7 @@ cat(sprintf("  allpairs rows loaded: %d (genes: %d, variants: %d)\n",
 
 gtex[, ensembl_stable := sub("\\..*$", "", gene_id)]
 
-# ---- Positive-control genes (standalone control, tested in script 03) -------
-# Controls v2. One positive control per tested deviating gene, drawn from the
-# GTEx whole-blood eGenes (qval < positive_egene_qval) among the expressed,
-# non-repeat chr21 genes that do NOT deviate, matched to that deviating gene
-# on GTEx allelic fold change and expression level, one per locus (TSS at
-# least positive_min_separation apart), and never a gene in a GRCh38 false
-# duplication (data/grch38_false_duplication_genes_chr21.csv), where read
-# mapping and genotyping are unreliable. Same variant pull here and the same
-# within-T21 permutation test in script 03 as the deviating genes, under
-# gene_set == "positive_control"; scripts 03 and 04 keep them out of every
-# main-result table. They show what the test does on real eQTLs of the size
-# it is asked to find, not on the strongest eQTLs on the chromosome.
-source("scripts/lib/eqtl_controls.R")
-EGENES_PATH  <- "data/Whole_Blood.v10.eGenes.txt.gz"
-FALSE_DUP    <- fread("data/grch38_false_duplication_genes_chr21.csv")
-egenes <- fread(EGENES_PATH)[gene_chr == "chr21"]
-egenes[, `:=`(ensembl_stable = sub("\\..*$", "", gene_id),
-              tss_egenes = fifelse(strand == "+", as.numeric(gene_start), as.numeric(gene_end)))]
-gtex_min_p <- gtex[startsWith(variant_id, "chr21_") & !is.na(pval_nominal),
-                   .(gtex_min_p = min(pval_nominal)), by = ensembl_stable]
-eligible[, ensembl_stable := sub("\\..*$", "", EnsemblID)]
-# Targets: the deviating genes that will be tested (at least one GTEx cis
-# variant at the pval cut). Candidates also keep positive_dev_separation
-# (100 kb) from every deviating gene's TSS, so a control is never an
-# overlapping or antisense partner of a deviating gene.
-testable <- gtex_min_p[gtex_min_p <= GTEX_PVAL_KEEP, ensembl_stable]
-# eGene strength: the deviating genes are all strong GTEx eGenes, so a
-# candidate must be one too (positive_egene_qval) and carry at least
-# positive_min_variants variants at the pval cut, or its "effect" is one
-# GTEx barely established and a one-variant set in T21.
-n_at_cut <- gtex[startsWith(variant_id, "chr21_") & !is.na(pval_nominal) & pval_nominal <= GTEX_PVAL_KEEP,
-                 .(n_at_cut = .N), by = ensembl_stable]
-pc_targets <- merge(eligible[ensembl_stable %in% intersect(target_genes$ensembl_stable, testable),
-                             .(Gene_name, ensembl_stable, baseMean)],
-                    egenes[, .(ensembl_stable, abs_afc = abs(afc))], by = "ensembl_stable")
-dev_tss <- egenes[ensembl_stable %in% target_genes$ensembl_stable, tss_egenes]
-pc_candidates <- merge(eligible[!ensembl_stable %in% target_genes$ensembl_stable &
-                                  !Gene_name %in% FALSE_DUP$gene,
-                                .(ensembl_stable, EnsemblID, Gene_name, baseMean, raw_log2FC, norm_log2FC, norm_padj)],
-                       egenes[qval < th$positive_egene_qval,
-                              .(ensembl_stable, abs_afc = abs(afc), tss = tss_egenes, gtex_qval = qval)],
-                       by = "ensembl_stable")
-pc_candidates <- merge(pc_candidates, n_at_cut, by = "ensembl_stable")[n_at_cut >= th$positive_min_variants]
-near_dev <- apply(abs(outer(pc_candidates$tss, dev_tss, "-")) < th$positive_dev_separation, 1, any)
-pc_candidates <- pc_candidates[!near_dev]
-cat(sprintf("  Positive-control pool: %d eGenes (q < %g) among %d eligible non-deviating genes; %d false-duplication genes excluded by name\n",
-            nrow(pc_candidates), th$positive_egene_qval, sum(!eligible$ensembl_stable %in% target_genes$ensembl_stable),
-            sum(eligible$Gene_name %in% FALSE_DUP$gene)))
-matching <- match_positive_controls(pc_targets, pc_candidates, th$positive_min_separation)
-fwrite(matching, run$table("positive_control_matching.csv"))
-positive_controls <- merge(pc_candidates[ensembl_stable %in% matching$ensembl_stable,
-                                         .(ensembl_stable, EnsemblID, Gene_name, raw_log2FC, norm_log2FC, norm_padj)],
-                           gtex_min_p, by = "ensembl_stable", all.x = TRUE)
-positive_controls <- merge(positive_controls, matching[, .(ensembl_stable, matched_to = target_gene)], by = "ensembl_stable")
-positive_controls[, `:=`(gene_set = "positive_control",
-                         observed_direction = sign(norm_log2FC),
-                         tier = NA_integer_)]
-cat(sprintf("  Positive-control genes (matched GTEx eGenes, one per locus, non-deviating): %d for %d targets\n",
-            nrow(positive_controls), nrow(pc_targets)))
-print(matching[, .(target_gene, target_abs_afc = round(target_abs_afc, 2), target_baseMean = round(target_baseMean),
-                   control = Gene_name, abs_afc = round(abs_afc, 2), baseMean = round(baseMean),
-                   tss_mb = round(tss / 1e6, 2), match_distance = round(match_distance, 2))])
-target_genes <- rbind(target_genes, positive_controls, fill = TRUE)
+source("scripts/lib/eqtl_fit.R")   # gene_tss
 
 target_variants <- gtex[ensembl_stable %in% target_genes$ensembl_stable &
                         startsWith(variant_id, "chr21_") &
@@ -252,7 +185,6 @@ target_variants[, `:=`(
 )]
 
 # TSS per gene (GTEx: tss_distance = POS - TSS), carried on the roster so
-# script 03 can pair each deviating gene with a distant decoy variant set and
 # script 11 can place it on the chr21 map. Taken from every allpairs row of
 # the gene, not only those passing the p cut, so a gene with GTEx rows but no
 # variant at the cut still has a position.
@@ -490,9 +422,8 @@ n_low_fc  <- uniqueN(
   target_genes$ensembl_stable[target_genes$gene_set == "DE_low_FC"])
 n_high_fc <- uniqueN(
   target_genes$ensembl_stable[target_genes$gene_set == "Sig_high_FC"])
-cat(sprintf("Target genes: %d  (DE_low_FC: %d, Sig_high_FC: %d, positive_control: %d)\n",
-            uniqueN(target_genes$ensembl_stable), n_low_fc, n_high_fc,
-            sum(target_genes$gene_set == "positive_control")))
+cat(sprintf("Target genes: %d  (DE_low_FC: %d, Sig_high_FC: %d)\n",
+            uniqueN(target_genes$ensembl_stable), n_low_fc, n_high_fc))
 cat(sprintf("Variants tested in HTP: %d / %d GTEx targets\n",
             uniqueN(out$variant_id), uniqueN(target_variants$variant_id)))
 cat(sprintf("Subjects with genotypes: %d  (T21: %d, Control: %d)\n",
@@ -580,3 +511,8 @@ cat("\n=== Filter complete ===\n")
 #             at the pval cut, one per locus (positive_min_separation), clear
 #             of every deviating gene (positive_dev_separation), and never in
 #             a GRCh38 false duplication. ADDED positive_control_matching.csv.
+# 2026-10-05  RETIRED the positive-control genes (gene_set ==
+#             "positive_control", positive_control_matching.csv) with the
+#             standalone controls of script 03; the roster is the deviating
+#             genes only. Their reference set is every Expected-dosage gene,
+#             tested by script 16. Deviating-gene selection is unchanged.

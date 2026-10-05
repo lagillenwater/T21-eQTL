@@ -1,7 +1,7 @@
 # 16_base_rate_expected_dosage.R
 #
 # Purpose: Base rate for the cis-eQTL detection result (manuscript review,
-#          concern 2). "7 of 10 deviating genes have a detected cis-eQTL"
+#          concern 2). "N of 10 deviating genes have a detected cis-eQTL"
 #          can only be read against how often the identical test detects one
 #          for a chr21 gene that sits at the expected dosage. This script runs
 #          the same gene-level permutation test (same variant universe, same
@@ -30,7 +30,6 @@ suppressPackageStartupMessages({
 })
 source("scripts/lib/cohort.R")
 source("scripts/lib/eqtl_fit.R")
-source("scripts/lib/eqtl_controls.R")
 source("scripts/lib/covariates.R")    # run_covariate_matrix: same fit as script 03
 source("scripts/lib/run.R"); run <- load_run()
 

@@ -1,7 +1,9 @@
 # eqtl_fit.R
 #
-# Vectorized per-variant expression ~ dosage regressions, and the permutation
-# machinery for gene-level significance.
+# Vectorized per-variant expression ~ dosage regressions, the permutation
+# machinery for gene-level significance, and the gene-level test runner that
+# scripts 03 (deviating genes) and 16 (Expected-dosage genes) share, so both
+# sets get the identical test.
 #
 # Closed-form matrix algebra rather than repeated lm(): the gene-level
 # permutation needs n_variants x n_perm fits per gene, far too many for a loop.
@@ -132,4 +134,56 @@ expr_from_matrix <- function(gene_name, subject_ids, E, meta_t21) {
   out  <- unname(row[labs])
   out[is.na(labs) | !(labs %in% colnames(E))] <- NA_real_
   out
+}
+
+#' TSS per gene from allpairs rows: GTEx reports tss_distance = POS - TSS.
+#' @param ap data.table with ensembl_stable, POS, tss_distance
+#' @return data.table(ensembl_stable, tss); the median over a gene's rows
+gene_tss <- function(ap) {
+  stopifnot(all(c("ensembl_stable", "POS", "tss_distance") %in% names(ap)))
+  ap[, .(tss = stats::median(as.numeric(POS) - as.numeric(tss_distance))),
+     by = ensembl_stable]
+}
+
+#' Gene-level permutation test for a set of genes.
+#'
+#' For each gene: fit every variant in variants_of[[gene]] (columns of G_all)
+#' against expr_of(gene), take the smallest p, and compare it with the
+#' minimum p across the same variants under n_perm permutations of
+#' expression (perm_min_p). BH across the set; detected at q < fdr.
+#' The per-gene seed is seed_base + position in `genes`, so a set is
+#' reproducible.
+#' @param covariates optional matrix aligned to the rows of G_all, projected
+#'   out of genotype and expression in the observed fit and every permutation.
+#' @return data.table(Gene_name, n_variants, min_p_obs, best_variant,
+#'   p_gene_perm, q_gene_bh, detected)
+gene_level_tests <- function(genes, variants_of, G_all, expr_of, n_perm, seed_base, fdr,
+                             covariates = NULL) {
+  stopifnot(is.character(genes), is.list(variants_of), is.matrix(G_all),
+            is.function(expr_of))
+  na_row <- function(g, k) data.table::data.table(
+    Gene_name = g, n_variants = k, min_p_obs = NA_real_,
+    best_variant = NA_character_, p_gene_perm = NA_real_)
+  res <- data.table::rbindlist(lapply(seq_along(genes), function(i) {
+    g    <- genes[i]
+    cols <- intersect(variants_of[[g]], colnames(G_all))
+    if (length(cols) == 0) return(na_row(g, 0L))
+    e <- expr_of(g)
+    if (all(is.na(e))) return(na_row(g, length(cols)))
+    G    <- G_all[, cols, drop = FALSE]
+    fits <- fit_variants(G, e, covariates = covariates)
+    # every variant monomorphic/untestable: which.min would return integer(0)
+    if (!any(is.finite(fits$p))) return(na_row(g, length(cols)))
+    best <- which.min(fits$p)
+    data.table::data.table(
+      Gene_name = g, n_variants = length(cols),
+      min_p_obs = fits$p[best], best_variant = cols[best],
+      p_gene_perm = gene_level_p(fits$p[best],
+                                 perm_min_p(G, e, n_perm = n_perm,
+                                            seed = as.integer(seed_base) + i,
+                                            covariates = covariates)))
+  }))
+  res[, q_gene_bh := stats::p.adjust(p_gene_perm, "BH")]
+  res[, detected := !is.na(q_gene_bh) & q_gene_bh < fdr]
+  res[]
 }

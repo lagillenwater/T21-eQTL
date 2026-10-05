@@ -2,12 +2,11 @@
 #
 # Purpose: Does the T21 cohort carry genotype-expression structure (ancestry,
 #          relatedness, sequencing or sample batch) that would inflate the
-#          within-T21 eQTL tests? The decoy control of script 03 is too small
-#          to measure calibration (50 tests on 10 genes' expression), so this
-#          measures it directly: the run's T21 expression of every
+#          within-T21 eQTL tests? This is the negative control of that
+#          test, measured directly: the run's T21 expression of every
 #          assessable chr21 gene (not repeat-flagged, not low expression) is
 #          regressed on every common chr21 variant at least
-#          decoy_min_distance (5 Mb) from the gene's TSS, one ordinary
+#          distal_min_distance (5 Mb) from the gene's TSS, one ordinary
 #          regression per pair with no permutation, with the run's
 #          covariates projected out of expression and genotype alike, as
 #          script 03's fit_variants() does. At
@@ -78,8 +77,8 @@ N_PERM   <- as.integer(Sys.getenv("T21_N_PERM_LAMBDA", "200"))
 N_CORES  <- as.integer(Sys.getenv("T21_CORES", "6"))
 SEED     <- 1717L
 th       <- run$thresholds
-MIN_DIST <- th$decoy_min_distance   # same rule as the decoy sets: no LD with the gene's locus
-MIN_MAF  <- th$decoy_min_maf        # "common": the decoy MAF floor, here in the run's T21 subjects
+MIN_DIST <- th$distal_min_distance  # far enough that a variant cannot be in LD with the gene's locus
+MIN_MAF  <- th$distal_min_maf       # "common", in the run's T21 subjects
 MIN_CALL <- 0.95
 MAF_BREAKS <- c(0.05, 0.10, 0.20, 0.50)
 HIT_X    <- 6                       # record distal pairs at p < 1e-6
