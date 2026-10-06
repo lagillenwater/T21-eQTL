@@ -30,6 +30,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
+source("scripts/lib/figure_style.R")   # strip_titles, record_titles
 source("scripts/lib/ploidy_distributions.R")
 source("scripts/lib/run.R"); run <- load_run()
 
@@ -46,7 +47,9 @@ OUT_STEM <- run$figure("ploidy_correction_distributions")
 # uncorrected curve is a wide translucent band and the corrected curve a thin
 # line drawn on top, so coincident curves (chr22) show as a line inside its
 # band instead of one hiding the other.
-COL_CHR     <- setNames(c("#B2182B", "#2166AC"), CHROMOSOMES)
+# chr21 purple as in the all-genes volcano; the comparison chromosome grey
+# (red and blue are reserved for the direction of deviation).
+COL_CHR     <- setNames(c("#762A83", "grey40"), CHROMOSOMES)
 SCALE_ORDER <- c("uncorrected", "ploidy-corrected")
 LWD_SCALE   <- c("uncorrected" = 2.4, "ploidy-corrected" = 0.8)
 ALPHA_SCALE <- c("uncorrected" = 0.35, "ploidy-corrected" = 1)
@@ -139,14 +142,14 @@ p_density <- style(
     # alpha to its fill, so the outline band would come out opaque.
     geom_line(stat = "density", data = uncorrected) +
     geom_line(stat = "density", data = corrected) +
-    labs(title = "Density", x = "log2(T21 / Control)", y = "Density")
+    labs(title = "Density", x = "log2(T21 / D21)", y = "Density")
 )
 
 p_ecdf <- style(
   ggplot(long, aes_curve) +
     stat_ecdf(data = uncorrected, geom = "step", pad = FALSE) +
     stat_ecdf(data = corrected,   geom = "step", pad = FALSE) +
-    labs(title = "Empirical CDF", x = "log2(T21 / Control)",
+    labs(title = "Empirical CDF", x = "log2(T21 / D21)",
          y = "Cumulative fraction"),
   label_y = -Inf, label_vjust = -0.6
 )
@@ -160,15 +163,15 @@ subtitle <- sprintf(
   CONTROL_CHR, shift[chromosome == CONTROL_CHR, median_shift],
   CONTROL_CHR, ks_corr$statistic, ks_corr$p.value)
 
+# Panel letters only: the titles and subtitle are recorded for the captions.
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
+record_titles("ploidy_correction_distributions", "",
+              paste0("Ploidy correction shifts chr21 by log2(1.5) and leaves ", CONTROL_CHR, " unchanged"),
+              subtitle, TITLES)
+p_density <- strip_titles(p_density, "ploidy_correction_distributions", "A", TITLES, tag = TRUE)
+p_ecdf    <- strip_titles(p_ecdf, "ploidy_correction_distributions", "B", TITLES, tag = TRUE)
 panel <- (p_density | p_ecdf) +
-  plot_layout(guides = "collect") +
-  plot_annotation(
-    title = paste0("Ploidy correction shifts chr21 by log2(1.5) and leaves ",
-                   CONTROL_CHR, " unchanged"),
-    subtitle = subtitle,
-    theme = theme(plot.title = element_text(face = "bold", size = 13),
-                  plot.subtitle = element_text(size = 9, colour = "grey30"))
-  ) &
+  plot_layout(guides = "collect") &
   theme(legend.position = "bottom")
 
 ggsave(paste0(OUT_STEM, ".pdf"), panel, width = 12, height = 5.5, bg = "white")

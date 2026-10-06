@@ -47,3 +47,11 @@ test_that("strip_titles keeps line breaks of a two-line subtitle readable", {
   strip_titles(base_plot("T", "line one\nline two"), "fig1", "A", path)
   expect_equal(fread(path)$subtitle, "line one / line two")
 })
+
+test_that("record_titles records figure-level text that is not on a ggplot", {
+  path <- tempfile(fileext = ".txt")
+  record_titles("fig3", "", "Overall title", "Overall subtitle", path)
+  got <- fread(path, colClasses = "character")
+  expect_equal(got$panel, "")
+  expect_equal(got$title, "Overall title")
+})
