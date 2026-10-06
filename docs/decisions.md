@@ -723,6 +723,39 @@ exon lies inside an OLIG1 exon on the opposite strand, which GTEx's
 unstranded libraries cannot separate from OLIG1, so its GTEx zero says
 little about its expression in blood.
 
+### The negative conclusion under both models (2026-10-06)
+
+The negative conclusion (manuscript #34: a common cis-eQTL moves the T21/D21
+ratio only through an allele-frequency difference, the frequencies do not
+differ, and deviating genes carry detected eQTLs no more often than
+Expected-dosage genes) was drawn on the adjusted run. Scripts 13, 16 and 18
+were rerun on baseline, whose 23 deviating genes (20 testable) are a larger,
+partly different set, and script 10 now writes the run-level statistics of
+both runs side by side (`negative_conclusion_adjusted_vs_baseline.csv`,
+`scripts/lib/run_summary.R`). The reruns reproduced the earlier baseline
+tables byte for byte.
+
+| | adjusted (10 tested) | baseline (20 tested) |
+|---|---|---|
+| primary reference, median \|delta AF\| | GTEx whole blood, 0.012 | gnomAD v4.1 NFE, 0.012 |
+| observed delta AF, share of each deviation | -8% to +4% | -5% to +6% |
+| T21 AF at 0 or 1, share of each deviation | 9% to 88% | 12% to 242% |
+| genes with a route inside the cohort's 99th-percentile delta AF | 0 | 0 |
+| detected: deviating vs Expected dosage | 8/10 vs 59/99 (Fisher p = 0.31) | 14/20 vs 53/98 (p = 0.22) |
+| matched GTEx effect: observed vs expected | 8 vs 7.4 (P(>=) = 0.49) | 14 vs 13.1 (P(>=) = 0.44) |
+| odds ratio at matched effect | 1.47 (0.31-10.53) | 1.23 (0.42-3.92) |
+| median T21/GTEx effect ratio, deviating vs matched | 0.73 vs 0.76 (p = 0.64) | 0.75 vs 0.84 (p = 0.95) |
+
+The conclusion holds in both. One difference: in baseline, 5 genes could
+reach their whole deviation if the T21 frequency of a variant went to 0 or
+1. That bound is at a frequency extreme the cohort does not show; the
+observed differences predict at most 6% of any deviation, and the easiest
+route for every gene needs a frequency difference beyond the 99.8th
+percentile of those at common variants. The primary reference differs
+between runs only because script 13 picks the external reference with the
+smallest median |delta AF|: in baseline gnomAD NFE (0.0116) edges out GTEx
+whole blood (0.0126), the reverse of the adjusted run.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing

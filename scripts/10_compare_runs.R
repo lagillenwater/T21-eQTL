@@ -8,14 +8,20 @@
 #          approximated the adjustment on a log-CPM scale; here both runs are
 #          full DESeq2 fits.
 #
+#          When both runs have the deviation-bound, base-rate and
+#          matched-effect-size tables (scripts 13, 16, 18), also the
+#          run-level statistics behind the negative conclusion, side by side
+#          (scripts/lib/run_summary.R).
+#
 # Usage:  Rscript scripts/10_compare_runs.R --run adjusted --against baseline
 # Outputs (under the --run run):
 #   tables/run_comparison_<run>_vs_<against>.csv
 #   tables/lane_transitions_<run>_vs_<against>.csv
+#   tables/negative_conclusion_<run>_vs_<against>.csv   (when 13, 16, 18 ran for both)
 #   figures/run_comparison_<run>_vs_<against>.{pdf,png}
 
 suppressPackageStartupMessages({ library(data.table); library(ggplot2) })
-source("scripts/lib/run.R")
+source("scripts/lib/run.R"); source("scripts/lib/run_summary.R")
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
 this    <- run$name
@@ -69,5 +75,27 @@ writeLines(capture.output(sessionInfo()), paste0(stem, "_session_info.txt"))
 outputs <- c(run$table(sprintf("run_comparison_%s_vs_%s.csv", this, against)),
              run$table(sprintf("lane_transitions_%s_vs_%s.csv", this, against)),
              paste0(stem, c(".pdf", ".png", "_session_info.txt")))
+
+# Run-level statistics behind the negative conclusion, when both runs have them.
+SUMMARY_TABLES <- c(bound_genes = "af_deviation_bound_genes.csv", background = "af_reference_background.csv",
+                    base_rate = "base_rate_summary.csv", detection = "detection_vs_effect_size_summary.csv",
+                    ratio = "top_variant_effect_ratio_summary.csv")
+run_stats <- function(r) {
+  paths <- vapply(SUMMARY_TABLES, r$table, character(1))
+  if (!all(file.exists(paths))) return(NULL)
+  do.call(negative_conclusion_summary, lapply(paths, fread))
+}
+sa_stats <- run_stats(base); sb_stats <- run_stats(run)
+if (!is.null(sa_stats) && !is.null(sb_stats)) {
+  neg <- merge(sa_stats, sb_stats, by = "statistic", suffixes = c(sa, sb), sort = FALSE)
+  value_cols <- grep("^value_", names(neg), value = TRUE)
+  neg[, (value_cols) := lapply(.SD, signif, 4), .SDcols = value_cols]
+  neg_path <- run$table(sprintf("negative_conclusion_%s_vs_%s.csv", this, against))
+  fwrite(neg, neg_path)
+  outputs <- c(outputs, neg_path)
+  cat("\nNegative-conclusion statistics by run:\n"); print(as.data.frame(neg))
+} else {
+  cat("\n  Skipping the negative-conclusion statistics: scripts 13, 16 and 18 have not run for both runs.\n")
+}
 if (!all(file.exists(outputs))) stop("failed to write: ", paste(outputs[!file.exists(outputs)], collapse = ", "))
 cat(sprintf("\n  Saved: %s.{pdf,png}\n=== Comparison complete ===\n", stem))
