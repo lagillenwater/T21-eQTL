@@ -244,10 +244,10 @@ egene_tbl[, `:=`(fisher_p_deviating_vs_other = signif(ft$p.value, 3),
 fwrite(egene_tbl, run$table("gtex_tissue_expression_egene_rate.csv"))
 
 # ---- Figure ---------------------------------------------------------------------
-# Every classified chr21 gene: A whole-blood TPM by lane, B GTEx eQTL strength
-# against it (genes tested in T21), C the cohort's TPM against GTEx's. One row
-# per deviating gene: D whole blood among the GTEx tissues. Each panel carries
-# its own legend.
+# A whole-blood TPM of every classified chr21 gene by lane; B GTEx eQTL
+# strength against it (genes tested in T21); C whole blood among the GTEx
+# tissues, one row per deviating gene; D the cohort's TPM against GTEx's for
+# every classified chr21 gene. Each panel carries its own legend.
 #
 # TPM spans 0 to thousands; a pseudo-log axis keeps the zeros and is
 # near-logarithmic from 0.01 TPM up.
@@ -299,7 +299,7 @@ pB <- ggplot(pb, aes(wb_tpm, -log10(gtex_qval))) +
                           nrow(pb), EGENE_Q)) +
   th + legend_bottom
 
-# C: the cohort against GTEx for every classified chr21 gene. The HTP libraries
+# D: the cohort against GTEx for every classified chr21 gene. The HTP libraries
 # are globin-depleted, GTEx's are not, so the genome-wide offset (non-chr21
 # genes, scale_tbl) is drawn beside the line of equality.
 sc <- pd[!is.na(htp_t21_tpm_median)]
@@ -309,7 +309,7 @@ ref_lines <- rbind(data.table(x = ref_x, y = ref_x, line = "equal"),
                    data.table(x = ref_x, y = off * ref_x, line = sprintf("genome-wide HTP/GTEx, %.1fx", off)))
 ref_lines[, line := factor(line, levels = unique(line))]
 sc_max <- max(sc$wb_tpm, sc$htp_t21_tpm_median)
-pC <- ggplot(sc, aes(wb_tpm, htp_t21_tpm_median)) +
+pD <- ggplot(sc, aes(wb_tpm, htp_t21_tpm_median)) +
   geom_line(data = ref_lines[x <= sc_max & y <= sc_max], aes(x, y, linetype = line), colour = "grey40",
             linewidth = 0.4) +
   geom_point(data = sc[!sig_lane %in% deviating], colour = COL_DIR[["Other chr21 gene"]], size = 1, alpha = 0.7) +
@@ -320,12 +320,12 @@ pC <- ggplot(sc, aes(wb_tpm, htp_t21_tpm_median)) +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
   scale_linetype_manual(values = c("dotted", "dashed"), name = NULL) +
   labs(x = "GTEx v10 whole-blood median TPM", y = sprintf("T21 participants' median TPM (n = %d)", ncol(htp_tpm)),
-       title = "C  The cohort against GTEx whole blood",
+       title = "D  The cohort against GTEx whole blood",
        subtitle = sprintf("Classified chr21 genes (n = %d), Spearman %.2f; grey: other chr21 genes",
                           nrow(sc), cor(sc$wb_tpm, sc$htp_t21_tpm_median, method = "spearman"))) +
   th + legend_bottom
 
-# D: one row per deviating gene, split by direction.
+# C: one row per deviating gene, split by direction.
 dev <- genes[sig_lane %in% deviating & in_gtex == TRUE]
 setorder(dev, sig_lane, wb_tpm)
 dev[, `:=`(gene_f = factor(Gene_name, levels = Gene_name), gene_i = seq_len(.N),
@@ -351,7 +351,7 @@ n_in_group <- table(gtex_tissue_group(tissues))
 group_lab <- setNames(sprintf("%s (%d)", names(n_in_group), as.integer(n_in_group)), names(n_in_group))
 x_max <- max(pt$tpm)
 gene_rows <- scale_y_continuous(breaks = dev$gene_i, labels = rank_lab, expand = expansion(add = 0.17))
-pD <- ggplot(pt, aes(tpm, y, colour = group)) +
+pC <- ggplot(pt, aes(tpm, y, colour = group)) +
   geom_hline(data = dev[gene_i > min(gene_i), .(dir_f, yint = gene_i - 0.5), by = dir_f][, -1],
              aes(yintercept = yint), colour = "grey85", linewidth = 0.3) +
   geom_point(data = pt[group != "Whole blood"], size = 1.1, alpha = 0.85) +
@@ -361,7 +361,7 @@ pD <- ggplot(pt, aes(tpm, y, colour = group)) +
   scale_colour_manual(values = COL_TISSUE, labels = group_lab, name = "GTEx tissue (n)", drop = FALSE) +
   guides(colour = guide_legend(nrow = 2, override.aes = list(size = c(2.8, rep(2, 6)), alpha = 1))) +
   labs(x = "GTEx v10 median TPM", y = NULL,
-       title = "D  Whole blood among the GTEx tissues, deviating genes",
+       title = "C  Whole blood among the GTEx tissues, deviating genes",
        subtitle = sprintf(paste0("One point per tissue; whole blood (large) on the gene's line, other tissues in a\n",
                                  "sub-lane per group; label: rank of whole blood among the %d tissues"),
                           length(tissues))) +
