@@ -279,23 +279,30 @@ pA <- ggplot(pd, aes(wb_tpm, lane_lab)) +
        subtitle = "Classified chr21 genes in GTEx v10; box: median and IQR") +
   th + legend_bottom
 
-# Genes tested in T21 (scripts 03, 16); all of them are GTEx-tested, since the
-# T21 test runs on GTEx cis variants.
-pb <- pd[t21_tested == TRUE & gtex_wb_tested == TRUE]
-pb[, t21 := factor(ifelse(t21_detected, "detected", "not detected"), levels = c("detected", "not detected"))]
+# Every chr21 gene GTEx tested in whole blood (the y-axis is its eGene q).
+# Shapes, as in D: filled = cis-eQTL detected in T21, open = tested, not
+# detected; genes the T21 test did not cover are a small "+".
+T21_SHAPES <- scale_shape_manual(values = c(detected = 16, `not detected` = 1, `not tested` = 3),
+                                 breaks = c("detected", "not detected", "not tested"), name = "cis-eQTL in T21")
+pb <- pd[gtex_wb_tested == TRUE]
+pb[, t21 := factor(fcase(!t21_tested, "not tested", t21_detected, "detected", default = "not detected"),
+                   levels = c("detected", "not detected", "not tested"))]
 pB <- ggplot(pb, aes(wb_tpm, -log10(gtex_qval))) +
   geom_hline(yintercept = -log10(EGENE_Q), linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-  geom_point(data = pb[!sig_lane %in% deviating], aes(shape = t21), colour = COL_DIR[["Other chr21 gene"]],
-             size = 1.4, stroke = 0.6) +
+  geom_point(data = pb[!sig_lane %in% deviating & t21 == "not tested"], aes(shape = t21), colour = "grey70",
+             size = 1, stroke = 0.4) +
+  geom_point(data = pb[!sig_lane %in% deviating & t21 != "not tested"], aes(shape = t21),
+             colour = COL_DIR[["Other chr21 gene"]], size = 1.4, stroke = 0.6) +
   geom_point(data = pb[sig_lane %in% deviating], aes(shape = t21, colour = direction), size = 2.4, stroke = 0.9) +
   geom_text_repel(data = pb[sig_lane %in% deviating], aes(label = label), size = 2.4, colour = "grey15",
                   min.segment.length = 0, segment.size = 0.2, max.overlaps = 40) +
   tpm_scale +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
-  scale_shape_manual(values = c(detected = 16, `not detected` = 1), name = "cis-eQTL in T21") +
+  T21_SHAPES +
+  guides(colour = guide_legend(order = 1), shape = guide_legend(order = 2)) +
   labs(x = "GTEx v10 whole-blood median TPM", y = expression(-log[10] ~ "GTEx whole-blood eGene q"),
        title = "B  GTEx whole-blood eQTL against expression",
-       subtitle = sprintf("chr21 genes tested in T21 (n = %d); grey: Expected dosage; dashed: q = %.2f",
+       subtitle = sprintf("chr21 genes GTEx tested in whole blood (n = %d); grey: other chr21 genes; dashed: q = %.2f",
                           nrow(pb), EGENE_Q)) +
   th + legend_bottom
 
@@ -309,16 +316,24 @@ ref_lines <- rbind(data.table(x = ref_x, y = ref_x, line = "equal"),
                    data.table(x = ref_x, y = off * ref_x, line = sprintf("genome-wide HTP/GTEx, %.1fx", off)))
 ref_lines[, line := factor(line, levels = unique(line))]
 sc_max <- max(sc$wb_tpm, sc$htp_t21_tpm_median)
+# Shapes as in B (T21_SHAPES).
+sc[, t21 := factor(fcase(!t21_tested, "not tested", t21_detected, "detected", default = "not detected"),
+                   levels = c("detected", "not detected", "not tested"))]
 pD <- ggplot(sc, aes(wb_tpm, htp_t21_tpm_median)) +
   geom_line(data = ref_lines[x <= sc_max & y <= sc_max], aes(x, y, linetype = line), colour = "grey40",
             linewidth = 0.4) +
-  geom_point(data = sc[!sig_lane %in% deviating], colour = COL_DIR[["Other chr21 gene"]], size = 1, alpha = 0.7) +
-  geom_point(data = sc[sig_lane %in% deviating], aes(colour = direction), size = 2.4) +
+  geom_point(data = sc[!sig_lane %in% deviating & t21 == "not tested"], aes(shape = t21), colour = "grey70",
+             size = 1, stroke = 0.4) +
+  geom_point(data = sc[!sig_lane %in% deviating & t21 != "not tested"], aes(shape = t21),
+             colour = COL_DIR[["Other chr21 gene"]], size = 1.4, stroke = 0.6) +
+  geom_point(data = sc[sig_lane %in% deviating], aes(shape = t21, colour = direction), size = 2.4, stroke = 0.9) +
   geom_text_repel(data = sc[sig_lane %in% deviating], aes(label = label), size = 2.4, colour = "grey15",
                   min.segment.length = 0, segment.size = 0.2, max.overlaps = 40) +
   tpm_scale + tpm_scale_y +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
+  T21_SHAPES +
   scale_linetype_manual(values = c("dotted", "dashed"), name = NULL) +
+  guides(colour = guide_legend(order = 1), shape = guide_legend(order = 2), linetype = guide_legend(order = 3)) +
   labs(x = "GTEx v10 whole-blood median TPM", y = sprintf("T21 participants' median TPM (n = %d)", ncol(htp_tpm)),
        title = "D  The cohort against GTEx whole blood",
        subtitle = sprintf("Classified chr21 genes (n = %d), Spearman %.2f; grey: other chr21 genes",
