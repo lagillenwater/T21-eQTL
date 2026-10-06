@@ -33,6 +33,7 @@ Rscript scripts/15_spike_in_power.R --run baseline             # power per devia
 Rscript scripts/16_base_rate_expected_dosage.R --run baseline  # the same eQTL test on every Expected-dosage gene (base rate)
 Rscript scripts/17_distal_inflation.R --run baseline           # negative control: lambda of distal genotype-expression tests
 Rscript scripts/18_detection_vs_effect_size.R --run baseline   # deviating vs Expected-dosage genes at matched effect size; after 15, 16
+Rscript scripts/19_gtex_tissue_expression.R --run baseline     # GTEx v10 tissue expression of every chr21 gene, against the eQTLs; after 16
 Rscript scripts/S1_covariate_evidence.R --run baseline          # supplement: evidence for covariates and exclusions
 
 # Covariate- and composition-adjusted run: same scripts with --run adjusted, then
@@ -148,6 +149,7 @@ T21-eQTL/
     chr21_ctrl_PASS.csv                        # 103 MB Control chr21 genotypes
     GTEx_Analysis_v10_..._Whole_Blood.v10.allpairs.chr21.parquet
                                                # GTEx allpairs (chr21)
+    gtex/                                      # GTEx v10 median TPM per tissue (script 19 downloads it)
     raw/                                       # placeholder for raw downloads - .gitignored
     processed/                                 # script outputs - .gitignored
   config/runs/               # run definitions: baseline.R, adjusted.R
@@ -165,7 +167,7 @@ T21-eQTL/
 
 ## Pipeline
 
-The production pipeline is the 00-07 chain plus 11 (eQTL figures), 15-18 (the eQTL test's power, base rate, negative control and effect-size comparison), 10 (run comparison) and the S1 supplement, run per named run (see Runs), in `scripts/`, backed by shared
+The production pipeline is the 00-07 chain plus 11 (eQTL figures), 15-18 (the eQTL test's power, base rate, negative control and effect-size comparison), 19 (GTEx tissue expression), 10 (run comparison) and the S1 supplement, run per named run (see Runs), in `scripts/`, backed by shared
 helpers in `scripts/lib/` (`cohort.R` - analysis-cohort definition;
 `chr21_threshold.R` - chr21-internal robust outlier test, annotation only;
 `lane_rules.R` -
@@ -175,6 +177,7 @@ the runner scripts 03 and 16 share (`gene_level_tests`);
 `eqtl_figures.R` - table preparation for script 11 (dosage-panel variants, best-variant effect sizes, chr21 map bands);
 `allelic_fc.R` - allelic fold change fitted at ploidy 3, for scripts 15 and 18;
 `inflation.R` - the distal-variant scan and genomic inflation, for script 17;
+`gtex_expression.R` - the GTEx v10 median-TPM table (download, reader), the per-gene tissue summary, and counts to TPM over GENCODE exon-union lengths, for script 19;
 `table1.R` - cohort-characteristics table helpers; `sankey_flow.R` - lane flow and its SankeyMATIC serialisation; `ploidy_distributions.R` - uncorrected vs ploidy-corrected log2FC tables for script 06; `biotypes.R` - the chr21 target biotype set, `TARGET_BIOTYPES`; `covariates.R` - CyTOF table reader, composition fractions, design formula, the expression-artifact adjustment and the per-covariate attribution; `run.R` - run configuration and paths; `karyotype_subtype.R` - INCLUDE subtype join).
 
 | Script | Purpose | Output |
@@ -192,6 +195,7 @@ the runner scripts 03 and 16 share (`gene_level_tests`);
 | 16_base_rate_expected_dosage | The identical gene-level test (same runner, variant universe, subjects, expression artifact and thresholds) on every Expected-dosage gene with GTEx cis variants: the reference set for the deviating genes | `results/runs/<name>/tables/base_rate_expected_dosage.csv`, `base_rate_summary.csv`, `processed/base_rate_genotypes.csv` |
 | 17_distal_inflation | Negative control of the test: the run's T21 expression of every assessable chr21 gene (and chr22 genes as a reference) regressed on every common chr21 variant at least `distal_min_distance` (5 Mb) from the gene's TSS, with the run's covariates projected out of both sides; genomic inflation lambda and QQ against joint subject permutations (`scripts/lib/inflation.R`) | `results/runs/<name>/tables/distal_inflation_*.csv`, `figures/distal_inflation.{pdf,png}` |
 | 18_detection_vs_effect_size | Deviating genes against the Expected-dosage GTEx eGenes (script 16) at matched effect size: detection expected from a logistic fit on GTEx \|aFC\| (Poisson-binomial) and the odds ratio; and each dataset's own top cis-eQTL effect, T21 aFC at the T21 best variant over GTEx aFC at its lead variant, deviating genes against the Expected-dosage eGenes in the same GTEx \|aFC\| range. Figure: that ratio (A) and spike-in power per deviating gene (B, script 15) | `results/runs/<name>/tables/detection_vs_effect_size{,_summary}.csv`, `top_variant_effect_ratio{,_summary}.csv`, `figures/eqtl_detection_overview.{pdf,png}` |
+| 19_gtex_tissue_expression | Manuscript issue #30: is each chr21 gene meaningfully expressed in whole blood? Every classified chr21 gene against the GTEx v10 median TPM of 68 tissues (whole-blood TPM, rank of whole blood, top tissue, tissue specificity tau, percentile among all chr21 and among Expected-dosage genes), and against the eQTLs: GTEx whole-blood tested/eGene status and the within-T21 test (scripts 03, 16), whole-blood TPM compared between outcomes (Wilcoxon) and a logistic curve of T21 detection on whole-blood TPM over the Expected-dosage genes; the run's T21 participants on the TPM scale (counts over GENCODE v44 exon-union lengths) against GTEx whole blood for every chr21 gene, with the genome-wide HTP/GTEx offset (HTP is globin-depleted). Figure: A whole-blood TPM by lane, B GTEx eQTL strength against TPM for the T21-tested genes, C the T21 participants' median TPM against GTEx for every chr21 gene, D whole blood among the 68 tissues (coloured by organ-system group) per deviating gene. Annotation only | `results/runs/<name>/tables/gtex_tissue_expression_{genes,summary,eqtl,detection,scale}.csv`, `figures/gtex_tissue_expression.{pdf,png}` |
 | 10_compare_runs | Per-gene comparison of two runs' lane tables (lane, tier, norm_log2FC, eQTL call, attenuation) and a lane-transition table; `--run adjusted --against baseline` | `results/runs/adjusted/tables/run_comparison_adjusted_vs_baseline.csv`, `lane_transitions_adjusted_vs_baseline.csv`, `figures/run_comparison_adjusted_vs_baseline.{pdf,png}` |
 | S1_covariate_evidence | Supplement per run: A covariates vs karyotype; B cell-fraction reach into expression (composition runs); C mosaic subtype vs chr21 index and genome-wide expression; D per-covariate attribution of the baseline-to-adjusted fold-change shift with bootstrap intervals | `results/runs/<name>/tables/S1_*.csv`, `figures/S1_covariate_evidence.{pdf,png}` |
 | audit_baseline_drift | Table-by-table comparison of a regenerated run against the archived 2026-09-04 flat outputs; strict on DESeq2 tables and lane classification, reports expression-scale-dependent tables | `results/archive/2026-09-04_flat/drift_audit.md` |
@@ -240,6 +244,10 @@ catalog is in [docs/decisions.md](docs/decisions.md).
   GTEx for deviating and matched Expected-dosage genes, and spike-in power
   per deviating gene (scripts 15, 16, 18).
 - `distal_inflation.{pdf,png}` - the distal-variant negative control (script 17).
+- `gtex_tissue_expression.{pdf,png}` - GTEx v10 whole-blood expression of the
+  chr21 genes by lane, against GTEx whole-blood eQTL strength and against the
+  T21 participants' TPM; per deviating gene, whole blood among the GTEx
+  tissues (script 19).
 
 
 ## Further documentation

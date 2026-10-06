@@ -667,6 +667,60 @@ moved to `eqtl_fit.R`), and the `n_positive_controls`, `positive_*`,
 `n_decoy_sets` thresholds. The deviating genes' test is unchanged: same
 variants, seeds and BH.
 
+### GTEx tissue expression: annotation only, read against the other chr21 genes (2026-10-06)
+
+Manuscript issue #30 asks whether the deviating genes are meaningfully
+expressed in whole blood, since several are best known from other tissues
+(OLIG1, OLIG2, KCNE1). Script 19 places every classified chr21 gene against
+the GTEx v10 median TPM of 68 tissues and against the eQTL results.
+
+- **No new filter.** The classification keeps Hunter et al.'s own coverage
+  floor (baseMean >= 30, in this cohort); a tissue-expression cut would be
+  a threshold of our own. Tissue expression is an annotation column set.
+- **The yardstick is the other chr21 genes, not whole blood's rank.** GTEx
+  whole blood is not globin-depleted, so it ranks near the bottom of the 68
+  tissues for most genes: median rank 64 for the Expected-dosage genes. A
+  rank-based flag would flag almost every gene. Each gene's whole-blood TPM
+  is reported as a percentile among all classified chr21 genes and among the
+  Expected-dosage genes.
+- **"Expressed in whole blood" is GTEx's own rule.** Whether GTEx tested the
+  gene in whole blood (present in the eGenes file, i.e. it passed GTEx's
+  expression inclusion rule for eQTL mapping) is the flag; no TPM cutoff is
+  introduced.
+
+Adjusted run: 12 of the 13 deviating genes pass GTEx's whole-blood
+inclusion rule (AP000282.1 does not). Their whole-blood TPM (median 1.28)
+does not differ from the Expected-dosage genes' (3.08; Wilcoxon p = 0.34),
+though seven sit below the Expected-dosage 30th percentile (AP000282.1,
+OLIG2, ADAMTS1, BACE2, PCBP3, CBR3, ABCC13). KCNE1's top GTEx tissue is
+whole blood.
+
+Against the eQTLs: across the chr21 genes GTEx tested, whole-blood TPM does
+not separate eGenes from non-eGenes (p = 0.36); among the tested
+Expected-dosage genes, detection by the T21 test does not rise with
+whole-blood TPM (logistic slope -0.37 per log10 TPM, p = 0.17). The two
+deviating genes tested without detection, OLIG2 and BACE2, are low in
+blood, but at their TPM the curve gives detection probabilities of 0.69 and
+0.66, and their spike-in power at the GTEx aFC is 0.99 and 1.00 (script
+15). Nothing here points to low whole-blood expression as the reason
+for those two non-detections.
+
+**The cohort's own expression, on GTEx's scale.** Script 19 also puts the
+run's T21 participants on the TPM scale (raw counts over exon-union gene
+lengths from the GENCODE v44 GTF) and sets every chr21 gene's T21 median
+against its GTEx whole-blood median. The two scales are not
+identical: the HTP libraries are globin-depleted (the three main
+hemoglobin genes take 0.4% of TPM, against 30% in GTEx whole blood), so
+over 21,325 non-chr21 genes the HTP reads a median 2.8 times GTEx, with a
+gene-level Spearman correlation of 0.92. Most deviating genes sit 3 to 10
+times above their GTEx median; ATP5PF sits only 1.3 times above it, and
+KCNE1, whose top GTEx tissue is whole blood, sits below it (0.33 times).
+AP000282.1, at
+zero in GTEx, has a median of 4.6 TPM in the T21 participants; its first
+exon lies inside an OLIG1 exon on the opposite strand, which GTEx's
+unstranded libraries cannot separate from OLIG1, so its GTEx zero says
+little about its expression in blood.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
