@@ -59,6 +59,8 @@ suppressPackageStartupMessages({
 })
 for (f in c("cohort", "eqtl_fit", "allelic_fc", "covariates", "alleles")) source(sprintf("scripts/lib/%s.R", f))
 source("scripts/lib/run.R"); run <- load_run()
+source("scripts/lib/figure_style.R")   # strip_titles: panel letters only
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
 
 EGENES  <- "data/Whole_Blood.v10.eGenes.txt.gz"
 ALLPAIRS <- paste0("data/GTEx_Analysis_v10_QTLs_GTEx_Analysis_v10_eQTL",
@@ -186,7 +188,8 @@ fwrite(genes[, .(Gene_name, set, lead_variant, best_variant, best_is_lead = best
 cmp[, set_f := factor(set, levels = c("Deviating", "Expected dosage"),
                       labels = c(sprintf("Deviating\n(n = %d)", sum(cmp$set == "Deviating")),
                                  sprintf("Expected dosage, matched\n(n = %d)", sum(cmp$set == "Expected dosage"))))]
-cmp[, outcome := factor(ifelse(detected, "detected", "not detected"), levels = c("detected", "not detected"))]
+cmp[, outcome := factor(ifelse(detected, "cis-eQTL detected", "tested, not detected"),
+                         levels = c("cis-eQTL detected", "tested, not detected"))]
 cmp[, direction := factor(fcase(sig_lane == "DE_high", "Higher than expected", sig_lane == "DE_low", "Lower than expected",
                                 default = "Expected dosage"), levels = names(COL_DIR))]
 cmp[, label := ifelse(set == "Deviating", Gene_name, "")]
@@ -196,10 +199,11 @@ pA <- ggplot(cmp, aes(set_f, ratio)) +
   geom_violin(fill = "grey93", colour = "grey60", linewidth = 0.35, scale = "width", width = 0.75, trim = TRUE) +
   stat_summary(fun = median, geom = "crossbar", width = 0.35, linewidth = 0.3, colour = "grey30") +
   geom_point(aes(colour = direction, shape = outcome), position = jit, size = 2.2, stroke = 0.8, fill = "white") +
-  geom_text_repel(aes(label = label), position = jit, size = 2.4, colour = "grey15", min.segment.length = 0,
+  geom_text_repel(aes(label = label), position = jit, size = 2.4, colour = "grey15", fontface = "italic",
+                  min.segment.length = 0,
                   segment.size = 0.2, max.overlaps = 30) +
   scale_colour_manual(values = COL_DIR, name = NULL, drop = FALSE) +
-  scale_shape_manual(values = c(detected = 16, `not detected` = 1), name = "cis-eQTL in T21") +
+  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), name = "Within T21") +
   labs(x = NULL, y = "T21 / GTEx log2 aFC, each at its own top variant",
        title = "A  Top cis-eQTL effect, T21 against GTEx",
        subtitle = sprintf(paste0("Expected-dosage eGenes matched on GTEx |log2 aFC| %.2f-%.2f\n",
@@ -213,22 +217,26 @@ sp  <- fread(run$table("spike_in_power.csv"))[, direction := factor(dir_of[Gene_
 spg <- fread(run$table("spike_in_power_genes.csv"))[, .(Gene_name, gtex_afc = abs(gtex_afc), power_at_gtex_afc_p05,
                                                         detected_observed)]
 spg[, `:=`(direction = factor(dir_of[Gene_name], levels = names(COL_DIR)),
-           outcome = factor(ifelse(detected_observed, "detected", "not detected"), levels = c("detected", "not detected")))]
+           outcome = factor(ifelse(detected_observed, "cis-eQTL detected", "tested, not detected"),
+                            levels = c("cis-eQTL detected", "tested, not detected")))]
 pB <- ggplot(sp, aes(afc, power_p05, group = Gene_name, colour = direction)) +
   geom_hline(yintercept = 0.8, linetype = "dashed", colour = "grey55", linewidth = 0.4) +
   geom_line(alpha = 0.6, linewidth = 0.5) +
   geom_point(data = spg, mapping = aes(gtex_afc, power_at_gtex_afc_p05, colour = direction, shape = outcome),
              inherit.aes = FALSE, size = 2.3, stroke = 0.8, fill = "white") +
   geom_text_repel(data = spg, aes(gtex_afc, power_at_gtex_afc_p05, label = Gene_name), inherit.aes = FALSE,
+                  fontface = "italic",
                   size = 2.4, colour = "grey15", min.segment.length = 0, segment.size = 0.2, max.overlaps = 30) +
   scale_colour_manual(values = COL_DIR[1:2], name = NULL) +
-  scale_shape_manual(values = c(detected = 16, `not detected` = 1), name = "cis-eQTL in T21") +
+  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), name = "Within T21") +
   scale_x_continuous(limits = c(0, max(sp$afc))) +
   labs(x = "Spiked allelic effect, |log2 aFC|", y = "Power (gene-level p < 0.05)",
        title = "B  Power of the test for each deviating gene",
        subtitle = "Spike-in on the gene's own genotypes and noise; points: at its GTEx |log2 aFC|") +
   th + theme(legend.position = "right")
 
+pA <- strip_titles(pA, "eqtl_detection_overview", "A", TITLES, tag = TRUE)
+pB <- strip_titles(pB, "eqtl_detection_overview", "B", TITLES, tag = TRUE)
 fig <- pA + pB + plot_layout(widths = c(1, 1.15))
 stem <- run$figure("eqtl_detection_overview")
 ggsave(paste0(stem, ".pdf"), fig, width = 11, height = 5)
