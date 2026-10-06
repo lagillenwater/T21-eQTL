@@ -160,3 +160,37 @@ test_that("panel_dosage recycles a scalar orientation over a dosage vector", {
   expect_equal(panel_dosage(c(0, 1, 2, 3), TRUE, FALSE, 3), c(3, 2, 1, 0))
   expect_true(all(is.na(panel_dosage(0:3, NA, TRUE, 3))))
 })
+
+# --- stack_bands -----------------------------------------------------------------
+
+test_that("stack_bands gives a lone band the full height", {
+  got <- stack_bands(c(10, 20, 30), half_width = 0.1)
+  expect_equal(got$ymin, c(0, 0, 0))
+  expect_equal(got$ymax, c(1, 1, 1))
+})
+
+test_that("stack_bands splits overlapping bands into equal slices, in position order", {
+  got <- stack_bands(c(33.07, 33.03, 33.071, 40), half_width = 0.12)
+  # 33.03, 33.07, 33.071 overlap: bottom to top in position order
+  expect_equal(got$ymin, c(1, 0, 2, 0) / c(3, 3, 3, 1))
+  expect_equal(got$ymax, c(2, 1, 3, 1) / c(3, 3, 3, 1))
+})
+
+test_that("stack_bands chains overlaps into one cluster", {
+  got <- stack_bands(c(1.0, 1.2, 1.4), half_width = 0.11)   # 1.0~1.2 and 1.2~1.4 overlap; 1.0 and 1.4 do not
+  expect_equal(got$ymax - got$ymin, rep(1 / 3, 3))
+})
+
+# --- map_outcome -----------------------------------------------------------------
+
+test_that("map_outcome splits the genes without a variant to test by GTEx status", {
+  got <- map_outcome(c("cis_eqtl", "no_cis_eqtl", "no_GTEx_data", "no_GTEx_data"),
+                     gtex_tested = c(TRUE, TRUE, TRUE, FALSE))
+  expect_equal(as.character(got), c("cis-eQTL detected", "tested, not detected",
+                                    "GTEx tested, no eQTL", "not tested by GTEx"))
+  expect_equal(levels(got), MAP_OUTCOMES)
+})
+
+test_that("map_outcome refuses an unknown eQTL lane", {
+  expect_error(map_outcome("maybe", TRUE), "maybe")
+})

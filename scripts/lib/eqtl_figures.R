@@ -152,3 +152,90 @@ best_variant_effects <- function(long, dosage_col = "alt_dosage", covariates = N
     }
   }, by = .(Gene_name, panel_group = as.character(panel_group), variant_id)]
 }
+
+#' Vertical slices for map bands that would overlap.
+#'
+#' Bands are drawn half_width either side of a gene's position; genes closer
+#' than one band width (chained) form a cluster, and a cluster splits the bar
+#' height into equal slices, bottom to top in position order, so no band hides
+#' another. A lone band keeps the full height.
+#' @return data.table(ymin, ymax) in the order of `pos`, on a 0-1 bar.
+stack_bands <- function(pos, half_width) {
+  o <- order(pos)
+  p <- pos[o]
+  cluster <- cumsum(c(TRUE, diff(p) >= 2 * half_width))
+  k <- stats::ave(seq_along(p), cluster, FUN = seq_along)
+  n <- stats::ave(seq_along(p), cluster, FUN = length)
+  data.table::data.table(ymin = (k - 1) / n, ymax = k / n)[order(o)]
+}
+
+# The map's eQTL outcome. Genes without a variant to test are split by
+# whether GTEx tested them in whole blood at all.
+MAP_OUTCOMES <- c("cis-eQTL detected", "tested, not detected",
+                  "GTEx tested, no eQTL", "not tested by GTEx")
+# Filled = detected, open = tested and not detected, greys = no variant to
+# test (the figure palette: red and blue are reserved for direction).
+MAP_FILL <- setNames(c("grey15", "white", "grey55", "grey85"), MAP_OUTCOMES)
+
+#' eQTL outcome of each deviating gene for the map.
+#' @param eqtl_lane cis_eqtl / no_cis_eqtl / no_GTEx_data (script 04)
+#' @param gtex_tested whether GTEx tested the gene in whole blood (eGenes file)
+map_outcome <- function(eqtl_lane, gtex_tested) {
+  bad <- setdiff(unique(eqtl_lane), c("cis_eqtl", "no_cis_eqtl", "no_GTEx_data"))
+  if (length(bad)) stop("unknown eqtl_lane: ", paste(bad, collapse = ", "), call. = FALSE)
+  out <- data.table::fcase(eqtl_lane == "cis_eqtl",    MAP_OUTCOMES[1],
+                           eqtl_lane == "no_cis_eqtl", MAP_OUTCOMES[2],
+                           gtex_tested,                MAP_OUTCOMES[3],
+                           default =                   MAP_OUTCOMES[4])
+  factor(out, levels = MAP_OUTCOMES)
+}
+
+#' Schematic chr21 with a band at each deviating gene's TSS (scripts 11, 12).
+#'
+#' Band fill = the eQTL outcome (MAP_FILL); overlapping bands share the bar
+#' height (stack_bands). Gene labels, italic, are coloured by direction and
+#' sit above the bar for genes higher than expected, below for lower. No
+#' title: the caption carries it. Callers attach ggplot2 and ggrepel.
+#' @param bands Gene_name, tss (bp), direction ("up"/"down"), outcome (map_outcome)
+#' @param col_dir colours for c(up, down)
+#' @param chr_len, centromere chr21 length and centromere (bp, GRCh38)
+#' @param band_w half-width of a band, Mb
+deviating_map_plot <- function(bands, col_dir, chr_len, centromere, band_w = 0.12) {
+  b <- data.table::copy(data.table::as.data.table(bands))
+  b[, tss_mb := tss / 1e6]
+  b[, c("ymin", "ymax") := stack_bands(tss_mb, band_w)]
+  b[, direction := factor(direction, levels = c("up", "down"))]
+  up <- b[direction == "up"]; down <- b[direction == "down"]
+  chrom <- data.table::data.table(xmin = c(0, centromere[1], centromere[2]) / 1e6,
+                                  xmax = c(centromere[1], centromere[2], chr_len) / 1e6)
+  key <- data.frame(x = c(-10, -10), y = c(0.5, 0.5), direction = factor(c("up", "down"), levels = c("up", "down")))
+  ggplot() +
+    geom_rect(data = chrom, aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = 1),
+              fill = c("grey85", "grey55", "grey95"), colour = "grey40", linewidth = 0.3) +
+    geom_rect(data = b, aes(xmin = tss_mb - band_w, xmax = tss_mb + band_w, ymin = ymin, ymax = ymax,
+                            fill = outcome), colour = "grey15", linewidth = 0.25) +
+    geom_segment(data = up,   aes(x = tss_mb, xend = tss_mb, y = 1, yend = 1.25), colour = "grey50", linewidth = 0.3) +
+    geom_segment(data = down, aes(x = tss_mb, xend = tss_mb, y = 0, yend = -0.25), colour = "grey50", linewidth = 0.3) +
+    geom_text_repel(data = up, aes(x = tss_mb, y = 1.3, label = Gene_name, colour = direction),
+                    direction = "x", angle = 90, hjust = 0, vjust = 0.5, size = 2.6, fontface = "italic",
+                    segment.size = 0.25, segment.colour = "grey60", box.padding = 0.15,
+                    max.overlaps = Inf, seed = 1, ylim = c(1.3, NA), show.legend = FALSE) +
+    geom_text_repel(data = down, aes(x = tss_mb, y = -0.3, label = Gene_name, colour = direction),
+                    direction = "x", angle = 90, hjust = 1, vjust = 0.5, size = 2.6, fontface = "italic",
+                    segment.size = 0.25, segment.colour = "grey60", box.padding = 0.15,
+                    max.overlaps = Inf, seed = 1, ylim = c(NA, -0.3), show.legend = FALSE) +
+    # legend keys for direction, from a zero-size layer outside the bar
+    geom_point(data = key, aes(x = x, y = y, colour = direction), size = 0) +
+    scale_fill_manual(values = MAP_FILL, drop = FALSE, name = "Gene-level cis-eQTL test") +
+    scale_colour_manual(values = col_dir, labels = c(up = "Higher than expected", down = "Lower than expected"),
+                        name = "Deviation", drop = FALSE) +
+    guides(colour = guide_legend(override.aes = list(size = 3, shape = 15), order = 1),
+           fill = guide_legend(override.aes = list(colour = "grey15", linewidth = 0.25), order = 2)) +
+    scale_x_continuous(breaks = seq(0, 45, 5), expand = expansion(mult = c(0.01, 0.02))) +
+    coord_cartesian(xlim = c(0, chr_len / 1e6), ylim = c(-3.2, 4.2), clip = "off") +
+    labs(x = "chr21 position (Mb)", y = NULL) +
+    theme_minimal(base_size = 9) +
+    theme(axis.text.y = element_blank(), panel.grid = element_blank(),
+          axis.line.x = element_line(colour = "grey40"), axis.ticks.x = element_line(colour = "grey40"),
+          legend.position = "bottom", legend.box = "horizontal", legend.text = element_text(size = 7.5))
+}
