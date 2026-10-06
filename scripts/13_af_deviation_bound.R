@@ -304,11 +304,11 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
   # Labels off the diagonal cloud, perpendicular to it: genes higher than
   # expected above-left, lower than expected below-right.
   geom_text_repel(data = genes[direction == "up"], aes(x = p_ref, y = t21_af, label = Gene_name, colour = direction),
-                  size = 2.6, fontface = "italic", nudge_x = -0.2, nudge_y = 0.2, direction = "y",
+                  size = 2.6, fontface = "italic", nudge_x = -0.09, nudge_y = 0.09, direction = "y",
                   hjust = 1, min.segment.length = 0, segment.size = 0.25, segment.colour = "grey40", seed = 1,
                   box.padding = 0.3, max.overlaps = Inf, show.legend = FALSE) +
   geom_text_repel(data = genes[direction == "down"], aes(x = p_ref, y = t21_af, label = Gene_name, colour = direction),
-                  size = 2.6, fontface = "italic", nudge_x = 0.2, nudge_y = -0.2, direction = "y",
+                  size = 2.6, fontface = "italic", nudge_x = 0.09, nudge_y = -0.09, direction = "y",
                   hjust = 0, min.segment.length = 0, segment.size = 0.25, segment.colour = "grey40", seed = 1,
                   box.padding = 0.3, max.overlaps = Inf, show.legend = FALSE) +
   scale_colour_manual(values = COL_DIR, guide = "none") +
