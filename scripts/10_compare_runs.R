@@ -22,6 +22,7 @@
 
 suppressPackageStartupMessages({ library(data.table); library(ggplot2) })
 source("scripts/lib/run.R"); source("scripts/lib/run_summary.R")
+source("scripts/lib/figure_style.R")   # record_titles: no in-plot title
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
 this    <- run$name
@@ -55,20 +56,26 @@ cat("\nDeviating genes in either run:\n")
 print(as.data.frame(dev[, c("Gene_name", lane_a, lane_b, lfc_a, lfc_b, "attenuation",
                             paste0("eqtl_lane", sa), paste0("eqtl_lane", sb)), with = FALSE]))
 
-lab_b <- if (this == against) paste0(this, " (2)") else this
-long <- rbind(dev[, .(Gene_name, run_label = against, lfc = get(lfc_a))],
+# Run names in words on the figure; an unknown run keeps its name.
+RUN_WORDS <- c(baseline = "Unadjusted", adjusted = "Adjusted",
+               adjusted_interaction = "Adjusted, karyotype x composition")
+run_words <- function(r) if (r %in% names(RUN_WORDS)) RUN_WORDS[[r]] else r
+lab_a <- run_words(against)
+lab_b <- if (this == against) paste0(run_words(this), " (2)") else run_words(this)
+long <- rbind(dev[, .(Gene_name, run_label = lab_a, lfc = get(lfc_a))],
               dev[, .(Gene_name, run_label = lab_b, lfc = get(lfc_b))])
 long[, Gene_name := factor(Gene_name, levels = dev$Gene_name)]
-long[, run_label := factor(run_label, levels = c(against, lab_b))]
-cols_run <- setNames(c("#C45A00", "#762A83"), c(against, lab_b))
+long[, run_label := factor(run_label, levels = c(lab_a, lab_b))]
+cols_run <- setNames(c("#C45A00", "#762A83"), c(lab_a, lab_b))
 th <- theme_bw(base_size = 9) + theme(plot.title = element_text(face = "bold", size = 10),
                                        panel.grid.major.y = element_blank(), legend.position = "bottom")
 p1 <- ggplot(long, aes(x = lfc, y = Gene_name, colour = run_label)) +
   geom_line(aes(group = Gene_name), colour = "grey75") + geom_point(size = 2, na.rm = TRUE) +
   geom_vline(xintercept = 0, linetype = "dotted") + scale_colour_manual(values = cols_run, name = NULL) +
-  labs(title = "Ploidy-corrected log2FC by run", x = "norm_log2FC", y = NULL) + th
-fig <- p1
+  labs(title = "Ploidy-corrected log2FC by run", x = "Ploidy-corrected log2 fold change (T21 vs D21)", y = NULL) +
+  th + theme(axis.text.y = element_text(face = "italic"))
 stem <- run$figure(sprintf("run_comparison_%s_vs_%s", this, against))
+fig <- strip_titles(p1, basename(stem), "", file.path(run$dirs$figures, "removed_titles.txt"))
 ggsave(paste0(stem, ".pdf"), fig, width = 6, height = 7)
 ggsave(paste0(stem, ".png"), fig, width = 6, height = 7, dpi = 200)
 writeLines(capture.output(sessionInfo()), paste0(stem, "_session_info.txt"))
