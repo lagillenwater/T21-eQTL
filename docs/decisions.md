@@ -695,7 +695,9 @@ though seven sit below the Expected-dosage 30th percentile (AP000282.1,
 OLIG2, ADAMTS1, BACE2, PCBP3, CBR3, ABCC13). KCNE1's top GTEx tissue is
 whole blood.
 
-Against the eQTLs: across the chr21 genes GTEx tested, whole-blood TPM does
+Against the eQTLs: of the 211 chr21 genes GTEx tested in whole blood, 163
+(77%) are whole-blood eGenes, against 10 of the 12 tested deviating genes
+(Fisher p = 1 against the other 199). Across those 211, whole-blood TPM does
 not separate eGenes from non-eGenes (p = 0.36); among the tested
 Expected-dosage genes, detection by the T21 test does not rise with
 whole-blood TPM (logistic slope -0.37 per log10 TPM, p = 0.17). The two

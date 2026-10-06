@@ -47,6 +47,7 @@
 #   - tables/gtex_tissue_expression_eqtl.csv     whole-blood TPM by eQTL outcome
 #   - tables/gtex_tissue_expression_detection.csv  T21 detection against whole-blood TPM
 #   - tables/gtex_tissue_expression_scale.csv      HTP T21 TPM against GTEx whole blood, genome-wide
+#   - tables/gtex_tissue_expression_egene_rate.csv GTEx whole-blood eGene rate, deviating vs other chr21 genes
 #   - figures/gtex_tissue_expression.{pdf,png}
 #
 # Usage: Rscript scripts/19_gtex_tissue_expression.R --run adjusted
@@ -225,6 +226,23 @@ eqtl_tbl <- merge(eqtl_tbl, groups[, .(wilcoxon_p = signif(wilcox_p(wb_tpm, grou
                   by = "comparison", sort = FALSE)
 fwrite(eqtl_tbl, run$table("gtex_tissue_expression_eqtl.csv"))
 
+# ---- GTEx whole-blood eGene base rate --------------------------------------------
+# Of the chr21 genes GTEx tested in whole blood, the share that are eGenes
+# (q < EGENE_Q), for the deviating genes against the other tested chr21 genes
+# (Fisher's exact test), with all tested genes and the Expected-dosage genes
+# as reference rows.
+tested <- genes[gtex_wb_tested == TRUE]
+rate_row <- function(set, d) d[, .(set = set, gtex_tested = .N, egenes = sum(gtex_egene),
+                                   egene_rate = round(mean(gtex_egene), 3))]
+egene_tbl <- rbind(rate_row("All classified chr21", tested),
+                   rate_row("Deviating", tested[sig_lane %in% deviating]),
+                   rate_row("Other chr21", tested[!sig_lane %in% deviating]),
+                   rate_row("Expected dosage", tested[sig_lane == "Expected_dosage"]))
+ft <- fisher.test(table(deviating = tested$sig_lane %in% deviating, egene = tested$gtex_egene))
+egene_tbl[, `:=`(fisher_p_deviating_vs_other = signif(ft$p.value, 3),
+                 odds_ratio_deviating_vs_other = round(ft$estimate[[1]], 2))]
+fwrite(egene_tbl, run$table("gtex_tissue_expression_egene_rate.csv"))
+
 # ---- Figure ---------------------------------------------------------------------
 # Every classified chr21 gene: A whole-blood TPM by lane, B GTEx eQTL strength
 # against it (genes tested in T21), C the cohort's TPM against GTEx's. One row
@@ -359,6 +377,7 @@ cat("\nPer lane:\n"); print(lane_tbl)
 cat("\nWhole-blood TPM by eQTL outcome:\n"); print(eqtl_tbl)
 if (!is.null(detection_tbl)) { cat("\nT21 detection against whole-blood TPM:\n"); print(detection_tbl) }
 cat("\nHTP T21 TPM against GTEx whole blood, genome-wide:\n"); print(scale_tbl)
+cat("\nGTEx whole-blood eGene rate among the GTEx-tested chr21 genes:\n"); print(egene_tbl)
 cat("\nDeviating genes:\n")
 print(genes[sig_lane %in% deviating, .(Gene_name, sig_lane, baseMean = round(baseMean), wb_tpm = signif(wb_tpm, 3),
                                        wb_rank, top_tissue, tau = round(tau, 2),
