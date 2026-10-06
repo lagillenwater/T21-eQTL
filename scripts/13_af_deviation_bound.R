@@ -279,7 +279,7 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
   scale_colour_manual(values = COL_DIR, guide = "none") +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
   labs(tag = "A", title = "ALT allele frequency, T21 cohort vs reference",
-       subtitle = sprintf("%s tested cis variants; median T21 - ref = %+.4f, median absolute diff = %.3f",
+       subtitle = sprintf("%s tested cis variants\nmedian T21 - ref = %+.4f, median absolute diff = %.3f",
                           format(bg$n_variants, big.mark = ","), bg$median_delta, bg$median_abs_delta),
        x = sprintf("%s ALT frequency", REF_LABELS[[PRIMARY]]),
        y = sprintf("T21 cohort ALT frequency (n = %d)", ncol(D))) +
@@ -287,9 +287,9 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
   theme(panel.grid.minor = element_blank(), plot.title = element_text(face = "bold", size = 9.5),
         plot.subtitle = element_text(size = 7.5, colour = "grey30"))
 
-# B: observed deviation vs what the best variant could do, on the
-# deviation-aligned axis (positive = toward the gene's deviation, for up and
-# down genes alike). Group ratios use 3 chr21 copies in T21 and 2 in D21.
+# B: observed deviation vs what the best variant could do, on the signed
+# scale: left of 0 = lower than the 1.5-fold expectation, right = higher.
+# Group ratios use 3 chr21 copies in T21 and 2 in D21.
 LAB_B <- c(obs = "Observed deviation (95% CI)",
            pred = "Shift predicted by the observed AF difference (95% CI)",
            rng = "Reachable if T21 AF were 0 or 1")
@@ -301,14 +301,14 @@ theme_rows <- theme_bw(base_size = 9) +
         plot.subtitle = element_text(size = 7.5, colour = "grey30"))
 pb <- ggplot(genes, aes(y = gene_lab)) +
   geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
-  geom_linerange(aes(xmin = away_reach, xmax = toward_reach, linewidth = LAB_B[["rng"]]),
-                 colour = "grey82") +
-  geom_errorbar(aes(xmin = toward_pred_lo, xmax = toward_pred_hi), orientation = "y", width = 0.25,
+  geom_linerange(aes(xmin = pmin(bound_low, bound_high), xmax = pmax(bound_low, bound_high),
+                     linewidth = LAB_B[["rng"]]), colour = "grey82") +
+  geom_errorbar(aes(xmin = pmin(pred_lo, pred_hi), xmax = pmax(pred_lo, pred_hi)), orientation = "y", width = 0.25,
                 colour = "black", linewidth = 0.4) +
-  geom_point(aes(x = toward_pred, shape = LAB_B[["pred"]]), size = 2.2, fill = "black") +
-  geom_errorbar(aes(xmin = toward_obs_lo, xmax = toward_obs_hi, colour = direction), orientation = "y",
+  geom_point(aes(x = pred_shift, shape = LAB_B[["pred"]]), size = 2.2, fill = "black") +
+  geom_errorbar(aes(xmin = pmin(dev_lo, dev_hi), xmax = pmax(dev_lo, dev_hi), colour = direction), orientation = "y",
                 width = 0.25, linewidth = 0.5) +
-  geom_point(aes(x = toward_obs, colour = direction, shape = LAB_B[["obs"]]), size = 2.6) +
+  geom_point(aes(x = deviation, colour = direction, shape = LAB_B[["obs"]]), size = 2.6) +
   scale_colour_manual(values = COL_DIR, labels = c(up = "Higher than expected", down = "Lower than expected"),
                       name = NULL) +
   scale_shape_manual(NULL, values = setNames(c(16, 23), unname(LAB_B[c("obs", "pred")])),
@@ -318,48 +318,23 @@ pb <- ggplot(genes, aes(y = gene_lab)) +
                               override.aes = list(colour = c("grey20", "black"), fill = c(NA, "black"))),
          linewidth = guide_legend(order = 2), colour = guide_legend(order = 3, override.aes = list(shape = 16))) +
   labs(tag = "B", title = "Deviation vs the best variant's reach",
-       subtitle = "Aligned to each gene's deviation; T21 = 3 copies, D21 = 2; reach at the 95% CI edge of the slope",
-       x = expression(symbol("\254")~"away"~~~~"Shift of"~log[2]~"(T21/D21) from 1.5"~~~~"toward the deviation"~symbol("\256")),
+       subtitle = "T21 = 3 copies, D21 = 2; reach at the 95% CI edge of the slope",
+       x = expression(symbol("\254")~"lower"~~~~"Shift of"~log[2]~"(T21/D21) from 1.5"~~~~"higher"~symbol("\256")),
        y = NULL) +
   theme_rows + theme(axis.text.y = element_text(face = "italic"), plot.title = element_text(face = "bold", size = 9.5,
                                                                                           margin = margin(b = 2)))
 
-# C: the T21 frequency change each gene's deviation would need.
-LAB_C <- c(best = "Best variant",
-           easy = "Easiest common variant with within-T21 p < 0.05")
-req <- melt(genes[, .(gene_lab, best = abs(req_delta_af), easy = abs(easiest_req_delta_af))],
-            id.vars = "gene_lab", variable.name = "which", value.name = "req")
-req[, which := LAB_C[as.character(which)]]
-# Out-of-reach genes (no frequency in [0, 1] produces the deviation) sit in
-# their own column to the right of 1.
-X_OOR <- 1.2
-req[, `:=`(reachable = !is.na(req), x = fifelse(is.na(req), X_OOR, req))]
-req[, y_nudge := fifelse(which == LAB_C[["best"]], 0.14, -0.14)]
-pc <- ggplot(req, aes(y = gene_lab, x = x)) +
-  annotate("rect", xmin = 0, xmax = BG_Q[[1]], ymin = -Inf, ymax = Inf, fill = "grey85") +
-  geom_vline(xintercept = 1.1, colour = "grey70", linewidth = 0.3) +
-  geom_point(aes(shape = which), size = 2.3, colour = "grey15",
-             position = position_nudge(y = req$y_nudge)) +
-  scale_shape_manual(NULL, values = setNames(c(16, 1), unname(LAB_C))) +
-  scale_x_continuous(limits = c(0, 1.3), breaks = c(0, 0.25, 0.5, 0.75, 1, X_OOR),
-                     labels = c("0", "0.25", "0.5", "0.75", "1", "out of\nreach")) +
-  guides(shape = guide_legend(ncol = 1)) +
-  labs(tag = "C", title = "AF difference needed to explain it",
-       subtitle = sprintf("Shaded: 99%% of observed absolute T21 - ref differences (<= %.3f)", BG_Q[[1]]),
-       x = "Absolute T21 - reference ALT frequency difference needed", y = NULL) +
-  theme_rows + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
-
-# D: what the eQTL does explain: between-person variance within T21.
+# C: what the eQTL does explain: between-person variance within T21.
 pd <- ggplot(genes, aes(y = gene_lab, x = 100 * r2_within_t21, fill = direction)) +
   geom_col(width = 0.6) +
   geom_text(aes(label = sprintf("%.1f%%", 100 * r2_within_t21)), hjust = -0.15, size = 2.5, colour = "grey20") +
   scale_fill_manual(values = COL_DIR, guide = "none") +
   scale_x_continuous(expand = expansion(mult = c(0, 0.3))) +
-  labs(tag = "D", title = "Within-T21 variance explained",
+  labs(tag = "C", title = "Within-T21 variance explained",
        subtitle = "Best variant, R-squared", x = "% of within-T21 variance", y = NULL) +
   theme_rows + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-fig <- pa + (pb + pc + pd + plot_layout(widths = c(2.2, 1.6, 1))) + plot_layout(widths = c(1, 2.6))
+fig <- pa + (pb + pd + plot_layout(widths = c(2.2, 1))) + plot_layout(widths = c(1, 2))
 
 save_fig <- function(p, stem, width, height) {
   ggsave(paste0(stem, ".pdf"), p, width = width, height = height, limitsize = FALSE)
@@ -370,7 +345,7 @@ save_fig <- function(p, stem, width, height) {
   }
 }
 cat("\n")
-save_fig(fig, run$figure("af_deviation_bound"), width = 16, height = 5.8)
+save_fig(fig, run$figure("af_deviation_bound"), width = 13, height = 5.8)
 
 writeLines(capture.output(sessionInfo()), run$table("af_deviation_bound_session_info.txt"))
 cat("\nDone.\n")
