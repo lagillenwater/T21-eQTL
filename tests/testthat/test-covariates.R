@@ -97,3 +97,36 @@ test_that("display_covariate names the dummies and spells out Greek letters", {
                                    "CD8a+ γδ T", "CD27+ B")),
                c("Age", "Sex (male)", "Source: NDSC2019", "CD8a+ gamma-delta T", "CD27+ B"))
 })
+
+test_that("design_formula adds karyotype x fraction terms after karyotype when asked", {
+  f <- design_formula(c("Age_at_visit"), c("CD4+ TCM", "naive B"), interact_karyotype = TRUE)
+  expect_equal(deparse1(f),
+               "~Age_at_visit + CD4..TCM + naive.B + karyotype + karyotype:CD4..TCM + karyotype:naive.B")
+  expect_equal(design_formula(c("Age_at_visit"), c("naive B")),
+               design_formula(c("Age_at_visit"), c("naive B"), interact_karyotype = FALSE))
+})
+
+test_that("adjust_expression with interactions removes group-specific covariate slopes", {
+  set.seed(9); n <- 200; g <- rep(c(TRUE, FALSE), each = 100)
+  x <- as.numeric(scale(rnorm(n)))                       # centred, as script 01 scales the fractions
+  X <- cbind(frac = x, age = rnorm(n))
+  # composition slope 1 in controls and 3 in T21; karyotype effect 2 at x = 0
+  Y <- rbind(a = 2 * g + ifelse(g, 3, 1) * x + 0.5 * X[, "age"] + rnorm(n, sd = 0.05))
+  colnames(Y) <- paste0("s", 1:n)
+  A <- adjust_expression(Y, g, X, interact = "frac")
+  # exact: no covariate or interaction effect remains in the pooled model, and
+  # within each group the interacted covariate's own slope is zero
+  pooled <- coef(lm(A["a", ] ~ g + X + g:X[, "frac"]))
+  expect_equal(unname(pooled[3:5]), c(0, 0, 0), tolerance = 1e-8)
+  expect_equal(unname(coef(lm(A["a", g] ~ x[g]))[2]), 0, tolerance = 1e-8)
+  expect_equal(unname(coef(lm(A["a", !g] ~ x[!g]))[2]), 0, tolerance = 1e-8)
+  expect_equal(unname(mean(A["a", g]) - mean(A["a", !g])), 2, tolerance = 0.05)
+  # without the interaction a T21-specific slope is left behind
+  A0 <- adjust_expression(Y, g, X)
+  expect_gt(abs(coef(lm(A0["a", g] ~ X[g, ]))[[2]]), 0.5)
+})
+
+test_that("adjust_expression rejects an interaction column that is not a covariate", {
+  X <- cbind(frac = rnorm(10)); Y <- matrix(rnorm(10), 1, 10)
+  expect_error(adjust_expression(Y, rep(c(TRUE, FALSE), 5), X, interact = "nope"), "nope")
+})

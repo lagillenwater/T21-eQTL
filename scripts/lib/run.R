@@ -39,6 +39,10 @@ validate_run_config <- function(cfg) {
     if (!is.list(cfg$composition)) stop_cfg("composition must be a list or NULL")
     for (f in c("source", "path", "reference"))
       if (is.null(cfg$composition[[f]])) stop_cfg("composition missing %s", f)
+    # Optional: fit karyotype x composition-fraction interactions (script 01).
+    ik <- cfg$composition$interact_karyotype
+    if (!is.null(ik) && !(is.logical(ik) && length(ik) == 1 && !is.na(ik)))
+      stop_cfg("composition interact_karyotype must be TRUE or FALSE")
   }
   if (!is.list(cfg$exclude)) stop_cfg("exclude must be a list")
   for (k in names(cfg$exclude))

@@ -90,3 +90,13 @@ test_that("genotype files default to the shared PASS files and a run may overrid
   bad <- base_cfg(); bad$genotypes <- list(ctrl = c("a.csv", "b.csv"))
   expect_error(validate_run_config(bad), "run config: genotype file ctrl must be one path")
 })
+
+test_that("validate_run_config accepts a karyotype x composition flag and rejects a malformed one", {
+  cfg <- base_cfg()
+  cfg$composition <- list(source = "cytof", path = "x.txt", reference = "mono", interact_karyotype = TRUE)
+  expect_identical(validate_run_config(cfg), cfg)
+  bad <- cfg; bad$composition$interact_karyotype <- "yes"
+  expect_error(validate_run_config(bad), "run config: composition interact_karyotype must be TRUE or FALSE")
+  bad <- cfg; bad$composition$interact_karyotype <- c(TRUE, FALSE)
+  expect_error(validate_run_config(bad), "run config: composition interact_karyotype must be TRUE or FALSE")
+})

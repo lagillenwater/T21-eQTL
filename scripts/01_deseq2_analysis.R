@@ -4,8 +4,9 @@
 #          Compares T21 vs Control samples with ploidy normalization for chr21
 #
 # Run-aware (scripts/lib/run.R): `Rscript scripts/01_deseq2_analysis.R --run <name>`.
-# The run config supplies covariates, composition source, cohort exclusions and
-# ploidy; outputs go under results/runs/<name>/.
+# The run config supplies covariates, composition source (optionally with
+# karyotype x cell-fraction interactions), cohort exclusions and ploidy;
+# outputs go under results/runs/<name>/.
 #
 # Inputs:
 #   - data/processed/count_matrix.csv
@@ -147,7 +148,12 @@ if (!is.null(run$composition)) {
   stopifnot(!anyDuplicated(c(names(col_df), colnames(Fs))))
   col_df <- cbind(col_df, as.data.frame(Fs))
 }
-design   <- design_formula(run$covariates, fraction_names)
+# A run may let each cell fraction relate to expression differently in T21
+# and D21 (composition$interact_karyotype): karyotype x fraction terms join
+# the design. The fractions are centred, so the karyotype coefficient is the
+# T21 effect at the cohort-mean composition.
+interact_karyotype <- isTRUE(run$composition$interact_karyotype)
+design   <- design_formula(run$covariates, fraction_names, interact_karyotype)
 col_data <- DataFrame(col_df)
 cat("  Design:", paste(deparse(design), collapse = ""), "\n")
 
@@ -230,11 +236,14 @@ dds_raw <- DESeq(dds_raw, betaPrior = FALSE)
 results_raw <- results(dds_raw, name = "karyotype_T21_vs_Control")
 
 # Convert to table
+# betaConv: whether the GLM fit converged for the gene (DESeq2 labels, and
+# does not drop, the genes that did not), kept so a run can check its genes.
 results_raw_table <- as.data.frame(results_raw) %>%
   rownames_to_column("EnsemblID") %>%
+  mutate(betaConv = mcols(dds_raw)$betaConv[match(EnsemblID, rownames(dds_raw))]) %>%
   left_join(gene_annotations, by = "EnsemblID") %>%
   select(EnsemblID, Gene_name, Chr, Gene_type,
-         baseMean, log2FoldChange, lfcSE, stat, pvalue, padj) %>%
+         baseMean, log2FoldChange, lfcSE, stat, pvalue, padj, betaConv) %>%
   arrange(padj, desc(abs(log2FoldChange)))
 
 cat("  Raw analysis complete\n")
@@ -325,9 +334,10 @@ cat("  Saved:", run$table("deseq2_cooks_diagnostics.csv"), "\n")
 # Convert to table
 results_norm_table <- as.data.frame(results_norm) %>%
   rownames_to_column("EnsemblID") %>%
+  mutate(betaConv = mcols(dds_norm)$betaConv[match(EnsemblID, rownames(dds_norm))]) %>%
   left_join(gene_annotations, by = "EnsemblID") %>%
   select(EnsemblID, Gene_name, Chr, Gene_type,
-         baseMean, log2FoldChange, lfcSE, stat, pvalue, padj) %>%
+         baseMean, log2FoldChange, lfcSE, stat, pvalue, padj, betaConv) %>%
   arrange(padj, desc(abs(log2FoldChange)))
 
 cat("  Ploidy-normalized analysis complete\n")
@@ -345,15 +355,18 @@ results_combined <- results_raw_table %>%
   select(EnsemblID, Gene_name, Chr, Gene_type, baseMean,
          raw_log2FC = log2FoldChange,
          raw_pvalue = pvalue,
-         raw_padj = padj) %>%
+         raw_padj = padj,
+         raw_betaConv = betaConv) %>%
   left_join(
     results_norm_table %>%
       select(EnsemblID,
              norm_log2FC = log2FoldChange,
              norm_pvalue = pvalue,
-             norm_padj = padj),
+             norm_padj = padj,
+             norm_betaConv = betaConv),
     by = "EnsemblID"
-  )
+  ) %>%
+  relocate(raw_betaConv, norm_betaConv, .after = last_col())
 
 cat(sprintf("  Combined table created: %d genes\n", nrow(results_combined)))
 
@@ -434,7 +447,8 @@ adj_cols <- setdiff(names(col_df), c("sample_id", "karyotype"))
 if (length(adj_cols)) {
   X_adj <- model.matrix(~ ., col_df[, adj_cols, drop = FALSE])[, -1, drop = FALSE]
 }
-A <- adjust_expression(L, col_df$karyotype == "T21", X_adj)
+A <- adjust_expression(L, col_df$karyotype == "T21", X_adj,
+                       interact = if (interact_karyotype) fraction_colnames(fraction_names))
 gene_names <- gene_annotations$Gene_name[match(rownames(A), gene_annotations$EnsemblID)]
 data.table::fwrite(data.table::data.table(Gene_name = gene_names, A),
                    run$processed("expression_adjusted.csv"))

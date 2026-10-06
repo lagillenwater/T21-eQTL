@@ -54,7 +54,7 @@ Every pipeline script from 01 onward takes `--run <name>` (default
 `baseline`; the `T21_RUN` environment variable is honoured when the flag is
 absent) and reads `config/runs/<name>.R`: covariates, composition source,
 cohort exclusions, ploidy, and every classification threshold. Outputs go
-to `results/runs/<name>/{processed,tables,figures}`. Two runs are defined:
+to `results/runs/<name>/{processed,tables,figures}`. Three runs are defined:
 
 - `baseline`: design `~ karyotype`, no exclusions. The primary
   result. Regenerated through the run mechanism and checked against the
@@ -63,6 +63,13 @@ to `results/runs/<name>/{processed,tables,figures}`. Two runs are defined:
 - `adjusted`: design `~ age + sex + BMI + sample source + 19 CyTOF cell
   fractions + karyotype`, mosaic T21 subjects excluded. Requires the CyTOF
   table (`download_synapse_celltypes.sh`).
+- `adjusted_interaction`: the adjusted design plus a karyotype x fraction
+  term for each of the 19 cell fractions (`composition$interact_karyotype`),
+  so composition may relate to expression differently in T21 and D21. The
+  fractions are centred, so the karyotype effect is at the cohort-mean
+  composition. A sensitivity run: which deviating genes survive it, and
+  the lane transitions (`10_compare_runs.R --run adjusted_interaction
+  --against adjusted`).
 
 Script 01 writes the run's cohort (`processed/analysis_cohort.csv`, plus
 `cohort_roster.csv` with an `excluded_reason` per dropped sample) and one
@@ -76,7 +83,8 @@ ploidy-scaled; between-group fold changes come from DESeq2.
 To add a covariate, list it in `covariates` (it must be a column of
 `data/processed/sample_metadata.csv` named in `RUN_COVARIATES` in
 `scripts/lib/run.R`). To exclude samples, add `column = c(values)` to
-`exclude`. Thresholds live only in the config. Re-run from script 01.
+`exclude`. To let every cell fraction interact with karyotype, set
+`interact_karyotype = TRUE` in `composition`. Thresholds live only in the config. Re-run from script 01.
 
 `scripts/S1_covariate_evidence.R --run <name>` writes the evidence
 supplement (covariates vs karyotype; cell-fraction reach into expression;

@@ -50,10 +50,18 @@ composition_fractions <- function(cytof_wide, lab_ids, reference) {
 #' the second would be silently dropped from the model.
 fraction_colnames <- function(fraction_names) make.names(fraction_names, unique = TRUE)
 
-#' DESeq2 design with karyotype as the last term. Fraction names go through
-#' fraction_colnames() so they can be column names of colData.
-design_formula <- function(covariates, fraction_names) {
-  terms <- c(covariates, fraction_colnames(fraction_names), "karyotype")
+#' DESeq2 design with karyotype after the main effects. Fraction names go
+#' through fraction_colnames() so they can be column names of colData.
+#'
+#' With `interact_karyotype`, a karyotype x fraction term follows for every
+#' fraction, so each cell population may relate to expression differently in
+#' T21 and D21. The karyotype coefficient is then the T21 effect where every
+#' fraction is 0; script 01 centres the fractions, so that is the cohort-mean
+#' composition, and its contrast name is unchanged.
+design_formula <- function(covariates, fraction_names, interact_karyotype = FALSE) {
+  fr <- fraction_colnames(fraction_names)
+  terms <- c(covariates, fr, "karyotype")
+  if (interact_karyotype && length(fr)) terms <- c(terms, paste0("karyotype:", fr))
   stats::as.formula(paste("~", paste(terms, collapse = " + ")))
 }
 
@@ -63,11 +71,25 @@ design_formula <- function(covariates, fraction_names) {
 #' subtracts X %*% beta_X. Karyotype is in the fit so its effect is not
 #' absorbed by covariates that differ between groups, and it is left in the
 #' result. With no covariates Y is returned unchanged.
-adjust_expression <- function(Y, karyotype, X) {
+#'
+#' `interact` names columns of X whose slope may differ by karyotype: their
+#' karyotype x covariate products join the fit and are subtracted too, so no
+#' covariate effect remains within either group. The karyotype effect kept is
+#' the one where those columns are 0 (centre them for the mean composition).
+adjust_expression <- function(Y, karyotype, X, interact = NULL) {
   if (is.null(X) || ncol(as.matrix(X)) == 0) return(Y)
   X <- as.matrix(X)
   stopifnot(is.matrix(Y), nrow(X) == ncol(Y), length(karyotype) == ncol(Y))
-  D <- cbind(intercept = 1, t21 = as.numeric(karyotype), X)
+  missing_cols <- setdiff(interact, colnames(X))
+  if (length(missing_cols))
+    stop("interaction column(s) not among the covariates: ", paste(missing_cols, collapse = ", "), call. = FALSE)
+  t21 <- as.numeric(karyotype)
+  if (length(interact)) {
+    XI <- X[, interact, drop = FALSE] * t21
+    colnames(XI) <- paste0("t21:", interact)
+    X <- cbind(X, XI)
+  }
+  D <- cbind(intercept = 1, t21 = t21, X)
   B <- coef_rows(Y, D)
   Y - B[, -(1:2), drop = FALSE] %*% t(X)
 }
