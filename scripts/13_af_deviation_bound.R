@@ -301,9 +301,16 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
   geom_point(size = 0.5, alpha = 0.25, colour = "grey45", stroke = 0) +
   geom_point(data = genes, aes(x = p_ref, y = t21_af, colour = direction),
              size = 2.2, shape = 21, fill = "white", stroke = 0.9) +
-  geom_text_repel(data = genes, aes(x = p_ref, y = t21_af, label = Gene_name, colour = direction),
-                  size = 2.6, fontface = "italic", min.segment.length = 0, seed = 1,
-                  box.padding = 0.35, max.overlaps = Inf, show.legend = FALSE) +
+  # Labels off the diagonal cloud, perpendicular to it: genes higher than
+  # expected above-left, lower than expected below-right.
+  geom_text_repel(data = genes[direction == "up"], aes(x = p_ref, y = t21_af, label = Gene_name, colour = direction),
+                  size = 2.6, fontface = "italic", nudge_x = -0.2, nudge_y = 0.2, direction = "y",
+                  hjust = 1, min.segment.length = 0, segment.size = 0.25, segment.colour = "grey40", seed = 1,
+                  box.padding = 0.3, max.overlaps = Inf, show.legend = FALSE) +
+  geom_text_repel(data = genes[direction == "down"], aes(x = p_ref, y = t21_af, label = Gene_name, colour = direction),
+                  size = 2.6, fontface = "italic", nudge_x = 0.2, nudge_y = -0.2, direction = "y",
+                  hjust = 0, min.segment.length = 0, segment.size = 0.25, segment.colour = "grey40", seed = 1,
+                  box.padding = 0.3, max.overlaps = Inf, show.legend = FALSE) +
   scale_colour_manual(values = COL_DIR, guide = "none") +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
   labs(tag = "A", title = "ALT allele frequency, T21 vs GTEx whole blood",
