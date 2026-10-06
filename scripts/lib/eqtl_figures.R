@@ -237,5 +237,20 @@ deviating_map_plot <- function(bands, col_dir, chr_len, centromere, band_w = 0.1
     theme_minimal(base_size = 9) +
     theme(axis.text.y = element_blank(), panel.grid = element_blank(),
           axis.line.x = element_line(colour = "grey40"), axis.ticks.x = element_line(colour = "grey40"),
-          legend.position = "bottom", legend.box = "horizontal", legend.text = element_text(size = 7.5))
+          legend.position = "bottom", legend.box = "vertical", legend.text = element_text(size = 7.5),
+          legend.spacing.y = unit(2, "pt"))
+}
+
+#' The map's genes: map_bands() plus each gene's map_outcome(), ordered by
+#' position (scripts 11 and 12).
+#' @param lanes lane table with ensembl_stable
+#' @param gtex_tested_ids stable Ensembl ids GTEx tested in whole blood (its
+#'   eGenes file lists every tested gene)
+deviating_map_data <- function(lanes, roster, extra, gtex_tested_ids) {
+  b <- map_bands(lanes, roster, extra)
+  ids <- data.table::as.data.table(lanes)[, .(Gene_name, ensembl_stable)]
+  b <- merge(b, unique(ids, by = "Gene_name"), by = "Gene_name", all.x = TRUE)
+  b[, outcome := map_outcome(eqtl_lane, ensembl_stable %in% gtex_tested_ids)]
+  data.table::setorder(b, tss)
+  b[]
 }

@@ -1,119 +1,121 @@
 # 12_flow_map_figure.R
 #
-# Purpose: One two-panel figure combining the lane-flow Sankey (A) with the
-#          chr21 deviating-gene map (B), for the manuscript.
+# Purpose: One two-panel figure for the manuscript: the flow of the chr21
+#          genes through the dosage classification to the eQTL test (A), and
+#          the deviating genes on chr21 (B). Both panels are drawn here from
+#          the run's tables, so the figure always matches the run.
 #
-#   A  The Sankey rendered at https://sankeymatic.com/build/ from script 05's
-#      text export. That render is a manual step, so this script reads the
-#      tracked PNG rather than drawing it. Both panels are raster for that
-#      reason; the map is read back from script 11's PNG so the two match in
-#      resolution.
-#   B  chr21_deviating_map, written by script 11 for this run.
+#   A  Every classified chr21 gene (the lane table) through three stages:
+#      expected dosage / outside the expectation / not assessable; then the
+#      sub-lanes (not DE, higher than expected, lower than expected; low
+#      expression, high repeats); then, for the deviating genes, the
+#      gene-level cis-eQTL test (detected, tested and not detected, no
+#      variant to test). Flows end where a gene's path ends. Drawn with
+#      ggsankey. Colours follow the figure palette: red and blue for the
+#      direction of deviation, filled / open / grey for the eQTL outcome,
+#      greys for the dosage lanes.
+#   B  The chr21 map of the deviating genes, deviating_map_plot() in
+#      scripts/lib/eqtl_figures.R (the same map script 11 writes alone).
 #
-# The Sankey must be the render of THIS run's export, which nothing can check
-# automatically - the file is produced by hand on a website. The script prints
-# the file it used and when it was last written, so a stale panel A is visible
-# rather than silent. Prefer a run-prefixed render (docs/figures/<run>_Sankey.png);
-# the unprefixed docs/figures/Sankey.png is the historical baseline one.
+# Inputs (per run): tables/chr21_lane_assignments.csv (script 04),
+#   processed/eqtl_supported_genes.csv (script 02), data/chr21_gene_positions.csv,
+#   data/Whole_Blood.v10.eGenes.txt.gz
+# Outputs (per run): figures/chr21_flow_and_map.{pdf,png}
 #
-# Inputs:  docs/figures/<run>_Sankey.png (or --sankey <path>)
-#          results/runs/<run>/figures/chr21_deviating_map.png
-# Outputs: results/runs/<run>/figures/chr21_flow_and_map.{pdf,png}
-#
-# Usage:   Rscript scripts/12_flow_map_figure.R --run adjusted
-#          Rscript scripts/12_flow_map_figure.R --run adjusted --sankey path/to.png
+# Usage: Rscript scripts/12_flow_map_figure.R --run adjusted
+# Requires ggsankey (GitHub: davidsjoberg/ggsankey; install_packages.R).
 
 suppressPackageStartupMessages({
-  library(png)
-  library(grid)
+  library(data.table)
+  library(ggplot2)
+  library(ggrepel)
+  library(ggsankey)
+  library(patchwork)
 })
+source("scripts/lib/eqtl_figures.R")   # deviating_map_data, deviating_map_plot
+source("scripts/lib/figure_style.R")   # record_titles
 source("scripts/lib/run.R"); run <- load_run()
-
-args <- commandArgs(trailingOnly = TRUE)
-i    <- match("--sankey", args)
-sankey_path <- if (!is.na(i)) {
-  if (length(args) <= i) stop("--sankey given without a file", call. = FALSE)
-  args[i + 1]
-} else {
-  prefixed <- file.path("docs", "figures", sprintf("%s_Sankey.png", run$name))
-  if (file.exists(prefixed)) prefixed else file.path("docs", "figures", "Sankey.png")
-}
-map_path <- run$figure("chr21_deviating_map.png")
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
+EGENES <- "data/Whole_Blood.v10.eGenes.txt.gz"
+COL_DIR   <- c(up = "#B2182B", down = "#2166AC")
+CHR21_LEN <- 46709983                    # GRCh38
+CEN       <- c(10864561, 12915808)
 
 cat(sprintf("=== T21-eQTL: lane flow + chr21 map [run: %s] ===\n\n", run$name))
-
-for (f in c(sankey_path, map_path))
-  if (!file.exists(f))
-    stop("missing panel input: ", f,
-         if (identical(f, map_path)) " - run scripts/11_eqtl_figures.R first" else
-           " - render script 05's export at https://sankeymatic.com/build/ and save it there",
-         call. = FALSE)
-
-# The Sankey is a hand-made render, so say out loud which file went in.
-cat(sprintf("  A (Sankey): %s  [modified %s]\n", sankey_path,
-            format(file.mtime(sankey_path), "%Y-%m-%d %H:%M")))
-cat(sprintf("  B (map):    %s  [modified %s]\n", map_path,
-            format(file.mtime(map_path), "%Y-%m-%d %H:%M")))
-if (!startsWith(basename(sankey_path), paste0(run$name, "_")))
-  cat(sprintf("  NOTE: panel A is not a %s-prefixed render. Confirm it was made from\n",
-              run$name),
-      sprintf("        %s\n", run$table("chr21_lane_sankeymatic_input.txt")))
+lanes <- fread(run$table("chr21_lane_assignments.csv"))
 
 # =============================================================================
-# Compose
+# A: lane flow
 # =============================================================================
-# Panel heights follow each image's own aspect ratio at a shared width, so
-# neither panel is stretched, and the output is sized to the wider image's
-# pixel width at 200 dpi so nothing is upscaled.
+# One row per gene, one column per stage; NA where the gene's path ends.
+ROOT <- "chr21 genes"
+NODE_ORDER <- c(ROOT,
+                "Expected dosage", "Outside the expectation", "Not assessable",
+                "Not DE", "Higher than expected", "Lower than expected",
+                "Low expression", "High repeats", "Not estimable",
+                "cis-eQTL detected", "tested, not detected", "no variant to test")
+NODE_FILL <- c("grey40",
+               "grey65", "grey45", "grey80",
+               "grey60", COL_DIR[["up"]], COL_DIR[["down"]],
+               "grey85", "grey85", "grey85",
+               "grey15", "white", "grey70")
+names(NODE_FILL) <- NODE_ORDER
 
-panel_of <- function(path) {
-  img <- readPNG(path)
-  list(grob = rasterGrob(img, interpolate = TRUE),
-       w = dim(img)[2], h = dim(img)[1])
-}
-a <- panel_of(sankey_path)
-b <- panel_of(map_path)
-cat(sprintf("  panel pixels: A %dx%d, B %dx%d\n", a$w, a$h, b$w, b$h))
+g <- lanes[, .(sig_lane, eqtl_lane)]
+g[, `:=`(
+  s1 = ROOT,
+  s2 = fcase(sig_lane == "Expected_dosage", "Expected dosage",
+             sig_lane %in% c("DE_high", "DE_low", "Not_DE_outside_noise"), "Outside the expectation",
+             sig_lane %in% c("Low_expression", "High_repeats", "Not_assessable"), "Not assessable"),
+  s3 = fcase(sig_lane == "Not_DE_outside_noise", "Not DE",
+             sig_lane == "DE_high", "Higher than expected",
+             sig_lane == "DE_low", "Lower than expected",
+             sig_lane == "Low_expression", "Low expression",
+             sig_lane == "High_repeats", "High repeats",
+             sig_lane == "Not_assessable", "Not estimable"),
+  s4 = fcase(sig_lane %in% c("DE_high", "DE_low") & eqtl_lane == "cis_eqtl", "cis-eQTL detected",
+             sig_lane %in% c("DE_high", "DE_low") & eqtl_lane == "no_cis_eqtl", "tested, not detected",
+             sig_lane %in% c("DE_high", "DE_low") & eqtl_lane == "no_GTEx_data", "no variant to test"))]
+if (anyNA(g$s2)) stop("unknown sig_lane: ", paste(unique(g[is.na(s2), sig_lane]), collapse = ", "))
+if (g[sig_lane %in% c("DE_high", "DE_low"), anyNA(s4)]) stop("deviating gene without an eQTL outcome")
 
-DPI    <- 200
-TAG_W  <- 0.3                               # in, the gutter the A/B tags live in
-panel_w <- max(a$w, b$w) / DPI              # panels at their own pixel width
-aspect  <- c(a$h / a$w, b$h / b$w)          # height per unit width, per panel
-fig_w   <- panel_w + TAG_W
-fig_h   <- panel_w * sum(aspect)
+long <- as.data.table(make_long(as.data.frame(g), s1, s2, s3, s4))
+long <- long[!is.na(node)]
+counts <- long[, .N, by = .(x, node)]
+cat("  Flow nodes:\n"); print(counts[, .(stage = x, node, genes = N)])
+long <- merge(long, counts, by = c("x", "node"))
+long[, `:=`(node = factor(node, levels = rev(NODE_ORDER)),
+            next_node = factor(next_node, levels = rev(NODE_ORDER)),
+            label = sprintf("%s  %d", node, N))]
 
-# Drawn with grid rather than patchwork: both panels carry their own title
-# text hard against the left edge of the image, and a patchwork tag is placed
-# inside the plot area, so it lands on top of that text. Here the tags get a
-# column of their own and cannot overlap anything.
-draw_fig <- function() {
-  grid.newpage()
-  pushViewport(viewport(layout = grid.layout(
-    2, 2, widths = unit.c(unit(TAG_W, "in"), unit(1, "null")),
-    heights = unit(aspect, "null"))))
-  draw_panel <- function(row, grob, tag) {
-    pushViewport(viewport(layout.pos.row = row, layout.pos.col = 2))
-    grid.draw(grob)
-    popViewport()
-    pushViewport(viewport(layout.pos.row = row, layout.pos.col = 1))
-    grid.text(tag, x = 0.55, y = unit(1, "npc") - unit(4, "pt"),
-              just = c("center", "top"), gp = gpar(fontface = "bold", cex = 1.3))
-    popViewport()
-  }
-  draw_panel(1, a$grob, "A")
-  draw_panel(2, b$grob, "B")
-  popViewport()
-}
+pA <- ggplot(long, aes(x = x, next_x = next_x, node = node, next_node = next_node,
+                       fill = node, label = label)) +
+  geom_sankey(flow.alpha = 0.45, node.color = "grey30", width = 0.08, space = 12) +
+  # White-backed labels: several sit where flows leave their node.
+  geom_sankey_label(size = 3, hjust = 0, colour = "grey10", fill = "white", border.colour = NA,
+                    space = 12, position = position_nudge(x = 0.06)) +
+  scale_fill_manual(values = NODE_FILL, guide = "none") +
+  scale_x_discrete(expand = expansion(add = c(0.1, 0.6))) +
+  theme_void(base_size = 9)
 
+# =============================================================================
+# B: chr21 map of the deviating genes
+# =============================================================================
+gtex_tested_ids <- sub("[.].*$", "", fread(EGENES, select = "gene_id")$gene_id)
+bands <- deviating_map_data(lanes, fread(run$processed("eqtl_supported_genes.csv")),
+                            fread("data/chr21_gene_positions.csv"), gtex_tested_ids)
+pB <- deviating_map_plot(bands, COL_DIR, CHR21_LEN, CEN)
+record_titles("chr21_flow_and_map", "B", "Deviating chr21 genes and their cis-eQTL outcome",
+              sprintf(paste0("Bands at the TSS of each of the %d deviating genes (GRCh38); labels above the bar are ",
+                             "higher, below are lower; overlapping bands share the bar height. Centromere in dark grey."),
+                      nrow(bands)), TITLES)
+
+fig <- pA / pB + plot_layout(heights = c(1.3, 0.8)) + plot_annotation(tag_levels = "A")
 stem <- run$figure("chr21_flow_and_map")
-png(paste0(stem, ".png"), width = fig_w, height = fig_h, units = "in", res = DPI)
-draw_fig(); invisible(dev.off())
-pdf(paste0(stem, ".pdf"), width = fig_w, height = fig_h)
-draw_fig(); invisible(dev.off())
+ggsave(paste0(stem, ".pdf"), fig, width = 10, height = 9.5)
+ggsave(paste0(stem, ".png"), fig, width = 10, height = 9.5, dpi = 200)
 for (f in paste0(stem, c(".pdf", ".png"))) {
   if (!file.exists(f)) stop("failed to write ", f)
   cat(sprintf("  Saved: %s\n", f))
 }
-cat(sprintf("  figure: %.1f x %.1f in\n", fig_w, fig_h))
-
 cat("\n=== Combined figure complete ===\n")

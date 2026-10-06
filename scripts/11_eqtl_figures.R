@@ -301,13 +301,10 @@ cat("  Wrote", run$table("eqtl_best_variant_effects.csv"), "\n")
 # =============================================================================
 
 cat("\nStep 4: chr21 map...\n")
-bands <- map_bands(lanes, roster, extra)
 # Whether GTEx tested a gene in whole blood at all (its eGenes file lists
-# every tested gene), for the genes with no variant to test.
+# every tested gene) splits the genes with no variant to test.
 gtex_tested_ids <- sub("[.].*$", "", fread(EGENES, select = "gene_id")$gene_id)
-bands <- merge(bands, lanes[, .(Gene_name, ensembl_stable)], by = "Gene_name", all.x = TRUE)
-bands[, outcome := map_outcome(eqtl_lane, ensembl_stable %in% gtex_tested_ids)]
-setorder(bands, tss)
+bands <- deviating_map_data(lanes, roster, extra, gtex_tested_ids)
 print(bands[, .(Gene_name, tss_mb = round(tss / 1e6, 2), direction, outcome)])
 
 record_titles("chr21_deviating_map", "", "Deviating chr21 genes and their cis-eQTL outcome",

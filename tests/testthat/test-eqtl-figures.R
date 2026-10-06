@@ -194,3 +194,17 @@ test_that("map_outcome splits the genes without a variant to test by GTEx status
 test_that("map_outcome refuses an unknown eQTL lane", {
   expect_error(map_outcome("maybe", TRUE), "maybe")
 })
+
+# --- deviating_map_data ----------------------------------------------------------
+
+test_that("deviating_map_data gives each deviating gene its position and map outcome", {
+  lanes  <- lane_tbl()[, ensembl_stable := c("E_UP1", "E_DN1", "E_DN2", "E_EXP1")]
+  roster <- data.table(Gene_name = c("UP1", "DN1"), tss = c(10e6, 20e6))
+  extra  <- data.table(Gene_name = "DN2", tss = 30e6)
+  got <- deviating_map_data(lanes, roster, extra, gtex_tested_ids = c("E_UP1", "E_DN1"))
+  expect_equal(got$Gene_name, c("UP1", "DN1", "DN2"))          # ordered by position
+  expect_equal(as.character(got$outcome),
+               c("cis-eQTL detected", "tested, not detected", "not tested by GTEx"))
+  got2 <- deviating_map_data(lanes, roster, extra, gtex_tested_ids = c("E_DN2"))
+  expect_equal(as.character(got2[Gene_name == "DN2", outcome]), "GTEx tested, no eQTL")
+})

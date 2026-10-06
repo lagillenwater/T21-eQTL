@@ -10,7 +10,6 @@
 #   4. Verify installations
 #   5. Create renv.lock for reproducibility (optional)
 #
-# Author: Claude Code
 # Date: 2025-11-11
 
 cat("=== T21-eQTL Package Installation ===\n\n")
@@ -58,6 +57,11 @@ cran_packages <- c(
   # Utilities
   "here",           # Path management (optional but recommended)
   "arrow"           # Reading the GTEx allpairs parquet (script 02)
+)
+
+# GitHub packages (not on CRAN), installed with remotes
+github_packages <- c(
+  ggsankey = "davidsjoberg/ggsankey"   # lane-flow panel of script 12
 )
 
 # Bioconductor packages
@@ -135,13 +139,32 @@ for (pkg in bioc_packages) {
   }
 }
 
+cat("\nStep 5b: Installing GitHub packages...\n")
+if (!requireNamespace("remotes", quietly = TRUE))
+  install.packages("remotes", repos = "https://cloud.r-project.org")
+for (pkg in names(github_packages)) {
+  cat(sprintf("  Checking %s...", pkg))
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    cat(" installing...")
+    tryCatch({
+      remotes::install_github(github_packages[[pkg]], upgrade = "never")
+      cat(" SUCCESS\n")
+    }, error = function(e) {
+      cat(" FAILED\n")
+      cat(sprintf("    Error: %s\n", e$message))
+    })
+  } else {
+    cat(" already installed\n")
+  }
+}
+
 # =============================================================================
 # STEP 6: Verify installations
 # =============================================================================
 
 cat("\nStep 6: Verifying installations...\n")
 
-all_packages <- c(cran_packages, bioc_packages)
+all_packages <- c(cran_packages, names(github_packages), bioc_packages)
 failed_packages <- character()
 
 for (pkg in all_packages) {
