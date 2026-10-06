@@ -31,6 +31,7 @@
 #          results/runs/<name>/figures/S1_covariate_evidence.{pdf,png}
 
 suppressPackageStartupMessages({ library(data.table); library(ggplot2); library(patchwork) })
+source("scripts/lib/figure_style.R")   # strip_titles: panel letters only
 source("scripts/lib/run.R"); run <- load_run()
 source("scripts/lib/covariates.R"); source("scripts/lib/cohort.R")
 set.seed(1)
@@ -158,24 +159,38 @@ if (!is.null(run$composition) && file.exists(base_lanes) && file.exists(run$tabl
 # ---- figure -----------------------------------------------------------------
 cat("\nDrawing the figure...\n")
 th <- theme_bw(base_size = 9) + theme(plot.title = element_text(face = "bold", size = 10))
-pA <- ggplot(A, aes(x = reorder(covariate, -log10(p)), y = -log10(p), fill = in_run_model)) +
-  geom_col() + coord_flip() + scale_fill_manual(values = c(`TRUE` = "#762A83", `FALSE` = "#BABABA"), name = "In run model") +
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
+# Words, not column names, on the axes and legends.
+COV_WORDS <- c(Sample_source = "Sample source", Event_name = "Visit", BMI = "BMI",
+               Age_at_visit = "Age at visit", Sex = "Sex")
+SUBTYPE_WORDS <- c(T21 = "T21", DS_T21 = "DS T21", mosaic_T21 = "Mosaic T21",
+                   translocation_T21 = "Translocation T21")
+A[, covariate_lab := fifelse(covariate %in% names(COV_WORDS), COV_WORDS[covariate], covariate)]
+A[, in_model := factor(ifelse(in_run_model, "Yes", "No"), levels = c("Yes", "No"))]
+pA <- ggplot(A, aes(x = reorder(covariate_lab, -log10(p)), y = -log10(p), fill = in_model)) +
+  geom_col() + coord_flip() + scale_fill_manual(values = c(Yes = "grey30", No = "grey75"), name = "In the run's model") +
   geom_hline(yintercept = -log10(0.05), linetype = "dotted") +
   labs(title = "A  Covariates vs karyotype", y = "-log10 p", x = NULL) + th + theme(legend.position = "bottom")
-pC <- ggplot(C[Karyotype == "T21"], aes(x = karyotype_subtype, y = chr21_index)) +
+pC <- ggplot(C[Karyotype == "T21"], aes(x = factor(SUBTYPE_WORDS[karyotype_subtype], levels = SUBTYPE_WORDS),
+                                        y = chr21_index)) +
   geom_boxplot(outlier.shape = NA) + geom_jitter(width = 0.15, size = 0.7, alpha = 0.5) +
   geom_hline(yintercept = c(1, 1.5), linetype = "dotted") +
-  labs(title = "C  chr21 expression index by karyotype subtype", x = NULL, y = "median chr21 ratio to control") + th
-panels <- list(pA, pC)
-if (!is.null(B)) panels <- c(panels, list(
-  ggplot(B, aes(x = reorder(cluster, genes_assoc_t21), y = genes_assoc_t21)) + geom_col(fill = "#2C7BB6") + coord_flip() +
-    labs(title = "B  Genes associated with each cell fraction (T21, 5% FDR)", x = NULL, y = "genes") + th))
-if (!is.null(D)) panels <- c(panels, list(
-  ggplot(D[abs(contribution) > 0.01], aes(x = contribution, y = Gene_name, colour = term)) +
+  scale_x_discrete(drop = TRUE) +
+  labs(title = "C  chr21 expression index by karyotype subtype", x = NULL, y = "median HSA21 ratio to D21") + th
+panels <- list(strip_titles(pA, "S1_covariate_evidence", "A", TITLES, tag = TRUE),
+               strip_titles(pC, "S1_covariate_evidence", "C", TITLES, tag = TRUE))
+if (!is.null(B)) panels <- c(panels, list(strip_titles(
+  ggplot(B, aes(x = reorder(cluster, genes_assoc_t21), y = genes_assoc_t21)) + geom_col(fill = "grey45") + coord_flip() +
+    labs(title = "B  Genes associated with each cell fraction (T21, 5% FDR)", x = NULL, y = "genes") + th,
+  "S1_covariate_evidence", "B", TITLES, tag = TRUE)))
+if (!is.null(D)) panels <- c(panels, list(strip_titles(
+  ggplot(D[abs(contribution) > 0.01], aes(x = contribution, y = Gene_name, colour = display_covariate(term))) +
     geom_vline(xintercept = 0, colour = "grey60") + geom_point(size = 1.6) +
     labs(title = "D  Per-covariate attribution of the fold-change shift", x = "log2 contribution", y = NULL) +
-    th + theme(legend.position = "bottom", legend.text = element_text(size = 6), legend.title = element_blank()) +
-    guides(colour = guide_legend(ncol = 4))))
+    th + theme(legend.position = "bottom", legend.text = element_text(size = 6), legend.title = element_blank(),
+               axis.text.y = element_text(face = "italic")) +
+    guides(colour = guide_legend(ncol = 4)),
+  "S1_covariate_evidence", "D", TITLES, tag = TRUE)))
 fig <- wrap_plots(panels, ncol = 2)
 h <- 5 * ceiling(length(panels) / 2)
 ggsave(run$figure("S1_covariate_evidence.pdf"), fig, width = 12, height = h)
