@@ -33,6 +33,7 @@
 suppressPackageStartupMessages({ library(data.table); library(ggplot2); library(patchwork) })
 source("scripts/lib/covariates.R")    # display_covariate
 source("scripts/lib/inflation_figure.R")  # per_gene_lambda_panel
+source("scripts/lib/figure_style.R")      # strip_titles: panel letters only
 source("scripts/lib/run.R")
 args    <- commandArgs(trailingOnly = TRUE)
 run     <- load_run(args)
@@ -73,7 +74,8 @@ qq_layers <- function(d) list(
   geom_line(data = d, linewidth = 0.6),
   scale_colour_manual(values = COL_RUN, name = NULL),
   scale_fill_manual(values = COL_RUN, guide = "none"))
-qq_panel <- function(s, title, subtitle = NULL, legend = TRUE) {
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
+qq_panel <- function(s, title, subtitle = NULL, legend = TRUE, panel = "A", tag = TRUE) {
   d <- qq[set_f == s]
   zoom_y <- max(d[expected <= ZOOM_X, c(observed, perm_hi)]) * 1.02
   main <- ggplot(d[expected <= ZOOM_X * 1.05], aes(expected, observed, colour = run_f)) +
@@ -82,13 +84,15 @@ qq_panel <- function(s, title, subtitle = NULL, legend = TRUE) {
     labs(x = expression(Expected ~ -log[10] ~ italic(p)), y = expression(Observed ~ -log[10] ~ italic(p)),
          title = title, subtitle = subtitle) +
     th + theme(legend.position = if (legend) "right" else "none")
+  main <- strip_titles(main, "S3_distal_inflation", panel, TITLES, tag = tag)
+  if (tag) main <- main + labs(tag = "A")
   inset <- ggplot(d, aes(expected, observed, colour = run_f)) +
     qq_layers(d) +
     annotate("rect", xmin = 0, xmax = ZOOM_X, ymin = 0, ymax = zoom_y, fill = NA, colour = "grey30",
              linewidth = 0.3) +
     coord_cartesian(xlim = c(0, X_MAX), ylim = c(0, Y_MAX), expand = FALSE) +
     guides(colour = "none") +
-    labs(x = NULL, y = NULL, title = "full range") +
+    labs(x = NULL, y = NULL) +   # was titled "full range" (recorded with panel A)
     theme_bw(base_size = 6) +
     theme(panel.grid = element_blank(), plot.title = element_text(size = 6),
           plot.background = element_rect(colour = "grey70"))
@@ -97,7 +101,9 @@ qq_panel <- function(s, title, subtitle = NULL, legend = TRUE) {
 pA <- qq_panel(SET_LAB[["chr21 assessable"]],
                "A  HSA21 assessable genes",
                "T21 expression against common HSA21 long-arm variants >= 5 Mb away; shaded: permutation 95% range") /
-  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes", legend = FALSE)
+  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes", legend = FALSE,
+           panel = "A (lower)", tag = FALSE)
+record_titles("S3_distal_inflation", "A (insets)", "full range", "", TITLES)
 
 # ---- B: lambda per gene set --------------------------------------------------
 lam <- read_both("distal_inflation_summary.csv")[variant_set == VARIANTS & gene_set %in% names(SET_LAB)]
@@ -122,13 +128,18 @@ pB <- ggplot(lam, aes(lambda, y, colour = run_f)) +
        title = "B  Inflation by gene set",
        subtitle = "Grey: permutation 95% range") +
   th + theme(panel.grid.major.y = element_blank(), legend.position = "right")
+pB <- strip_titles(pB, "S3_distal_inflation", "B", TITLES, tag = TRUE)
 
 # ---- C: per-gene lambda of the --run run --------------------------------------
+dev_lanes <- fread(run$table("chr21_lane_assignments.csv"))[sig_lane %in% c("DE_high", "DE_low")]
 pC <- per_gene_lambda_panel(fread(run$table("distal_inflation_genes.csv")),
                             c(chr21 = SET_LAB[["chr21 assessable"]], chr22 = SET_LAB[["chr22 reference"]]),
                             "C  Per-gene lambda", "Adjusted run",
-                            label = "deviating_outside") +
+                            label = "deviating_outside",
+                            direction = setNames(ifelse(dev_lanes$sig_lane == "DE_high", "up", "down"),
+                                                 dev_lanes$Gene_name)) +
   th + theme(legend.position = "right", legend.direction = "vertical")
+pC <- strip_titles(pC, "S3_distal_inflation", "C", TITLES, tag = TRUE)
 
 # pA's two stacked panels flatten into the outer layout, so heights are per row.
 panels <- pA / (pB | pC)
@@ -151,6 +162,7 @@ if (file.exists(cov_path)) {
          title = "D  Covariates against HSA21 genotype",
          subtitle = "Adjusted run; grey: permutation 95% range") +
     th + theme(legend.position = "right")
+  pD <- strip_titles(pD, "S3_distal_inflation", "D", TITLES, tag = TRUE)
   panels <- pA / (pB | pC) / pD
   heights <- c(0.8, 0.8, 1, 0.9)
 }

@@ -25,8 +25,12 @@ INFLATION_COL_DEV <- "#1B9E77"   # deviating genes; distinct from the run colour
 #'   "deviating" (all deviating genes and the chr21 genes outside their own
 #'   range) or "deviating_outside" (only deviating genes outside their range)
 #' @param legend_position passed to theme(legend.position)
+# `direction`: optional named vector, deviating gene -> "up" / "down"; given,
+# deviating genes are coloured by the direction of their deviation (the
+# manuscript palette, red higher and blue lower) instead of one colour.
 per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 1717L,
-                                  label = c("deviating", "deviating_outside"), legend_position = "bottom") {
+                                  label = c("deviating", "deviating_outside"), legend_position = "bottom",
+                                  direction = NULL) {
   label <- match.arg(label)
   g <- data.table::copy(data.table::as.data.table(gene_out))
   g[, col_f := factor(col_labels[chromosome], levels = col_labels)]
@@ -36,15 +40,22 @@ per_gene_lambda_panel <- function(gene_out, col_labels, title, subtitle, seed = 
     g$deviating & g$above_range
   g[, label := ifelse(top | keep, Gene_name, "")]
   data.table::setorder(g, deviating)                 # deviating genes drawn on top
+  if (is.null(direction)) {
+    g[, colour_grp := ifelse(deviating, "Deviating gene", "Other gene")]
+    pal <- c(`Deviating gene` = INFLATION_COL_DEV, `Other gene` = "grey55")
+  } else {
+    g[, colour_grp := ifelse(!deviating, "Other gene",
+                             ifelse(direction[Gene_name] == "up", "Higher than expected", "Lower than expected"))]
+    pal <- c(`Higher than expected` = "#B2182B", `Lower than expected` = "#2166AC", `Other gene` = "grey55")
+  }
   jit <- position_jitter(width = 0.3, height = 0, seed = seed)
   ggplot(g, aes(col_f, lambda)) +
     geom_hline(yintercept = 1, colour = "grey55", linewidth = 0.3) +
-    geom_point(aes(colour = deviating, shape = above_range, size = deviating), position = jit, alpha = 0.9,
+    geom_point(aes(colour = colour_grp, shape = above_range, size = deviating), position = jit, alpha = 0.9,
                stroke = 0.6) +
     ggrepel::geom_text_repel(aes(label = label), position = jit, size = 2.3, colour = "grey15",
-                             max.overlaps = 40, segment.size = 0.2, min.segment.length = 0) +
-    scale_colour_manual(values = c(`TRUE` = INFLATION_COL_DEV, `FALSE` = "grey55"),
-                        labels = c(`TRUE` = "Deviating gene", `FALSE` = "Other gene"), name = NULL) +
+                             fontface = "italic", max.overlaps = 40, segment.size = 0.2, min.segment.length = 0) +
+    scale_colour_manual(values = pal, name = NULL) +
     scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
                        labels = c(`TRUE` = "Outside its own\npermutation range",
                                   `FALSE` = "Inside its own\npermutation range"), name = NULL) +
