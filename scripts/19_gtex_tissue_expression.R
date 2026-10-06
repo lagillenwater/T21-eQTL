@@ -60,12 +60,14 @@ suppressPackageStartupMessages({
 })
 source("scripts/lib/gtex_expression.R")
 source("scripts/lib/run.R"); run <- load_run()
+source("scripts/lib/figure_style.R")   # strip_titles: panel letters only
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
 
 EGENES  <- "data/Whole_Blood.v10.eGenes.txt.gz"
 EGENE_Q <- 0.05
 # Direction of deviation, as in scripts 07, 11 and 18; every other gene grey.
 COL_DIR <- c(`Higher than expected` = "#B2182B", `Lower than expected` = "#2166AC", `Other chr21 gene` = "grey60")
-LANE_LABEL <- c(DE_high = "DE high", DE_low = "DE low", Expected_dosage = "Expected dosage",
+LANE_LABEL <- c(DE_high = "Higher than expected", DE_low = "Lower than expected", Expected_dosage = "Expected dosage",
                 Not_DE_outside_noise = "Not DE", Not_assessable = "Not assessable",
                 High_repeats = "High repeats", Low_expression = "Low expression")
 th <- theme_bw(base_size = 9) +
@@ -271,6 +273,7 @@ pA <- ggplot(pd, aes(wb_tpm, lane_lab)) +
              size = 1, alpha = 0.7) +
   geom_point(data = pd[sig_lane %in% deviating], aes(colour = direction), position = jit, size = 2.4) +
   geom_text_repel(data = pd[sig_lane %in% deviating], aes(label = label), position = jit, size = 2.4,
+                  fontface = "italic",
                   colour = "grey15", min.segment.length = 0, segment.size = 0.2, max.overlaps = 40) +
   tpm_scale +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
@@ -282,19 +285,20 @@ pA <- ggplot(pd, aes(wb_tpm, lane_lab)) +
 # Every chr21 gene GTEx tested in whole blood (the y-axis is its eGene q).
 # Shapes, as in D: filled = cis-eQTL detected in T21, open = tested, not
 # detected; genes the T21 test did not cover are a small "+".
-T21_SHAPES <- scale_shape_manual(values = c(detected = 16, `not detected` = 1, `not tested` = 3),
-                                 breaks = c("detected", "not detected", "not tested"), name = "cis-eQTL in T21")
+T21_LEVELS <- c("cis-eQTL detected", "tested, not detected", "not tested in T21")
+T21_SHAPES <- scale_shape_manual(values = setNames(c(16, 1, 3), T21_LEVELS), breaks = T21_LEVELS, name = "Within T21")
 pb <- pd[gtex_wb_tested == TRUE]
-pb[, t21 := factor(fcase(!t21_tested, "not tested", t21_detected, "detected", default = "not detected"),
-                   levels = c("detected", "not detected", "not tested"))]
+pb[, t21 := factor(fcase(!t21_tested, T21_LEVELS[3], t21_detected, T21_LEVELS[1], default = T21_LEVELS[2]),
+                   levels = T21_LEVELS)]
 pB <- ggplot(pb, aes(wb_tpm, -log10(gtex_qval))) +
   geom_hline(yintercept = -log10(EGENE_Q), linetype = "dashed", colour = "grey55", linewidth = 0.4) +
-  geom_point(data = pb[!sig_lane %in% deviating & t21 == "not tested"], aes(shape = t21), colour = "grey70",
+  geom_point(data = pb[!sig_lane %in% deviating & t21 == T21_LEVELS[3]], aes(shape = t21), colour = "grey70",
              size = 1, stroke = 0.4) +
-  geom_point(data = pb[!sig_lane %in% deviating & t21 != "not tested"], aes(shape = t21),
+  geom_point(data = pb[!sig_lane %in% deviating & t21 != T21_LEVELS[3]], aes(shape = t21),
              colour = COL_DIR[["Other chr21 gene"]], size = 1.4, stroke = 0.6) +
   geom_point(data = pb[sig_lane %in% deviating], aes(shape = t21, colour = direction), size = 2.4, stroke = 0.9) +
   geom_text_repel(data = pb[sig_lane %in% deviating], aes(label = label), size = 2.4, colour = "grey15",
+                  fontface = "italic",
                   min.segment.length = 0, segment.size = 0.2, max.overlaps = 40) +
   tpm_scale +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
@@ -317,17 +321,18 @@ ref_lines <- rbind(data.table(x = ref_x, y = ref_x, line = "equal"),
 ref_lines[, line := factor(line, levels = unique(line))]
 sc_max <- max(sc$wb_tpm, sc$htp_t21_tpm_median)
 # Shapes as in B (T21_SHAPES).
-sc[, t21 := factor(fcase(!t21_tested, "not tested", t21_detected, "detected", default = "not detected"),
-                   levels = c("detected", "not detected", "not tested"))]
+sc[, t21 := factor(fcase(!t21_tested, T21_LEVELS[3], t21_detected, T21_LEVELS[1], default = T21_LEVELS[2]),
+                   levels = T21_LEVELS)]
 pD <- ggplot(sc, aes(wb_tpm, htp_t21_tpm_median)) +
   geom_line(data = ref_lines[x <= sc_max & y <= sc_max], aes(x, y, linetype = line), colour = "grey40",
             linewidth = 0.4) +
-  geom_point(data = sc[!sig_lane %in% deviating & t21 == "not tested"], aes(shape = t21), colour = "grey70",
+  geom_point(data = sc[!sig_lane %in% deviating & t21 == T21_LEVELS[3]], aes(shape = t21), colour = "grey70",
              size = 1, stroke = 0.4) +
-  geom_point(data = sc[!sig_lane %in% deviating & t21 != "not tested"], aes(shape = t21),
+  geom_point(data = sc[!sig_lane %in% deviating & t21 != T21_LEVELS[3]], aes(shape = t21),
              colour = COL_DIR[["Other chr21 gene"]], size = 1.4, stroke = 0.6) +
   geom_point(data = sc[sig_lane %in% deviating], aes(shape = t21, colour = direction), size = 2.4, stroke = 0.9) +
   geom_text_repel(data = sc[sig_lane %in% deviating], aes(label = label), size = 2.4, colour = "grey15",
+                  fontface = "italic",
                   min.segment.length = 0, segment.size = 0.2, max.overlaps = 40) +
   tpm_scale + tpm_scale_y +
   scale_colour_manual(values = COL_DIR[1:2], name = "Deviating gene") +
@@ -361,7 +366,9 @@ sublane_order <- c("Immune and lymphoid", "Brain and nerve", "Heart, vessels and
                    "Digestive", "Reproductive", "Other")
 lane_offset <- setNames(seq(0.33, -0.33, length.out = length(sublane_order)), sublane_order)
 pt[, y := gene_i + lane_offset[as.character(group)]]
-rank_lab <- sprintf("%s (%s/%d)", dev$Gene_name, format(dev$wb_rank, trim = TRUE), dev$n_tissues)
+# Gene name italic, the rank of whole blood upright.
+rank_lab <- parse(text = sprintf('italic("%s")~~"(%s/%d)"', dev$Gene_name,
+                                 format(dev$wb_rank, trim = TRUE), dev$n_tissues))
 n_in_group <- table(gtex_tissue_group(tissues))
 group_lab <- setNames(sprintf("%s (%d)", names(n_in_group), as.integer(n_in_group)), names(n_in_group))
 x_max <- max(pt$tpm)
@@ -382,6 +389,10 @@ pC <- ggplot(pt, aes(tpm, y, colour = group)) +
                           length(tissues))) +
   th + legend_bottom + theme(strip.text = element_text(size = 8), panel.grid.major.y = element_blank())
 
+pA <- strip_titles(pA, "gtex_tissue_expression", "A", TITLES, tag = TRUE)
+pB <- strip_titles(pB, "gtex_tissue_expression", "B", TITLES, tag = TRUE)
+pC <- strip_titles(pC, "gtex_tissue_expression", "C", TITLES, tag = TRUE)
+pD <- strip_titles(pD, "gtex_tissue_expression", "D", TITLES, tag = TRUE)
 fig <- (pA + pB) / (pC + pD) + plot_layout(heights = c(1, 1.25))
 stem <- run$figure("gtex_tissue_expression")
 ggsave(paste0(stem, ".pdf"), fig, width = 14, height = 13)
