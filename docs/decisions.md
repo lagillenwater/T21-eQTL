@@ -779,6 +779,49 @@ in view when reading them:
   sampling added, the predicted-shift interval is about 12% wider than
   before.
 
+### Karyotype x composition interaction run (2026-10-06)
+
+The adjusted model assumes each CyTOF cell fraction relates to expression
+the same way in T21 and D21. `adjusted_interaction` relaxes that: a
+karyotype x fraction term for each of the 19 fractions
+(`composition$interact_karyotype`). The fractions are centred, so the
+karyotype effect is the T21 effect at the cohort-mean composition; the
+expression artifact removes the group-specific slopes too. A sensitivity
+run; the adjusted run stays the primary result.
+
+Four of the 13 adjusted-run deviating genes deviate here too: OLIG2,
+OLIG1, BACE2 and RUNX1, all lower than expected, with their eQTL calls
+unchanged. None of the six higher-than-expected genes does, and no other
+chr21 gene becomes deviating.
+
+The interactions cost precision: the standard error of the karyotype
+effect rises by a median 1.76-fold on chr21 (1.74 genome-wide), for every
+gene alike, so significance is not comparable between the two models and
+the estimates are. Of the nine genes that drop out, five keep their
+estimate (YBEY 0.47 to 0.49 log2, ADAMTS1 0.48 to 0.51, ABCC13 1.01 to
+0.83, AP000282.1 -0.70 to -0.87, and COL6A2 0.42 to 0.38, just under the
+log2(4/3) cut) and four lose much of it (CBR3 0.53 to 0.00, ATP5PF 0.48
+to 0.19, KCNE1 -0.50 to -0.36, PCBP3 -0.50 to -0.31). For those four the
+deviation rests on composition relating to expression alike in both
+groups.
+
+| adjusted lane | -> adjusted_interaction lane |
+|---|---|
+| DE_high (6) | Expected_dosage 3 (COL6A2, ATP5PF, CBR3), Not_DE_outside_noise 3 (YBEY, ADAMTS1, ABCC13) |
+| DE_low (7) | DE_low 4, Expected_dosage 2 (KCNE1, PCBP3), Not_DE_outside_noise 1 (AP000282.1) |
+| Expected_dosage (129) | Expected_dosage 123, Not_DE_outside_noise 6 |
+| Not_DE_outside_noise (11) | Expected_dosage 6, Not_DE_outside_noise 5 |
+| High_repeats (12), Low_expression (153) | unchanged |
+
+Convergence. With 45 coefficients, DESeq2's GLM did not converge for 396
+(uncorrected) and 401 (ploidy-corrected) genes genome-wide, against 2 and
+0 in the adjusted run. DESeq2 labels these genes but keeps them, and the
+pipeline had not recorded which; script 01 now writes `raw_betaConv` and
+`norm_betaConv`. In the interaction run seven chr21 genes did not
+converge, all Low_expression (baseMean <= 28) or unclassified; none is
+assessable, so no lane above rests on a non-converged fit. The refits that
+added the flags reproduced both runs' tables exactly.
+
 ## Legacy GTEx source
 
 `data/Whole_Blood.v10.eQTLs.signif_pairs.parquet` (per-gene FDR-passing
