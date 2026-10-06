@@ -70,13 +70,32 @@ test_that("required_case_af is NA when the shift is out of reach", {
   expect_true(is.na(required_case_af(0.5, 0.3, -1)))    # needs AF < 0
 })
 
-test_that("bootstrap_alt_af centres on the observed frequency", {
-  D <- rbind(c(0, 1, 2, 3, 3, 0), c(3, 3, 3, 3, 3, 3))
-  bs <- bootstrap_alt_af(D, ploidy = 3, B = 4000, seed = 7)
-  expect_equal(dim(bs), c(2L, 4000L))
-  expect_equal(mean(bs[1, ]), mean(D[1, ]) / 3, tolerance = 0.01)
-  expect_equal(unique(bs[2, ]), 1)                     # fixed allele never varies
-  expect_error(bootstrap_alt_af(cbind(c(NA, 1)), 3), "NA")
+test_that("binomial_af_draws centres on the frequency with binomial spread", {
+  dr <- binomial_af_draws(c(0.3, 0.05), n_copies = 822, B = 20000, seed = 7)
+  expect_equal(dim(dr), c(2L, 20000L))
+  expect_equal(rowMeans(dr), c(0.3, 0.05), tolerance = 0.002)
+  expect_equal(apply(dr, 1, sd), sqrt(c(0.3 * 0.7, 0.05 * 0.95) / 822), tolerance = 0.03)
+})
+
+test_that("binomial_af_draws returns whole allele counts over the copies", {
+  dr <- binomial_af_draws(0.4, n_copies = 1600, B = 50, seed = 1)
+  expect_equal(dr * 1600, round(dr * 1600))
+  expect_true(all(dr >= 0 & dr <= 1))
+})
+
+test_that("binomial_af_draws keeps a fixed allele fixed and an unknown frequency unknown", {
+  dr <- binomial_af_draws(c(0, 1, NA), n_copies = c(822, 822, 822), B = 100, seed = 2)
+  expect_equal(unique(dr[1, ]), 0)
+  expect_equal(unique(dr[2, ]), 1)
+  expect_true(all(is.na(dr[3, ])))
+})
+
+test_that("binomial_af_draws takes one copy count or one per variant, and is reproducible", {
+  a <- binomial_af_draws(c(0.2, 0.6), n_copies = c(822, 1600), B = 10, seed = 3)
+  expect_identical(a, binomial_af_draws(c(0.2, 0.6), n_copies = c(822, 1600), B = 10, seed = 3))
+  expect_equal(a[2, ] * 1600, round(a[2, ] * 1600))
+  expect_error(binomial_af_draws(c(0.2, 0.6), n_copies = c(822, 1600, 10)), "n_copies")
+  expect_error(binomial_af_draws(1.2, n_copies = 822), "\\[0, 1\\]")
 })
 
 test_that("r2_from_t recovers the regression R-squared from the residual df", {

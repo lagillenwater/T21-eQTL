@@ -737,9 +737,9 @@ tables byte for byte.
 
 | | adjusted (10 tested) | baseline (20 tested) |
 |---|---|---|
-| primary reference, median \|delta AF\| | GTEx whole blood, 0.012 | gnomAD v4.1 NFE, 0.012 |
-| observed delta AF, share of each deviation | -8% to +4% | -5% to +6% |
-| T21 AF at 0 or 1, share of each deviation | 9% to 88% | 12% to 242% |
+| median \|delta AF\| against GTEx whole blood (sampling alone) | 0.012 (0.009) | 0.013 (0.009) |
+| observed delta AF, share of each deviation | -8% to +4% | -5% to +8% |
+| T21 AF at 0 or 1, share of each deviation | 9% to 88% | 14% to 242% |
 | genes with a route inside the cohort's 99th-percentile delta AF | 0 | 0 |
 | detected: deviating vs Expected dosage | 8/10 vs 59/99 (Fisher p = 0.31) | 14/20 vs 53/98 (p = 0.22) |
 | matched GTEx effect: observed vs expected | 8 vs 7.4 (P(>=) = 0.49) | 14 vs 13.1 (P(>=) = 0.44) |
@@ -749,12 +749,35 @@ tables byte for byte.
 The conclusion holds in both. One difference: in baseline, 5 genes could
 reach their whole deviation if the T21 frequency of a variant went to 0 or
 1. That bound is at a frequency extreme the cohort does not show; the
-observed differences predict at most 6% of any deviation, and the easiest
+observed differences predict at most 8% of any deviation, and the easiest
 route for every gene needs a frequency difference beyond the 99.8th
-percentile of those at common variants. The primary reference differs
-between runs only because script 13 picks the external reference with the
-smallest median |delta AF|: in baseline gnomAD NFE (0.0116) edges out GTEx
-whole blood (0.0126), the reverse of the adjusted run.
+percentile of those at common variants.
+
+Frequencies and intervals (revised the same day, to match the Methods).
+Both groups' frequencies are the ALT count over all chr21 copies: 3 per
+T21 participant (822 adjusted, 906 baseline) and 2 per GTEx whole-blood
+donor (1,600 for 800 donors, the median of ma_count / MAF over the chr21
+allpairs variants). GTEx whole blood is the reference in both runs; the
+earlier rule of taking the external reference closest to the cohort (which
+picked gnomAD NFE for baseline) is dropped, and gnomAD and the 14 HTP
+controls stay as columns. Intervals assume binomial sampling of the allele
+copies in both groups (`binomial_af_draws`, replacing the participant
+bootstrap). The adjusted point estimates do not change. Two things to keep
+in view when reading them:
+
+- The observed differences are larger than binomial sampling alone gives.
+  The median |delta AF| is 0.012 against 0.009 expected (the median of
+  |delta| across variants at the observed copy counts), and 17.8% of
+  variants differ by more than 1.96 sampling SEs against 5% (baseline
+  17.7%); the median z is -0.03 (baseline -0.09), so there is no
+  systematic shift. The excess spread may come from ancestry differences
+  between the cohorts, from genotyping differences, or both; it is not
+  resolved here.
+- The binomial T21 interval treats the three copies of a participant as
+  independent, but two come from one parent. Over the tested variants it is
+  about 10% narrower than the participant bootstrap it replaces; with GTEx
+  sampling added, the predicted-shift interval is about 12% wider than
+  before.
 
 ## Legacy GTEx source
 

@@ -11,7 +11,7 @@ fixture <- function() list(
   background = data.table(
     reference = c("gtex_af", "gnomad_af"), label = c("GTEx whole blood", "gnomAD v4.1 global"),
     n_variants = c(100L, 100L), median_delta = c(-0.001, 0.006),
-    median_abs_delta = c(0.012, 0.023), primary = c(TRUE, FALSE)),
+    median_abs_delta = c(0.012, 0.023), median_abs_delta_sampling = c(0.009, NA), primary = c(TRUE, FALSE)),
   base_rate = data.table(
     set = c("deviating genes", "expected-dosage genes", "expected-dosage genes, baseMean 98-2231 (deviating range)"),
     n_tested = c(10L, 99L, 59L), n_detected = c(8L, 59L, 34L),
@@ -58,4 +58,11 @@ test_that("negative_conclusion_summary carries the base rate, matched detection 
   expect_equal(value_of(s, "odds_ratio_matched"), 1.47)
   expect_equal(value_of(s, "median_effect_ratio_deviating"), 0.73)
   expect_equal(value_of(s, "median_effect_ratio_expected_dosage"), 0.76)
+})
+
+test_that("negative_conclusion_summary carries the sampling-only expectation, NA when absent", {
+  f <- fixture()
+  expect_equal(value_of(do.call(negative_conclusion_summary, f), "median_abs_delta_af_sampling"), 0.009)
+  f$background[, median_abs_delta_sampling := NULL]
+  expect_true(is.na(value_of(do.call(negative_conclusion_summary, f), "median_abs_delta_af_sampling")))
 })

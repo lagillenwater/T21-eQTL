@@ -9,11 +9,12 @@
 #   allele-frequency difference between the groups (scripts/lib/af_bound.R),
 #   so for every deviating gene's cis variants this script reports
 #
-#     1. the ALT frequency in the run's T21 subjects (subject bootstrap CI)
-#        against external references (GTEx whole blood, gnomAD v4.1 global
-#        and non-Finnish European) and the 14 genotyped HTP controls;
+#     1. the ALT frequency in the run's T21 participants against GTEx whole
+#        blood, with gnomAD v4.1 (global, non-Finnish European) and the 14
+#        genotyped HTP controls as further columns;
 #     2. the shift of the group log2 ratio that the observed frequency
-#        difference predicts, with a CI from the slope SE and the bootstrap;
+#        difference predicts, with a CI from the slope SE and binomial
+#        sampling of both frequencies;
 #     3. the reachable bound: the largest shift the variant could produce if
 #        its ALT allele were absent from, or fixed in, T21 (at the 95% CI edge
 #        of the slope, so the bound is generous);
@@ -23,11 +24,14 @@
 #        against the |delta AF| the cohort shows at common variants;
 #     5. the within-T21 R-squared, which is what the eQTL does explain.
 #
-#   The primary reference is the external one closest to the T21 cohort over
-#   every tested cis variant (smallest median |delta AF|), a data-driven proxy
-#   for ancestry matching; the others are kept as columns. The background
+#   Frequencies are computed the same way in both groups, as the ALT allele
+#   count over all chr21 copies: 3 per T21 participant (822 for 274) and 2
+#   per GTEx whole-blood donor (1,600 for 800). GTEx whole blood is the
+#   reference in every run, because the eQTLs come from it. Intervals assume
+#   binomial sampling of the allele copies in both groups. The background
 #   distribution of delta AF over all tested variants also shows any
-#   systematic genotyping offset (e.g. from merging with --missing-to-ref).
+#   systematic genotyping offset (e.g. from merging with --missing-to-ref),
+#   against the median |delta AF| expected from sampling alone.
 #
 # Inputs (per run):
 #   - tables/chr21_lane_assignments.csv (deviating genes, best variant)
@@ -53,7 +57,11 @@ source("scripts/lib/alleles.R")   # T21_CHR21_PLOIDY
 source("scripts/lib/af_bound.R")
 source("scripts/lib/run.R"); run <- load_run()
 
-N_BOOT        <- 2000
+N_DRAW        <- 2000
+# GTEx v10 whole-blood eQTL donors x 2 copies: 800 donors, 1,600 copies (the
+# median of ma_count / MAF over the chr21 allpairs variants).
+GTEX_WB_COPIES <- 1600L
+PRIMARY       <- "gtex_af"   # the population the eQTLs were called in
 Z95           <- qnorm(0.975)
 MIN_MAF       <- 0.05   # "common" in the reference, for the easiest-route search
 ALPHA_SUPPORT <- 0.05   # within-T21 nominal p for a variant to count as an eQTL here
@@ -89,7 +97,7 @@ fits <- fits[Gene_name %in% dev$Gene_name & !is.na(t21_slope),
 cat(sprintf("  (gene, variant) fits: %d over %d variants\n", nrow(fits), uniqueN(fits$variant_id)))
 
 # =============================================================================
-# STEP 3: T21 cohort ALT frequency with a subject bootstrap
+# STEP 3: T21 cohort ALT frequency, an allele count over copies
 # =============================================================================
 
 cohort <- run$cohort()
@@ -104,11 +112,14 @@ D <- as.matrix(dcast(geno[variant_id %in% fits$variant_id], variant_id ~ subject
 if (anyNA(D)) stop("T21 dosage matrix has missing subject-variant cells")
 cat(sprintf("  T21 subjects: %d; variants with genotypes: %d\n", ncol(D), nrow(D)))
 
-af_boot <- bootstrap_alt_af(D, T21_CHR21_PLOIDY, B = N_BOOT, seed = 42)
-t21_af <- data.table(variant_id = rownames(D),
-                     t21_af    = rowMeans(D) / T21_CHR21_PLOIDY,
-                     t21_af_lo = apply(af_boot, 1, quantile, 0.025),
-                     t21_af_hi = apply(af_boot, 1, quantile, 0.975))
+T21_COPIES <- T21_CHR21_PLOIDY * ncol(D)
+cat(sprintf("  Allele copies: T21 %d (%d x %d), GTEx whole blood %d\n",
+            T21_COPIES, ncol(D), T21_CHR21_PLOIDY, GTEX_WB_COPIES))
+t21_af <- data.table(variant_id = rownames(D), t21_af = rowSums(D) / T21_COPIES)
+t21_draw <- binomial_af_draws(t21_af$t21_af, T21_COPIES, B = N_DRAW, seed = 42)
+rownames(t21_draw) <- t21_af$variant_id
+t21_af[, `:=`(t21_af_lo = apply(t21_draw, 1, quantile, 0.025),
+              t21_af_hi = apply(t21_draw, 1, quantile, 0.975))]
 
 # =============================================================================
 # STEP 4: The 14 genotyped HTP controls (small; a within-study check only)
@@ -129,7 +140,7 @@ ctrl[, variant_id := sprintf("chr21_%d_%s_%s_b38", POS, REF, ALT)]
 ctrl_af <- ctrl[!duplicated(variant_id), .(variant_id, ctrl_af)]
 
 # =============================================================================
-# STEP 5: Background delta AF over every tested variant; primary reference
+# STEP 5: Background delta AF over every tested variant
 # =============================================================================
 
 vars <- unique(fits[, .(variant_id, gtex_af, gnomad_af, gnomad_af_nfe)])
@@ -146,13 +157,22 @@ background <- rbindlist(lapply(ref_cols, function(rc) {
              q95_abs_delta = quantile(abs(d), 0.95, na.rm = TRUE),
              cor = cor(vars$t21_af, vars[[rc]], use = "complete.obs"))
 }))
-PRIMARY <- background[reference != "ctrl_af"][which.min(median_abs_delta), reference]
+# Median |delta AF| expected from binomial sampling alone, against GTEx: both
+# groups drawn at the variant's pooled frequency (copies-weighted), so any
+# excess of the observed median over it is a real frequency difference.
+gtex_ok <- !is.na(vars$gtex_af)
+pooled <- (vars$t21_af * T21_COPIES + vars$gtex_af * GTEX_WB_COPIES) / (T21_COPIES + GTEX_WB_COPIES)
+null_delta <- binomial_af_draws(pooled[gtex_ok], T21_COPIES, B = 200, seed = 11) -
+  binomial_af_draws(pooled[gtex_ok], GTEX_WB_COPIES, B = 200, seed = 12)
+background[, median_abs_delta_sampling := fifelse(reference == PRIMARY, median(abs(null_delta)), NA_real_)]
+background[, primary := reference == PRIMARY]
 cat("\n  Background delta AF (T21 minus reference) over tested cis variants:\n")
 print(background[, .(label, n_variants, median_delta = signif(median_delta, 3),
                      median_abs_delta = signif(median_abs_delta, 3),
+                     sampling_only = signif(median_abs_delta_sampling, 3),
                      q95_abs_delta = signif(q95_abs_delta, 3), cor = round(cor, 4))])
-cat(sprintf("  Primary reference (closest to the T21 cohort): %s\n", REF_LABELS[[PRIMARY]]))
-fwrite(background[, primary := reference == PRIMARY], run$table("af_reference_background.csv"))
+cat(sprintf("  Reference: %s (%d copies)\n", REF_LABELS[[PRIMARY]], GTEX_WB_COPIES))
+fwrite(background, run$table("af_reference_background.csv"))
 
 # =============================================================================
 # STEP 6: Predicted shift, reachable bound and within-T21 R2 per (gene, variant)
@@ -169,13 +189,21 @@ vt[, `:=`(delta_af = t21_af - p_ref,
           r2_within_t21 = r2_from_t(t21_t, t21_df))]
 vt[, pred_shift := predicted_group_shift(r, t21_af, p_ref)]
 
-# Uncertainty of the predicted shift: slope drawn from its sampling
-# distribution, T21 frequency from the subject bootstrap (reference fixed).
+# Uncertainty of the frequency difference and of the predicted shift: both
+# frequencies drawn binomially from their allele copies (one draw set per
+# variant, shared by the genes it is tested for), the slope from its
+# sampling distribution.
+ref_draw <- binomial_af_draws(vars$gtex_af, GTEX_WB_COPIES, B = N_DRAW, seed = 43)
+rownames(ref_draw) <- vars$variant_id
+af_draw  <- t21_draw[vt$variant_id, , drop = FALSE]
+ref_vt   <- ref_draw[vt$variant_id, , drop = FALSE]
+d_draw   <- af_draw - ref_vt
+vt[, `:=`(delta_af_lo = apply(d_draw, 1, quantile, 0.025),
+          delta_af_hi = apply(d_draw, 1, quantile, 0.975))]
 set.seed(7)
-slope_draw <- matrix(rnorm(nrow(vt) * N_BOOT, vt$t21_slope, vt$t21_se), nrow(vt))
+slope_draw <- matrix(rnorm(nrow(vt) * N_DRAW, vt$t21_slope, vt$t21_se), nrow(vt))
 r_draw     <- allelic_r_from_slope(slope_draw, T21_CHR21_PLOIDY)
-af_draw    <- af_boot[match(vt$variant_id, rownames(D)), , drop = FALSE]
-shift_draw <- log2((1 + r_draw * af_draw) / (1 + r_draw * vt$p_ref))
+shift_draw <- log2((1 + r_draw * af_draw) / (1 + r_draw * ref_vt))
 vt[, `:=`(pred_lo = apply(shift_draw, 1, quantile, 0.025),
           pred_hi = apply(shift_draw, 1, quantile, 0.975))]
 
@@ -213,7 +241,7 @@ cat(sprintf("\n  Background |delta AF| at common variants (MAF >= %.2f, n = %d):
 # any common, within-T21-supported cis variant offers (smallest required
 # |delta AF|; out-of-reach variants count as impossible).
 best <- vt[is_best == TRUE, .(Gene_name, variant_id, t21_slope, t21_se, r2_within_t21,
-                              t21_af, t21_af_lo, t21_af_hi, p_ref, delta_af, ctrl_af,
+                              t21_af, t21_af_lo, t21_af_hi, p_ref, delta_af, delta_af_lo, delta_af_hi, ctrl_af,
                               gtex_af, gnomad_af, gnomad_af_nfe,
                               pred_shift, pred_lo, pred_hi, bound_low, bound_high,
                               bound_toward_dev, frac_pred, frac_bound,
@@ -278,11 +306,12 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
                   box.padding = 0.35, max.overlaps = Inf, show.legend = FALSE) +
   scale_colour_manual(values = COL_DIR, guide = "none") +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
-  labs(tag = "A", title = "ALT allele frequency, T21 cohort vs reference",
-       subtitle = sprintf("%s tested cis variants\nmedian T21 - ref = %+.4f, median absolute diff = %.3f",
-                          format(bg$n_variants, big.mark = ","), bg$median_delta, bg$median_abs_delta),
-       x = sprintf("%s ALT frequency", REF_LABELS[[PRIMARY]]),
-       y = sprintf("T21 cohort ALT frequency (n = %d)", ncol(D))) +
+  labs(tag = "A", title = "ALT allele frequency, T21 vs GTEx whole blood",
+       subtitle = sprintf("%s tested cis variants; median T21 - GTEx = %+.4f\nmedian absolute difference %.3f (sampling alone: %.3f)",
+                          format(bg$n_variants, big.mark = ","), bg$median_delta, bg$median_abs_delta,
+                          bg$median_abs_delta_sampling),
+       x = sprintf("%s ALT frequency (%s copies)", REF_LABELS[[PRIMARY]], format(GTEX_WB_COPIES, big.mark = ",")),
+       y = sprintf("T21 ALT frequency (n = %d, %s copies)", ncol(D), format(T21_COPIES, big.mark = ","))) +
   theme_bw(base_size = 9) +
   theme(panel.grid.minor = element_blank(), plot.title = element_text(face = "bold", size = 9.5),
         plot.subtitle = element_text(size = 7.5, colour = "grey30"))

@@ -68,21 +68,27 @@ required_case_af <- function(r, p_ref, shift) {
   p
 }
 
-#' Bootstrap ALT frequencies by resampling subjects.
+#' Binomial draws of ALT frequencies, for intervals.
 #'
-#' Resamples subjects rather than allele copies: the three chr21 copies of one
-#' subject are not independent draws (two come from one parent). Vectorised as
-#' one matrix product with multinomial resampling weights.
-#' @param D variants x subjects matrix of ALT dosage (no NA).
-#' @param ploidy copies per subject.
-#' @param B bootstrap replicates.
-#' @return variants x B matrix of bootstrap ALT frequencies.
-bootstrap_alt_af <- function(D, ploidy, B = 2000, seed = 1) {
-  if (anyNA(D)) stop("dosage matrix has NA; drop or impute before bootstrapping")
-  n <- ncol(D)
+#' Each frequency is an ALT count over allele copies (3 per T21 participant,
+#' 2 per GTEx donor), so its sampling distribution is taken as binomial:
+#' each draw is rbinom(n_copies, p) / n_copies. Vectorised as one rbinom call.
+#' @param p ALT frequencies (NA allowed: that row stays NA).
+#' @param n_copies allele copies behind each frequency: one value, or one per p.
+#' @param B draws per frequency.
+#' @return length(p) x B matrix of drawn frequencies.
+binomial_af_draws <- function(p, n_copies, B = 2000, seed = 1) {
+  if (!length(n_copies) %in% c(1L, length(p))) stop("n_copies must be one value or one per frequency")
+  if (any(p < 0 | p > 1, na.rm = TRUE)) stop("allele frequency outside [0, 1]")
+  n <- rep_len(n_copies, length(p))
+  ok <- !is.na(p)
+  out <- matrix(NA_real_, length(p), B)
   set.seed(seed)
-  W <- stats::rmultinom(B, size = n, prob = rep(1 / n, n))   # n x B counts
-  (D %*% W) / (ploidy * n)
+  if (any(ok)) {
+    k <- stats::rbinom(sum(ok) * B, size = rep(n[ok], B), prob = rep(p[ok], B))
+    out[ok, ] <- matrix(k / rep(n[ok], B), sum(ok), B)
+  }
+  out
 }
 
 #' Within-group R-squared of a single-variant regression from its t statistic
