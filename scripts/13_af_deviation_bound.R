@@ -56,6 +56,8 @@ suppressPackageStartupMessages({
 source("scripts/lib/alleles.R")   # T21_CHR21_PLOIDY
 source("scripts/lib/af_bound.R")
 source("scripts/lib/run.R"); run <- load_run()
+source("scripts/lib/figure_style.R")   # strip_titles: panel letters only
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
 
 N_DRAW        <- 2000
 # GTEx v10 whole-blood eQTL donors x 2 copies: 800 donors, 1,600 copies (the
@@ -291,15 +293,23 @@ print(genes[, .(Gene_name, eqtl_lane, deviation = round(deviation, 2),
 
 genes[, direction := fifelse(deviation > 0, "up", "down")]
 genes[, gene_lab := sprintf("%s  (%s)", Gene_name,
-                            fifelse(eqtl_lane == "cis_eqtl", "cis-eQTL", "not detected"))]
+                            fifelse(eqtl_lane == "cis_eqtl", "cis-eQTL detected", "tested, not detected"))]
 genes[, gene_lab := factor(gene_lab, levels = rev(gene_lab))]
+# Row labels with only the gene name in italics.
+gene_row_labels <- setNames(
+  parse(text = sprintf('italic("%s")~~"(%s)"', genes$Gene_name,
+                       fifelse(genes$eqtl_lane == "cis_eqtl", "cis-eQTL detected", "tested, not detected"))),
+  as.character(genes$gene_lab))
 
 # A: T21 cohort frequency against the primary reference, every tested variant.
 bg <- background[reference == PRIMARY]
 pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
   geom_abline(slope = 1, intercept = 0, colour = "grey55", linewidth = 0.35) +
   geom_point(size = 0.5, alpha = 0.25, colour = "grey45", stroke = 0) +
-  geom_point(data = genes, aes(x = p_ref, y = t21_af, colour = direction),
+  # filled = cis-eQTL detected in T21, open = tested and not detected
+  geom_point(data = genes[eqtl_lane == "cis_eqtl"], aes(x = p_ref, y = t21_af, colour = direction),
+             size = 2.2, shape = 16) +
+  geom_point(data = genes[eqtl_lane != "cis_eqtl"], aes(x = p_ref, y = t21_af, colour = direction),
              size = 2.2, shape = 21, fill = "white", stroke = 0.9) +
   # Labels off the diagonal cloud, perpendicular to it: genes higher than
   # expected above-left, lower than expected below-right.
@@ -357,7 +367,8 @@ pb <- ggplot(genes, aes(y = gene_lab)) +
        subtitle = "T21 = 3 copies, D21 = 2; reach at the 95% CI edge of the slope",
        x = expression(symbol("\254")~"lower"~~~~"Shift of"~log[2]~"(T21/D21) from 1.5"~~~~"higher"~symbol("\256")),
        y = NULL) +
-  theme_rows + theme(axis.text.y = element_text(face = "italic"), plot.title = element_text(face = "bold", size = 9.5,
+  scale_y_discrete(labels = function(x) gene_row_labels[x]) +
+  theme_rows + theme(plot.title = element_text(face = "bold", size = 9.5,
                                                                                           margin = margin(b = 2)))
 
 # C: what the eQTL does explain: between-person variance within T21.
@@ -370,6 +381,9 @@ pd <- ggplot(genes, aes(y = gene_lab, x = 100 * r2_within_t21, fill = direction)
        subtitle = "Best variant, R-squared", x = "% of within-T21 variance", y = NULL) +
   theme_rows + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
+pa <- strip_titles(pa, "af_deviation_bound", "A", TITLES)
+pb <- strip_titles(pb, "af_deviation_bound", "B", TITLES)
+pd <- strip_titles(pd, "af_deviation_bound", "C", TITLES)
 fig <- pa + (pb + pd + plot_layout(widths = c(2.2, 1))) + plot_layout(widths = c(1, 2))
 
 save_fig <- function(p, stem, width, height) {
