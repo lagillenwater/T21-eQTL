@@ -7,7 +7,8 @@
 #                      shift of the whole chr21 cloud from log2(1.5) to 0.
 #   volcano_chr21      A uncorrected / B ploidy-corrected, chr21 genes only.
 #                      Deviating genes are labelled and coloured by direction
-#                      alone (red DE_high, blue DE_low; tier 1 bold); every
+#                      alone (red higher, blue lower than expected; gene
+#                      names italic, tier 1 bold); every
 #                      other chr21 gene is grey. eQTL outcomes are not drawn
 #                      here (see scripts/11_eqtl_figures.R).
 #
@@ -42,14 +43,17 @@ ALPHA       <- run$thresholds$alpha_de   # padj threshold, from the run config
 TRISOMY_LFC <- log2(run$ploidy)          # 0.585, the expected chr21 dosage bump
 Y_CAP       <- 60           # -log10(padj) display ceiling; see note below
 source("scripts/lib/biotypes.R")   # TARGET_BIOTYPES, matches scripts 02/04/06
+source("scripts/lib/figure_style.R")   # strip_titles: panel letters only
+TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
 
-LAB_HIGH  <- "Higher than expected (DE_high)"
-LAB_LOW   <- "Lower than expected (DE_low)"
-LAB_CHR21 <- "Other chr21"
+LAB_HIGH  <- "Higher than expected"
+LAB_LOW   <- "Lower than expected"
+LAB_CHR21 <- "Other chr21 genes"      # chr21-only figure: chr21 genes that do not deviate
+LAB_CHR21_ALL <- "chr21 genes"        # all-genes figure: every chr21 gene, highlighted
 LAB_OTHER <- "Other genes (target biotypes)"
 # Direction colours match scripts/11_eqtl_figures.R.
 PALETTE <- c("#B2182B", "#2166AC", "#762A83", "grey80")
-names(PALETTE) <- c(LAB_HIGH, LAB_LOW, LAB_CHR21, LAB_OTHER)
+names(PALETTE) <- c(LAB_HIGH, LAB_LOW, LAB_CHR21_ALL, LAB_OTHER)
 CHR21_GREY <- "grey60"   # chr21 background in the chr21-only figure
 
 # ---- load -------------------------------------------------------------------
@@ -117,16 +121,17 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
   }
 
   if (mode == "all") {
-    d <- d %>% mutate(group = factor(ifelse(Chr == "chr21", LAB_CHR21, LAB_OTHER),
-                                     levels = c(LAB_CHR21, LAB_OTHER)))
-    pal    <- PALETTE[c(LAB_CHR21, LAB_OTHER)]
+    d <- d %>% mutate(group = factor(ifelse(Chr == "chr21", LAB_CHR21_ALL, LAB_OTHER),
+                                     levels = c(LAB_CHR21_ALL, LAB_OTHER)))
+    pal    <- PALETTE[c(LAB_CHR21_ALL, LAB_OTHER)]
     bg     <- d %>% filter(group == LAB_OTHER)
-    c21    <- d %>% filter(group == LAB_CHR21)
+    c21    <- d %>% filter(group == LAB_CHR21_ALL)
     named  <- d[0, ]
     c21_col <- NULL
   } else {
     d <- d %>% filter(Chr == "chr21") %>%
-      mutate(group = factor(as.character(group), levels = c(LAB_HIGH, LAB_LOW, LAB_CHR21)))
+      mutate(group = ifelse(as.character(group) %in% c(LAB_HIGH, LAB_LOW), as.character(group), LAB_CHR21),
+             group = factor(group, levels = c(LAB_HIGH, LAB_LOW, LAB_CHR21)))
     pal    <- c(PALETTE[c(LAB_HIGH, LAB_LOW)], setNames(CHR21_GREY, LAB_CHR21))
     bg     <- d[0, ]
     c21    <- d %>% filter(group == LAB_CHR21)
@@ -146,7 +151,7 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
     geom_point(data = named, aes(shape = capped), size = 1.8) +
     geom_text_repel(data = named,
                     aes(label = Gene_name,
-                        fontface = ifelse(!is.na(tier) & tier == 1L, "bold", "plain")),
+                        fontface = ifelse(!is.na(tier) & tier == 1L, "bold.italic", "italic")),
                     size = 2.4,
                     max.overlaps = Inf, min.segment.length = 0,
                     segment.size = 0.2, segment.alpha = 0.6,
@@ -157,9 +162,9 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
     scale_colour_manual(values = pal, limits = names(pal), drop = FALSE, name = NULL) +
     scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17), drop = FALSE,
                        name = NULL,
-                       labels = c(sprintf("-log10 padj <= %d", Y_CAP),
-                                  sprintf("-log10 padj > %d, drawn at the ceiling",
-                                          Y_CAP))) +
+                       labels = c(sprintf("-log10 adjusted p <= %d", Y_CAP),
+                                  sprintf("-log10 adjusted p > %d, drawn at %d",
+                                          Y_CAP, Y_CAP))) +
     guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1),
                                  nrow = 2, byrow = TRUE, order = 1),
            shape  = guide_legend(override.aes = list(size = 2.2, alpha = 1,
@@ -168,7 +173,7 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
     # Headroom above the cap so labels on capped points have somewhere to go.
     coord_cartesian(xlim = c(-2.5, 2.5), ylim = c(0, Y_CAP + 8)) +
     labs(title = title, subtitle = subtitle,
-         x = expression(log[2]~fold~change~(T21~vs~Control)),
+         x = expression(log[2]~fold~change~(T21~vs~D21)),
          y = expression(-log[10]~adjusted~italic(p))) +
     theme_bw(base_size = 9) +
     theme(
@@ -219,33 +224,37 @@ write_fig <- function(fig, stem, width, height) {
 
 # ---- figure 1: all genes, chr21 highlighted, no labels ---------------------
 fig_all <- assemble(
+  strip_titles(figure = "volcano_all_genes", panel = "A", path = TITLES, tag = TRUE, p =
   build_volcano(res, "raw_log2FC", "raw_padj", mode = "all",
     title    = "A  Uncorrected",
     subtitle = sprintf("chr21 median FC = %.2f (dotted = 1.5x expectation); %d/%d chr21 padj < %.2g",
                        2^med_raw, sig_raw, n_chr21, ALPHA),
-    show_trisomy_line = TRUE),
+    show_trisomy_line = TRUE)),
+  strip_titles(figure = "volcano_all_genes", panel = "B", path = TITLES, tag = TRUE, p =
   build_volcano(res, "norm_log2FC", "norm_padj", mode = "all",
     title    = "B  Ploidy-corrected",
     subtitle = sprintf("chr21 median log2FC = %.2f; %d/%d chr21 padj < %.2g",
                        med_norm, sig_norm, n_chr21, ALPHA),
-    show_trisomy_line = FALSE))
+    show_trisomy_line = FALSE)))
 cat("Writing volcano_all_genes...\n")
 write_fig(fig_all, run$figure("volcano_all_genes"), width = 9.5, height = 5.8)
 
 # ---- figure 2: chr21 only, deviating genes labelled by direction -----------
 tier1 <- sort(lane$Gene_name[!is.na(lane$tier) & lane$tier == 1L])
 fig_chr21 <- assemble(
+  strip_titles(figure = "volcano_chr21", panel = "A", path = TITLES, tag = TRUE, p =
   build_volcano(res, "raw_log2FC", "raw_padj", mode = "chr21",
     title    = "A  Uncorrected, chr21 only",
     subtitle = sprintf("%d chr21 genes (%s); dotted = 1.5x expectation",
                        n_chr21, TARGET_BIOTYPES_LABEL),
-    show_trisomy_line = TRUE),
+    show_trisomy_line = TRUE)),
+  strip_titles(figure = "volcano_chr21", panel = "B", path = TITLES, tag = TRUE, p =
   build_volcano(res, "norm_log2FC", "norm_padj", mode = "chr21",
     title    = "B  Ploidy-corrected, chr21 only",
     subtitle = sprintf("%d deviating genes labelled; tier 1 (bold):\n%s",
                        nrow(lane_groups),
                        paste(strwrap(paste(tier1, collapse = ", "), width = 95), collapse = "\n")),
-    show_trisomy_line = FALSE))
+    show_trisomy_line = FALSE)))
 cat("Writing volcano_chr21...\n")
 write_fig(fig_chr21, run$figure("volcano_chr21"), width = 9.5, height = 5.8)
 
