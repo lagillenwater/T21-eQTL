@@ -186,6 +186,7 @@ the runner scripts 03 and 16 share (`gene_level_tests`);
 `allelic_fc.R` - allelic fold change fitted at ploidy 3, for scripts 15 and 18;
 `inflation.R` - the distal-variant scan and genomic inflation, for script 17;
 `run_summary.R` - the run-level negative-conclusion statistics from scripts 13, 16 and 18, for script 10;
+`figure_style.R` - manuscript figures carry panel letters only: `strip_titles()` / `record_titles()` take titles and subtitles off and record them in `figures/removed_titles.txt` for the captions;
 `gtex_expression.R` - the GTEx v10 median-TPM table (download, reader), the per-gene tissue summary, and counts to TPM over GENCODE exon-union lengths, for script 19;
 `table1.R` - cohort-characteristics table helpers; `sankey_flow.R` - lane flow and its SankeyMATIC serialisation; `ploidy_distributions.R` - uncorrected vs ploidy-corrected log2FC tables for script 06; `biotypes.R` - the chr21 target biotype set, `TARGET_BIOTYPES`; `covariates.R` - CyTOF table reader, composition fractions, design formula, the expression-artifact adjustment and the per-covariate attribution; `run.R` - run configuration and paths; `karyotype_subtype.R` - INCLUDE subtype join).
 
