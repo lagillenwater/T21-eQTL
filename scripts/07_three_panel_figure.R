@@ -48,8 +48,8 @@ TITLES <- file.path(run$dirs$figures, "removed_titles.txt")
 
 LAB_HIGH  <- "Higher than expected"
 LAB_LOW   <- "Lower than expected"
-LAB_CHR21 <- "Other chr21 genes"      # chr21-only figure: chr21 genes that do not deviate
-LAB_CHR21_ALL <- "chr21 genes"        # all-genes figure: every chr21 gene, highlighted
+LAB_CHR21 <- "Other HSA21 genes"      # chr21-only figure: chr21 genes that do not deviate
+LAB_CHR21_ALL <- "HSA21 genes"        # all-genes figure: every chr21 gene, highlighted
 LAB_OTHER <- "Other genes (target biotypes)"
 # Direction colours match scripts/11_eqtl_figures.R.
 PALETTE <- c("#B2182B", "#2166AC", "#762A83", "grey80")
@@ -156,15 +156,18 @@ build_volcano <- function(df, lfc_col, padj_col, title, subtitle,
                     max.overlaps = Inf, min.segment.length = 0,
                     segment.size = 0.2, segment.alpha = 0.6,
                     box.padding = 0.4, force = 6, seed = 1,
+                    # Labels stay above the dense band of genes near p = 1,
+                    # where they collide at the combined figure's panel width.
+                    ylim = c(4, NA), nudge_y = 8, force_pull = 0.3, max.time = 2, max.iter = 1e5,
                     show.legend = FALSE) +
     # limits pins the legend to the full level set so the two panels build the
     # same guide and patchwork collects one legend.
     scale_colour_manual(values = pal, limits = names(pal), drop = FALSE, name = NULL) +
     scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17), drop = FALSE,
                        name = NULL,
-                       labels = c(sprintf("-log10 adjusted p <= %d", Y_CAP),
-                                  sprintf("-log10 adjusted p > %d, drawn at %d",
-                                          Y_CAP, Y_CAP))) +
+                       labels = as.expression(list(
+                         bquote(-log[10]~"adjusted"~italic(p) <= .(Y_CAP)),
+                         bquote(-log[10]~"adjusted"~italic(p) > .(Y_CAP)*", drawn at"~.(Y_CAP))))) +
     guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1),
                                  nrow = 2, byrow = TRUE, order = 1),
            shape  = guide_legend(override.aes = list(size = 2.2, alpha = 1,
@@ -241,22 +244,24 @@ write_fig(fig_all, run$figure("volcano_all_genes"), width = 9.5, height = 5.8)
 
 # ---- figure 2: chr21 only, deviating genes labelled by direction -----------
 tier1 <- sort(lane$Gene_name[!is.na(lane$tier) & lane$tier == 1L])
-fig_chr21 <- assemble(
-  strip_titles(figure = "volcano_chr21", panel = "A", path = TITLES, tag = TRUE, p =
+pa_chr21 <- strip_titles(figure = "volcano_chr21", panel = "A", path = TITLES, tag = TRUE, p =
   build_volcano(res, "raw_log2FC", "raw_padj", mode = "chr21",
     title    = "A  Uncorrected, chr21 only",
     subtitle = sprintf("%d chr21 genes (%s); dotted = 1.5x expectation",
                        n_chr21, TARGET_BIOTYPES_LABEL),
-    show_trisomy_line = TRUE)),
-  strip_titles(figure = "volcano_chr21", panel = "B", path = TITLES, tag = TRUE, p =
+    show_trisomy_line = TRUE))
+pb_chr21 <- strip_titles(figure = "volcano_chr21", panel = "B", path = TITLES, tag = TRUE, p =
   build_volcano(res, "norm_log2FC", "norm_padj", mode = "chr21",
     title    = "B  Ploidy-corrected, chr21 only",
     subtitle = sprintf("%d deviating genes labelled; tier 1 (bold):\n%s",
                        nrow(lane_groups),
                        paste(strwrap(paste(tier1, collapse = ", "), width = 95), collapse = "\n")),
-    show_trisomy_line = FALSE)))
+    show_trisomy_line = FALSE))
+fig_chr21 <- assemble(pa_chr21, pb_chr21)
 cat("Writing volcano_chr21...\n")
 write_fig(fig_chr21, run$figure("volcano_chr21"), width = 9.5, height = 5.8)
+# The two panels again, for the combined Figure 1 (script 20).
+save_panels(list(uncorrected = pa_chr21, corrected = pb_chr21), "volcano_chr21", run)
 
 writeLines(capture.output(sessionInfo()),
            run$figure("volcano_session_info.txt"))

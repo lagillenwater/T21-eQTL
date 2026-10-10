@@ -194,8 +194,10 @@ map_outcome <- function(eqtl_lane, gtex_tested) {
 #'
 #' Band fill = the eQTL outcome (MAP_FILL); overlapping bands share the bar
 #' height (stack_bands). Gene labels, italic, are coloured by direction and
-#' sit above the bar for genes higher than expected, below for lower. No
-#' title: the caption carries it. Callers attach ggplot2 and ggrepel.
+#' sit above the bar for genes higher than expected, below for lower. Both
+#' arms are one pale fill and the centromere is drawn as a constriction, so
+#' no part of the chromosome shares a grey with an outcome. No title: the
+#' caption carries it. Callers attach ggplot2 and ggrepel.
 #' @param bands Gene_name, tss (bp), direction ("up"/"down"), outcome (map_outcome)
 #' @param col_dir colours for c(up, down)
 #' @param chr_len, centromere chr21 length and centromere (bp, GRCh38)
@@ -207,33 +209,36 @@ deviating_map_plot <- function(bands, col_dir, chr_len, centromere, band_w = 0.1
   b[, direction := factor(direction, levels = c("up", "down"))]
   up <- b[direction == "up"]; down <- b[direction == "down"]
   chrom <- data.table::data.table(xmin = c(0, centromere[1], centromere[2]) / 1e6,
-                                  xmax = c(centromere[1], centromere[2], chr_len) / 1e6)
+                                  xmax = c(centromere[1], centromere[2], chr_len) / 1e6,
+                                  ymin = c(0, 0.3, 0), ymax = c(1, 0.7, 1))
   key <- data.frame(x = c(-10, -10), y = c(0.5, 0.5), direction = factor(c("up", "down"), levels = c("up", "down")))
   ggplot() +
-    geom_rect(data = chrom, aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = 1),
-              fill = c("grey85", "grey55", "grey95"), colour = "grey40", linewidth = 0.3) +
+    geom_rect(data = chrom, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+              fill = "grey97", colour = "grey40", linewidth = 0.3) +
     geom_rect(data = b, aes(xmin = tss_mb - band_w, xmax = tss_mb + band_w, ymin = ymin, ymax = ymax,
                             fill = outcome), colour = "grey15", linewidth = 0.25) +
     geom_segment(data = up,   aes(x = tss_mb, xend = tss_mb, y = 1, yend = 1.25), colour = "grey50", linewidth = 0.3) +
     geom_segment(data = down, aes(x = tss_mb, xend = tss_mb, y = 0, yend = -0.25), colour = "grey50", linewidth = 0.3) +
     geom_text_repel(data = up, aes(x = tss_mb, y = 1.3, label = Gene_name, colour = direction),
-                    direction = "x", angle = 90, hjust = 0, vjust = 0.5, size = 2.6, fontface = "italic",
+                    direction = "x", angle = 90, hjust = 0, vjust = 0.5, size = 2.4, fontface = "italic",
                     segment.size = 0.25, segment.colour = "grey60", box.padding = 0.15,
                     max.overlaps = Inf, seed = 1, ylim = c(1.3, NA), show.legend = FALSE) +
     geom_text_repel(data = down, aes(x = tss_mb, y = -0.3, label = Gene_name, colour = direction),
-                    direction = "x", angle = 90, hjust = 1, vjust = 0.5, size = 2.6, fontface = "italic",
+                    direction = "x", angle = 90, hjust = 1, vjust = 0.5, size = 2.4, fontface = "italic",
                     segment.size = 0.25, segment.colour = "grey60", box.padding = 0.15,
                     max.overlaps = Inf, seed = 1, ylim = c(NA, -0.3), show.legend = FALSE) +
     # legend keys for direction, from a zero-size layer outside the bar
     geom_point(data = key, aes(x = x, y = y, colour = direction), size = 0) +
-    scale_fill_manual(values = MAP_FILL, drop = FALSE, name = "Gene-level cis-eQTL test") +
+    scale_fill_manual(values = MAP_FILL, drop = FALSE, name = expression("Gene-level"~italic(cis)*"-eQTL test"),
+                      labels = as.expression(c(list(quote(italic(cis)*"-eQTL detected")), as.list(MAP_OUTCOMES[-1])))) +
     scale_colour_manual(values = col_dir, labels = c(up = "Higher than expected", down = "Lower than expected"),
                         name = "Deviation", drop = FALSE) +
     guides(colour = guide_legend(override.aes = list(size = 3, shape = 15), order = 1),
            fill = guide_legend(override.aes = list(colour = "grey15", linewidth = 0.25), order = 2)) +
     scale_x_continuous(breaks = seq(0, 45, 5), expand = expansion(mult = c(0.01, 0.02))) +
-    coord_cartesian(xlim = c(0, chr_len / 1e6), ylim = c(-3.2, 4.2), clip = "off") +
-    labs(x = "chr21 position (Mb)", y = NULL) +
+    # Room below the bar for the longest label (AP000282.1) at a page width.
+    coord_cartesian(xlim = c(0, chr_len / 1e6), ylim = c(-4.6, 4.2), clip = "off") +
+    labs(x = "HSA21 position (Mb)", y = NULL) +
     theme_minimal(base_size = 9) +
     theme(axis.text.y = element_blank(), panel.grid = element_blank(),
           axis.line.x = element_line(colour = "grey40"), axis.ticks.x = element_line(colour = "grey40"),

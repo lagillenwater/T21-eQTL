@@ -295,15 +295,18 @@ genes[, direction := fifelse(deviation > 0, "up", "down")]
 genes[, gene_lab := sprintf("%s  (%s)", Gene_name,
                             fifelse(eqtl_lane == "cis_eqtl", "cis-eQTL detected", "tested, not detected"))]
 genes[, gene_lab := factor(gene_lab, levels = rev(gene_lab))]
-# Row labels with only the gene name in italics.
+# Row labels with the gene name and "cis" in italics.
 gene_row_labels <- setNames(
-  parse(text = sprintf('italic("%s")~~"(%s)"', genes$Gene_name,
-                       fifelse(genes$eqtl_lane == "cis_eqtl", "cis-eQTL detected", "tested, not detected"))),
+  parse(text = sprintf('italic("%s")~~%s', genes$Gene_name,
+                       fifelse(genes$eqtl_lane == "cis_eqtl", '"("*italic("cis")*"-eQTL detected)"',
+                               '"(tested, not detected)"'))),
   as.character(genes$gene_lab))
 
 # A: T21 cohort frequency against the primary reference, every tested variant.
 bg <- background[reference == PRIMARY]
-pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
+# The reference column under a fixed name, so the saved panel (script 20)
+# does not look up PRIMARY.
+pa <- ggplot(vars[, .(ref_af = get(PRIMARY), t21_af)], aes(x = ref_af, y = t21_af)) +
   geom_abline(slope = 1, intercept = 0, colour = "grey55", linewidth = 0.35) +
   geom_point(size = 0.5, alpha = 0.25, colour = "grey45", stroke = 0) +
   # filled = cis-eQTL detected in T21, open = tested and not detected
@@ -327,8 +330,9 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
        subtitle = sprintf("%s tested cis variants; median T21 - GTEx = %+.4f\nmedian absolute difference %.3f (sampling alone: %.3f)",
                           format(bg$n_variants, big.mark = ","), bg$median_delta, bg$median_abs_delta,
                           bg$median_abs_delta_sampling),
-       x = sprintf("%s ALT frequency (%s copies)", REF_LABELS[[PRIMARY]], format(GTEX_WB_COPIES, big.mark = ",")),
-       y = sprintf("T21 ALT frequency (n = %d, %s copies)", ncol(D), format(T21_COPIES, big.mark = ","))) +
+       x = sprintf("%s\nalternate allele frequency\n(%s copies)", sub("whole blood", "whole-blood", REF_LABELS[[PRIMARY]]),
+                   format(GTEX_WB_COPIES, big.mark = ",")),
+       y = sprintf("T21 alternate allele frequency\n(n = %d, %s copies)", ncol(D), format(T21_COPIES, big.mark = ","))) +
   theme_bw(base_size = 9) +
   theme(panel.grid.minor = element_blank(), plot.title = element_text(face = "bold", size = 9.5),
         plot.subtitle = element_text(size = 7.5, colour = "grey30"))
@@ -337,8 +341,8 @@ pa <- ggplot(vars, aes(x = get(PRIMARY), y = t21_af)) +
 # scale: left of 0 = lower than the 1.5-fold expectation, right = higher.
 # Group ratios use 3 chr21 copies in T21 and 2 in D21.
 LAB_B <- c(obs = "Observed deviation (95% CI)",
-           pred = "Shift predicted by the observed AF difference (95% CI)",
-           rng = "Reachable if T21 AF were 0 or 1")
+           pred = "Predicted shift (95% CI)",
+           rng = "Reachable at T21 allele frequency 0 or 1")
 theme_rows <- theme_bw(base_size = 9) +
   theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank(),
         legend.position = "bottom", legend.box = "vertical", legend.text = element_text(size = 7.5),
@@ -348,13 +352,13 @@ theme_rows <- theme_bw(base_size = 9) +
 pb <- ggplot(genes, aes(y = gene_lab)) +
   geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
   geom_linerange(aes(xmin = pmin(bound_low, bound_high), xmax = pmax(bound_low, bound_high),
-                     linewidth = LAB_B[["rng"]]), colour = "grey82") +
+                     linewidth = !!LAB_B[["rng"]]), colour = "grey82") +
   geom_errorbar(aes(xmin = pmin(pred_lo, pred_hi), xmax = pmax(pred_lo, pred_hi)), orientation = "y", width = 0.25,
                 colour = "black", linewidth = 0.4) +
-  geom_point(aes(x = pred_shift, shape = LAB_B[["pred"]]), size = 2.2, fill = "black") +
+  geom_point(aes(x = pred_shift, shape = !!LAB_B[["pred"]]), size = 2.2, fill = "black") +
   geom_errorbar(aes(xmin = pmin(dev_lo, dev_hi), xmax = pmax(dev_lo, dev_hi), colour = direction), orientation = "y",
                 width = 0.25, linewidth = 0.5) +
-  geom_point(aes(x = deviation, colour = direction, shape = LAB_B[["obs"]]), size = 2.6) +
+  geom_point(aes(x = deviation, colour = direction, shape = !!LAB_B[["obs"]]), size = 2.6) +
   scale_colour_manual(values = COL_DIR, labels = c(up = "Higher than expected", down = "Lower than expected"),
                       name = NULL) +
   scale_shape_manual(NULL, values = setNames(c(16, 23), unname(LAB_B[c("obs", "pred")])),
@@ -365,9 +369,9 @@ pb <- ggplot(genes, aes(y = gene_lab)) +
          linewidth = guide_legend(order = 2), colour = guide_legend(order = 3, override.aes = list(shape = 16))) +
   labs(tag = "B", title = "Deviation vs the best variant's reach",
        subtitle = "T21 = 3 copies, D21 = 2; reach at the 95% CI edge of the slope",
-       x = expression(symbol("\254")~"lower"~~~~"Shift of"~log[2]~"(T21/D21) from 1.5"~~~~"higher"~symbol("\256")),
+       x = expression(atop("Deviation or shift from the expected", "1.5-fold expression (" * log[2] ~ "scale)")),
        y = NULL) +
-  scale_y_discrete(labels = function(x) gene_row_labels[x]) +
+  scale_y_discrete(labels = local({ lab <- gene_row_labels; function(x) lab[x] })) +
   theme_rows + theme(plot.title = element_text(face = "bold", size = 9.5,
                                                                                           margin = margin(b = 2)))
 
@@ -376,15 +380,17 @@ pd <- ggplot(genes, aes(y = gene_lab, x = 100 * r2_within_t21, fill = direction)
   geom_col(width = 0.6) +
   geom_text(aes(label = sprintf("%.1f%%", 100 * r2_within_t21)), hjust = -0.15, size = 2.5, colour = "grey20") +
   scale_fill_manual(values = COL_DIR, guide = "none") +
-  scale_x_continuous(expand = expansion(mult = c(0, 0.3))) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.6))) +
   labs(tag = "C", title = "Within-T21 variance explained",
-       subtitle = "Best variant, R-squared", x = "% of within-T21 variance", y = NULL) +
+       subtitle = "Best variant, R-squared", x = "% of within-T21\nvariance", y = NULL) +
   theme_rows + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 pa <- strip_titles(pa, "af_deviation_bound", "A", TITLES)
 pb <- strip_titles(pb, "af_deviation_bound", "B", TITLES)
 pd <- strip_titles(pd, "af_deviation_bound", "C", TITLES)
 fig <- pa + (pb + pd + plot_layout(widths = c(2.2, 1))) + plot_layout(widths = c(1, 2))
+# The three panels again, for the combined Figure 3 (script 20).
+save_panels(list(af = pa, bound = pb, r2 = pd), "af_deviation_bound", run)
 
 save_fig <- function(p, stem, width, height) {
   ggsave(paste0(stem, ".pdf"), p, width = width, height = height, limitsize = FALSE)

@@ -13,11 +13,9 @@
 #                        allele GTEx says moves expression the way the gene
 #                        deviates), so a panel reproducing GTEx trends up in
 #                        panel A and down in panel B. The strip names the
-#                        minor allele, its MAF, the canonical GTEx direction,
-#                        whether the within-T21 fit agrees, and whether the
-#                        minor allele runs with or against the deviation; a
-#                        trend line coloured by that agreement is drawn on
-#                        every panel.
+#                        gene; the within-T21 trend line is drawn on every
+#                        panel, solid where it agrees with the GTEx direction
+#                        and dashed where it runs opposite.
 #   chr21_deviating_map  Schematic chr21 (GRCh38) with a band at every
 #                        deviating gene's TSS, coloured by eQTL outcome; gene
 #                        labels coloured by direction (red up, blue down).
@@ -60,8 +58,8 @@ COL_GROUP <- c("DE high" = COL_DIR[["up"]], "DE low" = COL_DIR[["down"]])
 # Does the within-T21 trend reproduce the canonical (GTEx) direction of the
 # eQTL for the same allele? Compared on the minor allele, so the answer is
 # independent of which allele a panel is oriented to.
-# The strip states it; the trend line is solid where T21 agrees with GTEx and
-# dashed where it runs opposite.
+# The trend line is solid where T21 agrees with GTEx and dashed where it runs
+# opposite.
 LAB_AGREE <- c(match    = "T21 agrees with GTEx",
                opposite = "T21 opposite to GTEx")
 LTY_AGREE <- setNames(c("solid", "dashed"), LAB_AGREE)
@@ -79,7 +77,7 @@ BLOCK_XNOTE <- c(
   "DE high" = "x-axis: a panel that reproduces the GTEx direction trends up",
   "DE low"  = "x-axis: a panel that reproduces the GTEx direction trends down")
 Y_LAB <- if (length(run$covariates) || !is.null(run$composition))
-  "Expression (log2-CPM, covariate effects removed)" else "Expression (log2-CPM)"
+  expression("Expression ("*log[2]*"-CPM, covariate effects removed)") else expression("Expression ("*log[2]*"-CPM)")
 
 # GRCh38 chr21: length and centromere (UCSC cytoBand acen bands).
 CHR21_LEN <- 46709983
@@ -196,12 +194,11 @@ cat(sprintf("  within-T21 trend reproduces the GTEx direction: %d of %d panels w
             sum(panels$agrees, na.rm = TRUE), sum(!is.na(panels$agrees))))
 
 # ---- Facet strips -----------------------------------------------------------
-# Two items: the gene (italic) and whether the within-T21 trend agrees with
-# GTEx. The plotted allele, minor allele and MAF are in Supplementary Table S1.
+# The gene alone (italic). Whether the within-T21 trend agrees with GTEx is
+# the trend line's type (solid / dashed) and the caption's; the plotted
+# allele, minor allele and MAF are in Supplementary Table S1.
 setorder(panels, panel_group, q_gene_bh, Gene_name)
-agree_txt <- fcase(is.na(panels$agrees), "no GTEx direction",
-                   panels$agrees, LAB_AGREE[["match"]], default = LAB_AGREE[["opposite"]])
-panels[, facet := sprintf('atop(italic("%s"), "%s")', Gene_name, agree_txt)]
+panels[, facet := sprintf('italic("%s")', Gene_name)]
 
 plot_df <- merge(plot_df, panels[, .(Gene_name, panel_group, variant_id, facet, agree_lab)],
                  by = c("Gene_name", "panel_group", "variant_id"))
@@ -225,7 +222,7 @@ trend[, `:=`(x = lo + 1, xend = hi + 1,
 
 # One row per category: a block's panels are laid out in a single row, so the
 # figure grows sideways with the block rather than wrapping. PANEL_W is the
-# width each panel needs for its four-line strip to render without clipping.
+# width each panel needs for its axis text and gene strip at the figure's size.
 PANEL_W <- 1.3
 #' One panel block. `show_legend` is TRUE for a single block per figure: with
 #' a guide on every block patchwork collects one legend per block instead of
@@ -274,6 +271,8 @@ dosage_fig <- function(groups, stem) {
   cat(sprintf("  %s: %d block(s), widest %d panels in one row\n", stem, sum(keep), widest))
   save_fig(fig, run$figure(stem), width = 0.9 + PANEL_W * widest,
            height = 2.9 * sum(keep))
+  # The blocks again, for the combined Figure 2 (script 20).
+  save_panels(setNames(gp[keep], c(`DE high` = "higher", `DE low` = "lower")[groups[keep]]), stem, run)
 }
 dosage_fig(c("DE high", "DE low"), "eqtl_dosage_panels")
 

@@ -40,3 +40,23 @@ record_titles <- function(figure, panel, title, subtitle, path) {
 #' A title or subtitle as text: plain strings as they are, plotmath
 #' expressions deparsed.
 deparse_label <- function(x) if (is.character(x)) x else deparse(x)
+
+#' Save a script's finished panels for the combined manuscript figures
+#' (scripts/20_combined_figures.R), as figures/panels/<stem>.rds.
+#'
+#' The panels must render in another R session, so their aesthetics may refer
+#' only to data columns or to values fixed into the plot (`!!`, or a function's
+#' own environment): a ggplot captures the script's global environment by
+#' reference, and saveRDS() does not store it.
+#' @param panels named list of ggplots
+#' @param stem the source figure's output stem (e.g. "volcano_chr21")
+#' @param run the loaded run (scripts/lib/run.R)
+save_panels <- function(panels, stem, run) {
+  dir <- file.path(run$dirs$figures, "panels")
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  path <- file.path(dir, paste0(stem, ".rds"))
+  saveRDS(panels, path)
+  if (!file.exists(path)) stop("failed to write ", path)
+  cat(sprintf("  Saved panels: %s (%s)\n", path, paste(names(panels), collapse = ", ")))
+  invisible(path)
+}

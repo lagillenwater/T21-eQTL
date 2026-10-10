@@ -116,9 +116,11 @@ style <- function(p, label_y = Inf, label_vjust = 1.6) {
   p +
     geom_vline(xintercept = 0, colour = "grey60", linewidth = 0.4) +
     geom_vline(xintercept = LFC_PLOIDY, colour = "grey60", linewidth = 0.4) +
-    annotate("text", x = LFC_PLOIDY, y = label_y, label = "log2(1.5)",
+    annotate("text", x = LFC_PLOIDY, y = label_y, label = "log[2]*(1.5)", parse = TRUE,
              hjust = -0.1, vjust = label_vjust, size = 3, colour = "grey30") +
-    scale_colour_manual(values = COL_CHR, name = "Chromosome") +
+    # Data keep the chr21/chr22 keys; the legend uses the manuscript's names.
+    scale_colour_manual(values = COL_CHR, labels = c(chr21 = "HSA21", chr22 = "HSA22"),
+                        name = "Chromosome") +
     scale_linewidth_manual(values = LWD_SCALE, breaks = SCALE_ORDER,
                            name = "Scale") +
     scale_alpha_manual(values = ALPHA_SCALE, breaks = SCALE_ORDER,
@@ -142,14 +144,14 @@ p_density <- style(
     # alpha to its fill, so the outline band would come out opaque.
     geom_line(stat = "density", data = uncorrected) +
     geom_line(stat = "density", data = corrected) +
-    labs(title = "Density", x = "log2(T21 / D21)", y = "Density")
+    labs(title = "Density", x = expression(log[2]~"(T21 / D21)"), y = "Density")
 )
 
 p_ecdf <- style(
   ggplot(long, aes_curve) +
     stat_ecdf(data = uncorrected, geom = "step", pad = FALSE) +
     stat_ecdf(data = corrected,   geom = "step", pad = FALSE) +
-    labs(title = "Empirical CDF", x = "log2(T21 / D21)",
+    labs(title = "Empirical CDF", x = expression(log[2]~"(T21 / D21)"),
          y = "Cumulative fraction"),
   label_y = -Inf, label_vjust = -0.6
 )
@@ -170,6 +172,8 @@ record_titles("ploidy_correction_distributions", "",
               subtitle, TITLES)
 p_density <- strip_titles(p_density, "ploidy_correction_distributions", "A", TITLES, tag = TRUE)
 p_ecdf    <- strip_titles(p_ecdf, "ploidy_correction_distributions", "B", TITLES, tag = TRUE)
+# The two panels again, for the combined Figure 1 (script 20).
+save_panels(list(density = p_density, ecdf = p_ecdf), "ploidy_correction_distributions", run)
 panel <- (p_density | p_ecdf) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom")

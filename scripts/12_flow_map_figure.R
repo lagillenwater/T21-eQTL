@@ -48,10 +48,10 @@ lanes <- fread(run$table("chr21_lane_assignments.csv"))
 # A: lane flow
 # =============================================================================
 # One row per gene, one column per stage; NA where the gene's path ends.
-ROOT <- "chr21 genes"
+ROOT <- "HSA21 genes"
 NODE_ORDER <- c(ROOT,
                 "Expected dosage", "Outside the expectation", "Not assessable",
-                "Not DE", "Higher than expected", "Lower than expected",
+                "Did not reach significance", "Higher than expected", "Lower than expected",
                 "Low expression", "High repeats", "Not estimable",
                 "cis-eQTL detected", "tested, not detected", "no variant to test")
 NODE_FILL <- c("grey40",
@@ -67,7 +67,7 @@ g[, `:=`(
   s2 = fcase(sig_lane == "Expected_dosage", "Expected dosage",
              sig_lane %in% c("DE_high", "DE_low", "Not_DE_outside_noise"), "Outside the expectation",
              sig_lane %in% c("Low_expression", "High_repeats", "Not_assessable"), "Not assessable"),
-  s3 = fcase(sig_lane == "Not_DE_outside_noise", "Not DE",
+  s3 = fcase(sig_lane == "Not_DE_outside_noise", "Did not reach significance",
              sig_lane == "DE_high", "Higher than expected",
              sig_lane == "DE_low", "Lower than expected",
              sig_lane == "Low_expression", "Low expression",
@@ -90,12 +90,14 @@ long[, `:=`(node = factor(node, levels = rev(NODE_ORDER)),
 
 pA <- ggplot(long, aes(x = x, next_x = next_x, node = node, next_node = next_node,
                        fill = node, label = label)) +
-  geom_sankey(flow.alpha = 0.45, node.color = "grey30", width = 0.08, space = 12) +
+  # space: the gap between nodes, in genes. Wide enough that the labels of the
+  # small nodes (6, 7, 11 genes; 2, 3, 8) clear each other at a page width.
+  geom_sankey(flow.alpha = 0.45, node.color = "grey30", width = 0.08, space = 24) +
   # White-backed labels: several sit where flows leave their node.
-  geom_sankey_label(size = 3, hjust = 0, colour = "grey10", fill = "white", border.colour = NA,
-                    space = 12, position = position_nudge(x = 0.06)) +
+  geom_sankey_label(size = 2.7, hjust = 0, colour = "grey10", fill = "white", border.colour = NA,
+                    space = 24, position = position_nudge(x = 0.06)) +
   scale_fill_manual(values = NODE_FILL, guide = "none") +
-  scale_x_discrete(expand = expansion(add = c(0.1, 0.6))) +
+  scale_x_discrete(expand = expansion(add = c(0.1, 1.0))) +
   theme_void(base_size = 9)
 
 # =============================================================================
@@ -111,6 +113,8 @@ record_titles("chr21_flow_and_map", "B", "Deviating chr21 genes and their cis-eQ
                       nrow(bands)), TITLES)
 
 fig <- pA / pB + plot_layout(heights = c(1.3, 0.8)) + plot_annotation(tag_levels = "A")
+# The two panels again, for the combined Figure 2 (script 20).
+save_panels(list(flow = pA, map = pB), "chr21_flow_and_map", run)
 stem <- run$figure("chr21_flow_and_map")
 ggsave(paste0(stem, ".pdf"), fig, width = 10, height = 9.5)
 ggsave(paste0(stem, ".png"), fig, width = 10, height = 9.5, dpi = 200)

@@ -187,24 +187,31 @@ fwrite(genes[, .(Gene_name, set, lead_variant, best_variant, best_is_lead = best
 # ---- Figure ------------------------------------------------------------------
 cmp[, set_f := factor(set, levels = c("Deviating", "Expected dosage"),
                       labels = c(sprintf("Deviating\n(n = %d)", sum(cmp$set == "Deviating")),
-                                 sprintf("Expected dosage, matched\n(n = %d)", sum(cmp$set == "Expected dosage"))))]
+                                 sprintf("Expected dosage,\nmatched (n = %d)", sum(cmp$set == "Expected dosage"))))]
 cmp[, outcome := factor(ifelse(detected, "cis-eQTL detected", "tested, not detected"),
                          levels = c("cis-eQTL detected", "tested, not detected"))]
 cmp[, direction := factor(fcase(sig_lane == "DE_high", "Higher than expected", sig_lane == "DE_low", "Lower than expected",
                                 default = "Expected dosage"), levels = names(COL_DIR))]
 cmp[, label := ifelse(set == "Deviating", Gene_name, "")]
 jit <- position_jitter(width = 0.12, height = 0, seed = 18)
+# Legend text: italic "cis" (the shapes are keyed in this order in A and B).
+OUTCOME_LABELS <- as.expression(list(quote(italic(cis)*"-eQTL detected"), "tested, not detected"))
+# The comparison of the two medians, printed in the panel.
+wilcox_lab <- sprintf('"Wilcoxon"~italic(p)=="%s"', format(ratio_tbl$wilcoxon_p[1], digits = 2))
 pA <- ggplot(cmp, aes(set_f, ratio)) +
   geom_hline(yintercept = c(0, 1), linetype = c("dotted", "dashed"), colour = "grey50", linewidth = 0.4) +
   geom_violin(fill = "grey93", colour = "grey60", linewidth = 0.35, scale = "width", width = 0.75, trim = TRUE) +
   stat_summary(fun = median, geom = "crossbar", width = 0.35, linewidth = 0.3, colour = "grey30") +
+  annotate("text", x = 0.55, y = Inf, label = wilcox_lab, parse = TRUE, hjust = 0, vjust = 1.4, size = 2.8,
+           colour = "grey20") +
   geom_point(aes(colour = direction, shape = outcome), position = jit, size = 2.2, stroke = 0.8, fill = "white") +
   geom_text_repel(aes(label = label), position = jit, size = 2.4, colour = "grey15", fontface = "italic",
                   min.segment.length = 0,
                   segment.size = 0.2, max.overlaps = 30) +
   scale_colour_manual(values = COL_DIR, name = NULL, drop = FALSE) +
-  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), name = "Within T21") +
-  labs(x = NULL, y = "T21 / GTEx log2 aFC, each at its own top variant",
+  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), labels = OUTCOME_LABELS,
+                     name = "Within T21") +
+  labs(x = NULL, y = expression(atop("T21 / GTEx"~log[2]~"aFC,", "each at its own top variant")),
        title = "A  Top cis-eQTL effect, T21 against GTEx",
        subtitle = sprintf(paste0("Expected-dosage eGenes matched on GTEx |log2 aFC| %.2f-%.2f\n",
                                  "Median %.2f vs %.2f, Wilcoxon p = %.2g; dashed: equal; dotted: none"),
@@ -228,9 +235,13 @@ pB <- ggplot(sp, aes(afc, power_p05, group = Gene_name, colour = direction)) +
                   fontface = "italic",
                   size = 2.4, colour = "grey15", min.segment.length = 0, segment.size = 0.2, max.overlaps = 30) +
   scale_colour_manual(values = COL_DIR[1:2], name = NULL) +
-  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), name = "Within T21") +
+  scale_shape_manual(values = c(`cis-eQTL detected` = 16, `tested, not detected` = 1), labels = OUTCOME_LABELS,
+                     name = "Within T21") +
   scale_x_continuous(limits = c(0, max(sp$afc))) +
-  labs(x = "Spiked allelic effect, |log2 aFC|", y = "Power (gene-level p < 0.05)",
+  # Headroom above power 1, where most genes' points and labels sit.
+  scale_y_continuous(breaks = seq(0, 1, 0.25), expand = expansion(mult = c(0.03, 0.12))) +
+  labs(x = expression("Spiked allelic effect,"~abs(log[2]~"aFC")),
+       y = expression("Power (gene-level"~italic(p) < 0.05*")"),
        title = "B  Power of the test for each deviating gene",
        subtitle = "Spike-in on the gene's own genotypes and noise; points: at its GTEx |log2 aFC|") +
   th + theme(legend.position = "right")
@@ -238,6 +249,8 @@ pB <- ggplot(sp, aes(afc, power_p05, group = Gene_name, colour = direction)) +
 pA <- strip_titles(pA, "eqtl_detection_overview", "A", TITLES, tag = TRUE)
 pB <- strip_titles(pB, "eqtl_detection_overview", "B", TITLES, tag = TRUE)
 fig <- pA + pB + plot_layout(widths = c(1, 1.15))
+# The two panels again, for the combined Figure 3 (script 20).
+save_panels(list(ratio = pA, power = pB), "eqtl_detection_overview", run)
 stem <- run$figure("eqtl_detection_overview")
 ggsave(paste0(stem, ".pdf"), fig, width = 11, height = 5)
 ggsave(paste0(stem, ".png"), fig, width = 11, height = 5, dpi = 300)
