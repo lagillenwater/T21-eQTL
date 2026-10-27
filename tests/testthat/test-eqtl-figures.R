@@ -8,6 +8,7 @@ perm_tbl <- function() data.table(
   Gene_name = c("UP1", "DN1", "DN2"),
   n_variants = c(10L, 5L, 0L),
   best_variant = c("v_up1", "v_dn1", NA_character_),
+  p_gene_perm = c(0.000999, 0.35, NA_real_),
   q_gene_bh = c(0.001, 0.4, NA_real_),
   cis_eqtl_detected = c(TRUE, FALSE, FALSE))
 
@@ -25,6 +26,13 @@ test_that("panel_variants gives each tested deviating gene its best variant unde
   expect_equal(got[Gene_name == "DN1", variant_id], "v_dn1")
   expect_equal(as.character(got[Gene_name == "DN1", panel_group]), "DE low")
   expect_equal(levels(got$panel_group), c("DE high", "DE low"))
+  expect_equal(got[Gene_name == "DN1", p_gene_perm], 0.35)
+})
+
+test_that("perm_p_label writes the permutation floor as p < 0.001 and keeps trailing zeros", {
+  expect_equal(perm_p_label(c(1 / 1001, 0.001998, 0.02697, 0.2957)),
+               c('italic(p) < "0.001"', 'italic(p) == "0.002"',
+                 'italic(p) == "0.027"', 'italic(p) == "0.30"'))
 })
 
 test_that("panel_variants drops genes with no tested variant", {

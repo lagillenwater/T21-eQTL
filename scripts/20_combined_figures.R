@@ -7,8 +7,8 @@
 #   fig1_dosage_correction            A-B  volcano, uncorrected / ploidy-corrected (script 07)
 #                                     C-D  log2FC density / ECDF, HSA21 and HSA22 (script 06)
 #   fig2_classification_and_genotype  A    lane flow (script 12)
-#                                     B    HSA21 map of the deviating genes (script 12)
-#                                     C-D  expression by genotype, higher / lower than expected (script 11)
+#                                     B-C  expression by genotype, higher / lower than expected (script 11)
+#                                     D    HSA21 map of the deviating genes (script 12)
 #   fig3_eqtl_effects_and_frequencies A-B  T21/GTEx effect ratio; spike-in power (script 18)
 #                                     C-E  allele frequencies; deviation and reach; within-T21
 #                                          variance explained (script 13); A-C on the top row
@@ -44,12 +44,16 @@ panels <- function(stem) {
 }
 
 # One panel-letter style for every figure. Tags sit in the plot margin, so a
-# collected axis title (Figure 2C-D) does not run under them.
+# collected axis title (Figure 2B-C) does not run under them.
 TAG_THEME <- theme(plot.tag = element_text(face = "bold", size = 11), plot.tag.location = "margin")
 
 save_fig <- function(fig, stem, width, height) {
   out <- run$figure(stem)
+  # Jitter is drawn at render time: the same seed before each save gives the
+  # PDF and PNG the same points, and the same points on every run.
+  set.seed(1)
   ggsave(paste0(out, ".pdf"), fig, width = width, height = height, limitsize = FALSE)
+  set.seed(1)
   ggsave(paste0(out, ".png"), fig, width = width, height = height, dpi = 300, limitsize = FALSE)
   for (f in paste0(out, c(".pdf", ".png"))) {
     if (!file.exists(f)) stop("failed to write ", f)
@@ -90,14 +94,15 @@ fm  <- panels("chr21_flow_and_map")
 dos <- panels("eqtl_dosage_panels")
 
 # Each block's own y title runs longer than the block at this size, and a
-# shared one runs under the D tag: a short two-line title on each block (the
+# shared one runs under the C tag: a short two-line title on each block (the
 # caption says the covariate effects are removed).
 Y_DOS <- expression(atop("Expression", "(" * log[2] * "-CPM, adjusted)"))
 row_dos <- (dos$higher + labs(y = Y_DOS)) / (dos$lower + labs(y = Y_DOS))
-# B keeps only the eQTL-outcome key; the caption explains the red and blue
-# label colours (direction of deviation).
-fig2 <- (fm$flow / (fm$map + guides(colour = "none")) / row_dos) +
-  plot_layout(heights = c(1.5, 1.0, 1.85)) +
+# Panels in the order the text cites them: flow, expression by genotype,
+# then the map. D keeps only the eQTL-outcome key; the caption explains the
+# red and blue label colours (direction of deviation).
+fig2 <- (fm$flow / row_dos / (fm$map + guides(colour = "none"))) +
+  plot_layout(heights = c(1.5, 1.85, 1.0)) +
   plot_annotation(tag_levels = "A") & TAG_THEME
 save_fig(fig2, "fig2_classification_and_genotype", width = 7.5, height = 9)
 

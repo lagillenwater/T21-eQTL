@@ -203,6 +203,10 @@ panels[, facet := sprintf('italic("%s")', Gene_name)]
 plot_df <- merge(plot_df, panels[, .(Gene_name, panel_group, variant_id, facet, agree_lab)],
                  by = c("Gene_name", "panel_group", "variant_id"))
 plot_df[, facet := factor(facet, levels = panels$facet)]
+# Each panel's gene-level permutation p (the test that decides detection),
+# top left of the panel.
+pv <- panels[, .(panel_group, facet = factor(facet, levels = panels$facet),
+                 label = perm_p_label(p_gene_perm))]
 plot_df[, dosage := factor(dosage_plot, levels = 0:3)]
 plot_df[, agree_lab := factor(agree_lab, levels = LAB_AGREE)]
 
@@ -236,7 +240,11 @@ group_plot <- function(df, title, colour, xlab, show_legend) {
     geom_segment(data = trend[panel_group == df$panel_group[1]],
                  aes(x = x, xend = xend, y = y, yend = yend, linetype = agree_lab),
                  inherit.aes = FALSE, colour = "grey15", linewidth = 0.55, show.legend = FALSE) +
+    geom_text(data = pv[panel_group == df$panel_group[1]], aes(x = -Inf, y = Inf, label = label),
+              inherit.aes = FALSE, parse = TRUE, hjust = -0.1, vjust = 1.4, size = 2.4, colour = "grey15") +
     scale_x_discrete(drop = FALSE) +
+    # headroom for the p label
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.2))) +
     scale_linetype_manual(values = LTY_AGREE, drop = FALSE) +
     facet_wrap(~ facet, scales = "free_y", nrow = 1, labeller = label_parsed) +
     labs(title = title, x = xlab, y = Y_LAB) +

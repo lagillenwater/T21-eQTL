@@ -30,12 +30,20 @@ panel_variants <- function(perm, lanes) {
   out <- merge(data.table::as.data.table(perm)[!is.na(best_variant)],
                lanes, by = "Gene_name")
   out <- out[, .(Gene_name, panel_group = lane_block(sig_lane),
-                 variant_id = best_variant, q_gene_bh,
+                 variant_id = best_variant, p_gene_perm, q_gene_bh,
                  detected = cis_eqtl_detected)]
   out <- out[!is.na(panel_group)]
   out[, panel_group := factor(panel_group, levels = PANEL_GROUPS)]
   data.table::setorder(out, panel_group, q_gene_bh, Gene_name)
   out[]
+}
+
+#' A gene-level permutation p-value as a plotmath label for its panel: three
+#' decimals below 0.01, two significant digits above. With 1,000
+#' permutations the smallest p is 1/1,001, written "p < 0.001".
+perm_p_label <- function(p) {
+  txt <- ifelse(p < 0.01, sprintf("%.3f", p), formatC(p, digits = 2, format = "fg", flag = "#"))
+  ifelse(p < 0.001, 'italic(p) < "0.001"', sprintf('italic(p) == "%s"', txt))
 }
 
 #' TSS, direction and eQTL outcome for every deviating gene. Positions come

@@ -93,9 +93,10 @@ pA <- ggplot(long, aes(x = x, next_x = next_x, node = node, next_node = next_nod
   # space: the gap between nodes, in genes. Wide enough that the labels of the
   # small nodes (6, 7, 11 genes; 2, 3, 8) clear each other at a page width.
   geom_sankey(flow.alpha = 0.45, node.color = "grey30", width = 0.08, space = 24) +
-  # White-backed labels: several sit where flows leave their node.
-  geom_sankey_label(size = 2.7, hjust = 0, colour = "grey10", fill = "white", border.colour = NA,
-                    space = 24, position = position_nudge(x = 0.06)) +
+  # Labels on a 55% white box: several sit where flows leave their node, so
+  # the text stays readable and the flows behind it still show.
+  geom_sankey_label(size = 2.7, hjust = 0, colour = "grey10", fill = grDevices::adjustcolor("white", alpha.f = 0.55),
+                    border.colour = NA, space = 24, position = position_nudge(x = 0.06)) +
   scale_fill_manual(values = NODE_FILL, guide = "none") +
   scale_x_discrete(expand = expansion(add = c(0.1, 1.0))) +
   theme_void(base_size = 9)

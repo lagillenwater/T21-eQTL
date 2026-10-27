@@ -57,7 +57,7 @@ read_both <- function(file) rbind(
   fread(base$table(file))[, run_label := RUN_LAB[[against]]],
   fread(run$table(file))[, run_label := RUN_LAB[[run$name]]])
 
-# ---- A: QQ per gene set, stacked at full width, zoomed, full-range inset ---
+# ---- A: QQ per gene set, side by side, zoomed, full-range inset ------------
 # Inflation of a few percent lifts the whole curve by a few hundredths of a
 # -log10 p unit, invisible over the full range, so each panel shows expected
 # 0 to ZOOM_X, where the unadjusted curve leaves its permutation range; the
@@ -98,11 +98,14 @@ qq_panel <- function(s, title, subtitle = NULL, legend = TRUE, panel = "A", tag 
           plot.background = element_rect(colour = "grey70"))
   main + inset_element(inset, left = 0.70, bottom = 0.04, right = 0.99, top = 0.62)
 }
+# Side by side rather than stacked keeps the figure short enough to print on
+# one page with its caption. The legend sits on the right-hand panel.
 pA <- qq_panel(SET_LAB[["chr21 assessable"]],
                "A  HSA21 assessable genes",
-               "T21 expression against common HSA21 long-arm variants >= 5 Mb away; shaded: permutation 95% range") /
-  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes", legend = FALSE,
-           panel = "A (lower)", tag = FALSE)
+               "T21 expression against common HSA21 long-arm variants >= 5 Mb away; shaded: permutation 95% range",
+               legend = FALSE) |
+  qq_panel(SET_LAB[["chr22 reference"]], "HSA22 reference genes",
+           panel = "A (right)", tag = FALSE)
 record_titles("S3_distal_inflation", "A (insets)", "full range", "", TITLES)
 
 # ---- B: lambda per gene set --------------------------------------------------
@@ -141,9 +144,8 @@ pC <- per_gene_lambda_panel(fread(run$table("distal_inflation_genes.csv")),
   th + theme(legend.position = "right", legend.direction = "vertical")
 pC <- strip_titles(pC, "S3_distal_inflation", "C", TITLES, tag = TRUE)
 
-# pA's two stacked panels flatten into the outer layout, so heights are per row.
 panels <- pA / (pB | pC)
-heights <- c(0.8, 0.8, 1)
+heights <- c(0.9, 1.1)
 
 # ---- D: the run's covariates against chr21 genotype --------------------------
 cov_path <- run$table("distal_inflation_covariates.csv")
@@ -164,12 +166,12 @@ if (file.exists(cov_path)) {
     th + theme(legend.position = "right")
   pD <- strip_titles(pD, "S3_distal_inflation", "D", TITLES, tag = TRUE)
   panels <- pA / (pB | pC) / pD
-  heights <- c(0.8, 0.8, 1, 0.9)
+  heights <- c(0.9, 1.1, 1)
 }
 
 fig <- panels + plot_layout(heights = heights)   # each panel keeps its own legend
 stem <- run$figure("S3_distal_inflation")
-ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 16)
-ggsave(paste0(stem, ".png"), fig, width = 9, height = 16, dpi = 300)
+ggsave(paste0(stem, ".pdf"), fig, width = 9, height = 11)
+ggsave(paste0(stem, ".png"), fig, width = 9, height = 11, dpi = 300)
 print(lam[, .(run_label, gene_set, n_genes, lambda, perm_lo, perm_hi, perm_p)])
 cat("\nDone.\n")

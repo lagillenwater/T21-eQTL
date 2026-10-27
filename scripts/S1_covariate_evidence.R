@@ -7,14 +7,14 @@
 #      by group and a test (Wilcoxon for continuous, chi-square for
 #      categorical). Shows which candidate covariates are confounded with
 #      karyotype in this cohort.
-#   B. Composition structure and reach (composition runs only): per cell
+#   B. Mosaic karyotype vs expression: the per-sample chr21 dosage index by
+#      subtype, and a genome-wide count of genes differing between mosaic and
+#      full-trisomy subjects at 5% FDR, chr21 and non-chr21 separately.
+#   C. Composition structure and reach (composition runs only): per cell
 #      fraction, mean by karyotype, log2 ratio, Wilcoxon q, and the number of
 #      expressed genes associated with that fraction at 5% FDR within
 #      controls and within T21 (Spearman on unadjusted log2-CPM). A PCA of
 #      the fractions is reported for description only.
-#   C. Mosaic karyotype vs expression: the per-sample chr21 dosage index by
-#      subtype, and a genome-wide count of genes differing between mosaic and
-#      full-trisomy subjects at 5% FDR, chr21 and non-chr21 separately.
 #   D. Attribution of the adjustment (needs the baseline run and a
 #      composition run): for each deviating gene, the change in fold change
 #      between runs and its per-covariate decomposition on the artifact scale
@@ -73,10 +73,36 @@ A <- rbindlist(lapply(c("Age_at_visit", "Sex", "BMI", "Sample_source", "Event_na
 A[, in_run_model := covariate %in% run$covariates]
 fwrite(A, run$table("S1_covariates_vs_karyotype.csv")); print(as.data.frame(A))
 
-# ---- B: composition structure and reach -------------------------------------
-B <- NULL; pcs <- NULL
+# ---- B: mosaic karyotype vs expression --------------------------------------
+cat("\nB: mosaic karyotype vs expression\n")
+keep21 <- is_chr21 & rowMeans(M) >= 100
+ref <- apply(L0[keep21, labs_all[k_all == "Control"], drop = FALSE], 1, median)
+idx <- 2^apply(L0[keep21, labs_all, drop = FALSE] - ref, 2, median)
+comp <- colSums(2^L0[keep21, labs_all, drop = FALSE] - 1) / mean(colSums(2^L0[keep21, labs_all[k_all == "Control"], drop = FALSE] - 1))
+B <- data.table(LabID = labs_all, Karyotype = k_all, karyotype_subtype = st_all,
+                chr21_index = idx, chr21_composite = comp,
+                in_run_cohort = labs_all %in% cohort$LabID)
+fwrite(B, run$table("S1_chr21_dosage_index.csv"))
+print(as.data.frame(B[, .(n = .N, median_index = round(median(chr21_index), 2),
+                          median_composite = round(median(chr21_composite), 2)), by = karyotype_subtype]))
+full <- labs_all[st_all %in% c("T21", "DS_T21", "translocation_T21")]
+mos  <- labs_all[st_all %in% "mosaic_T21"]
+Bg <- NULL
+if (length(mos) >= 3) {
+  rows <- pool | is_chr21
+  Lm <- L0[rows, mos, drop = FALSE]; Lf <- L0[rows, full, drop = FALSE]
+  d  <- rowMeans(Lm) - rowMeans(Lf)
+  s2 <- apply(Lm, 1, var) / length(mos) + apply(Lf, 1, var) / length(full)
+  p  <- 2 * pnorm(-abs(d / sqrt(s2))); q <- p.adjust(p, "BH")
+  Bg <- data.table(Gene_name = rownames(L0)[rows], chr21 = is_chr21[rows], diff_log2 = d, q = q)
+  fwrite(Bg, run$table("S1_mosaic_vs_full_genes.csv"))
+  print(as.data.frame(Bg[, .(n = .N, n_q05 = sum(q < 0.05), median_diff = round(median(diff_log2), 3)), by = chr21]))
+}
+
+# ---- C: composition structure and reach -------------------------------------
+C <- NULL; pcs <- NULL
 if (!is.null(run$composition)) {
-  cat("\nB: composition structure and reach\n")
+  cat("\nC: composition structure and reach\n")
   Fr <- fread(run$processed("composition_fractions.csv"))
   F <- as.matrix(Fr[, -1]); rownames(F) <- Fr$LabID
   labs <- intersect(rownames(F), colnames(L0)); F <- F[labs, ]
@@ -87,44 +113,18 @@ if (!is.null(run$composition)) {
     tt <- r * sqrt((n - 2) / pmax(1 - r^2, 1e-12)); p <- 2 * pt(-abs(tt), n - 2)
     colSums(apply(p, 2, p.adjust, method = "BH") < 0.05)
   }
-  B <- data.table(cluster = colnames(F),
+  C <- data.table(cluster = colnames(F),
                   mean_t21 = colMeans(F[k == "T21", ]), mean_control = colMeans(F[k == "Control", ]))
-  B[, log2_ratio := log2(mean_t21 / mean_control)]
-  B[, q_wilcox := p.adjust(vapply(colnames(F), function(cn) wilcox.test(F[k == "T21", cn], F[k == "Control", cn])$p.value, 0), "BH")]
-  B[, genes_assoc_control := assoc_count("Control")]
-  B[, genes_assoc_t21 := assoc_count("T21")]
+  C[, log2_ratio := log2(mean_t21 / mean_control)]
+  C[, q_wilcox := p.adjust(vapply(colnames(F), function(cn) wilcox.test(F[k == "T21", cn], F[k == "Control", cn])$p.value, 0), "BH")]
+  C[, genes_assoc_control := assoc_count("Control")]
+  C[, genes_assoc_t21 := assoc_count("T21")]
   pc <- prcomp(scale(F))
   pcs <- data.table(PC = seq_len(ncol(F)), var_expl = round(pc$sdev^2 / sum(pc$sdev^2), 3),
                     p_karyotype = apply(pc$x, 2, function(s) wilcox.test(s ~ k)$p.value),
                     top_loadings = apply(pc$rotation, 2, function(l) paste(names(sort(abs(l), decreasing = TRUE))[1:3], collapse = "; ")))
-  fwrite(B, run$table("S1_composition_reach.csv")); fwrite(pcs, run$table("S1_composition_pcs.csv"))
-  print(as.data.frame(B[order(-genes_assoc_t21)]))
-}
-
-# ---- C: mosaic karyotype vs expression --------------------------------------
-cat("\nC: mosaic karyotype vs expression\n")
-keep21 <- is_chr21 & rowMeans(M) >= 100
-ref <- apply(L0[keep21, labs_all[k_all == "Control"], drop = FALSE], 1, median)
-idx <- 2^apply(L0[keep21, labs_all, drop = FALSE] - ref, 2, median)
-comp <- colSums(2^L0[keep21, labs_all, drop = FALSE] - 1) / mean(colSums(2^L0[keep21, labs_all[k_all == "Control"], drop = FALSE] - 1))
-C <- data.table(LabID = labs_all, Karyotype = k_all, karyotype_subtype = st_all,
-                chr21_index = idx, chr21_composite = comp,
-                in_run_cohort = labs_all %in% cohort$LabID)
-fwrite(C, run$table("S1_chr21_dosage_index.csv"))
-print(as.data.frame(C[, .(n = .N, median_index = round(median(chr21_index), 2),
-                          median_composite = round(median(chr21_composite), 2)), by = karyotype_subtype]))
-full <- labs_all[st_all %in% c("T21", "DS_T21", "translocation_T21")]
-mos  <- labs_all[st_all %in% "mosaic_T21"]
-Cg <- NULL
-if (length(mos) >= 3) {
-  rows <- pool | is_chr21
-  Lm <- L0[rows, mos, drop = FALSE]; Lf <- L0[rows, full, drop = FALSE]
-  d  <- rowMeans(Lm) - rowMeans(Lf)
-  s2 <- apply(Lm, 1, var) / length(mos) + apply(Lf, 1, var) / length(full)
-  p  <- 2 * pnorm(-abs(d / sqrt(s2))); q <- p.adjust(p, "BH")
-  Cg <- data.table(Gene_name = rownames(L0)[rows], chr21 = is_chr21[rows], diff_log2 = d, q = q)
-  fwrite(Cg, run$table("S1_mosaic_vs_full_genes.csv"))
-  print(as.data.frame(Cg[, .(n = .N, n_q05 = sum(q < 0.05), median_diff = round(median(diff_log2), 3)), by = chr21]))
+  fwrite(C, run$table("S1_composition_reach.csv")); fwrite(pcs, run$table("S1_composition_pcs.csv"))
+  print(as.data.frame(C[order(-genes_assoc_t21)]))
 }
 
 # ---- D: attribution of the adjustment ---------------------------------------
@@ -171,23 +171,26 @@ pA <- ggplot(A, aes(x = reorder(covariate_lab, -log10(p)), y = -log10(p), fill =
   geom_col() + coord_flip() + scale_fill_manual(values = c(Yes = "grey30", No = "grey75"), name = "In the run's model") +
   geom_hline(yintercept = -log10(0.05), linetype = "dotted") +
   labs(title = "A  Covariates vs karyotype", y = "-log10 p", x = NULL) + th + theme(legend.position = "bottom")
-pC <- ggplot(C[Karyotype == "T21"], aes(x = factor(SUBTYPE_WORDS[karyotype_subtype], levels = SUBTYPE_WORDS),
+pB <- ggplot(B[Karyotype == "T21"], aes(x = factor(SUBTYPE_WORDS[karyotype_subtype], levels = SUBTYPE_WORDS),
                                         y = chr21_index)) +
   geom_boxplot(outlier.shape = NA) + geom_jitter(width = 0.15, size = 0.7, alpha = 0.5) +
   geom_hline(yintercept = c(1, 1.5), linetype = "dotted") +
   scale_x_discrete(drop = TRUE) +
-  labs(title = "C  chr21 expression index by karyotype subtype", x = NULL, y = "median HSA21 ratio to D21") + th
+  labs(title = "B  chr21 expression index by karyotype subtype", x = NULL, y = "median HSA21 ratio to D21") + th
+# Two columns, filled by row: A and B on the first row, C and D on the second.
 panels <- list(strip_titles(pA, "S1_covariate_evidence", "A", TITLES, tag = TRUE),
-               strip_titles(pC, "S1_covariate_evidence", "C", TITLES, tag = TRUE))
-if (!is.null(B)) panels <- c(panels, list(strip_titles(
-  ggplot(B, aes(x = reorder(cluster, genes_assoc_t21), y = genes_assoc_t21)) + geom_col(fill = "grey45") + coord_flip() +
-    labs(title = "B  Genes associated with each cell fraction (T21, 5% FDR)", x = NULL, y = "genes") + th,
-  "S1_covariate_evidence", "B", TITLES, tag = TRUE)))
+               strip_titles(pB, "S1_covariate_evidence", "B", TITLES, tag = TRUE))
+if (!is.null(C)) panels <- c(panels, list(strip_titles(
+  ggplot(C, aes(x = reorder(display_covariate(cluster), genes_assoc_t21), y = genes_assoc_t21)) + geom_col(fill = "grey45") + coord_flip() +
+    labs(title = "C  Genes associated with each cell fraction (T21, 5% FDR)", x = NULL, y = "genes") + th,
+  "S1_covariate_evidence", "C", TITLES, tag = TRUE)))
 if (!is.null(D)) panels <- c(panels, list(strip_titles(
   ggplot(D[abs(contribution) > 0.01], aes(x = contribution, y = Gene_name, colour = display_covariate(term))) +
     geom_vline(xintercept = 0, colour = "grey60") + geom_point(size = 1.6) +
     labs(title = "D  Per-covariate attribution of the fold-change shift", x = "log2 contribution", y = NULL) +
     th + theme(legend.position = "bottom", legend.text = element_text(size = 6), legend.title = element_blank(),
+               # single-spaced rows: keys no taller than the 6 pt text
+               legend.key.height = unit(7, "pt"), legend.key.spacing.y = unit(0, "pt"),
                axis.text.y = element_text(face = "italic")) +
     guides(colour = guide_legend(ncol = 4)),
   "S1_covariate_evidence", "D", TITLES, tag = TRUE)))
